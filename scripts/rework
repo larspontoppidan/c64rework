@@ -1,0 +1,694 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+die() { echo "rework: $*" >&2; exit 2; }
+
+implementation="${BASH_SOURCE[0]}"
+[[ "$implementation" == */* ]] || implementation="$(command -v -- "$implementation")"
+FRAMEWORK_ROOT="$(cd -- "$(dirname -- "$implementation")/.." && pwd -P)"
+[[ ${1:-} == --game-root && $# -ge 2 ]] ||
+	die "invoke this command through the game-root ./rework launcher"
+GAME_ROOT="$(cd -- "$2" && pwd -P)"
+shift 2
+launcher="$GAME_ROOT/rework"
+MANIFEST="$GAME_ROOT/rework.toml"
+
+usage() {
+	cat <<EOF
+Usage: ./rework COMMAND [ARGS...]
+
+Commands:
+  version                    Print the C64 Rework framework version
+  setup-venv                 Setup venv for python scripts
+  doctor                     Validate and show workspace paths
+  paths                      Print shell-safe workspace paths
+  generate-cov PLAY [PLAY...]    Record plays/PLAY_cov.bin; merge 2+ to plays/merged_cov.bin
+  kb-analysis                Generate and replace kb-analysis/ on begin/snap.bin
+  build TARGET               TARGET: revm, stage3, stage4, or export
+  start-stage4               Copy accepted Stage3 source into pristine Stage4/
+  update-docs                Copy framework markdown into the game
+  lint TARGET                TARGET: stage3 or stage4
+  revm [options...]
+  revm-tool [options...]
+  test-play TARGET PLAY [options...]  Headless replay of a recording
+  show-play TARGET PLAY [options...]  On-screen replay of a recording
+  play-game TARGET [options...]       Live interactive play
+  selftest                   Run all tool self-tests
+  stage4-diag                Inventory Stage4 constructs for export
+  export [--replace]         Generate standalone in StandaloneExport/
+  check-export               Version file then post-lower leftover gate
+
+TARGET for play commands must be original, begin, stage3, or stage4.
+PLAY refers to ./plays/PLAY.json unless an existing path is supplied.
+
+Game root: $GAME_ROOT
+EOF
+}
+
+command=${1:-help}; shift || true
+case "$command" in
+	help|-h|--help)
+		[[ $# -eq 0 ]] || die "help takes no arguments"
+		usage
+		exit 0
+		;;
+esac
+
+command -v python3 >/dev/null 2>&1 || die "python3 is required"
+[[ -f "$MANIFEST" ]] || die "missing $MANIFEST"
+
+config=()
+while IFS= read -r value; do config+=("$value"); done < <(python3 - "$MANIFEST" "$FRAMEWORK_ROOT/VERSION" <<'PY'
+import re
+import sys
+try:
+    import tomllib
+except ModuleNotFoundError:
+    raise SystemExit("rework: Python 3.11 or newer is required")
+with open(sys.argv[1], "rb") as stream:
+    data = tomllib.load(stream)
+unknown = sorted(set(data) - {
+    "game", "revm_root", "minimum_c64rework_version", "kb_json", "original_load", "rom_dir"
+})
+if unknown:
+    raise SystemExit(f"rework: unsupported rework.toml key(s): {', '.join(unknown)}")
+for key in ("game", "revm_root", "minimum_c64rework_version", "kb_json", "original_load"):
+    value = data.get(key)
+    if not isinstance(value, str) or not value.strip() or "\n" in value:
+        raise SystemExit(f"rework: rework.toml requires a non-empty one-line string '{key}'")
+    print(value)
+rom = data.get("rom_dir")
+if rom is None:
+    print("")
+elif not isinstance(rom, str) or not rom.strip() or "\n" in rom:
+    raise SystemExit(
+        "rework: rework.toml 'rom_dir' must be a non-empty one-line string if set"
+    )
+else:
+    print(rom.strip())
+
+pattern = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
+required = data["minimum_c64rework_version"]
+try:
+    with open(sys.argv[2], encoding="ascii") as stream:
+        actual = stream.read().strip()
+except OSError:
+    raise SystemExit(f"rework: framework version unavailable: {sys.argv[2]}")
+if not pattern.fullmatch(required):
+    raise SystemExit(
+        f"rework: invalid minimum_c64rework_version '{required}'; expected MAJOR.MINOR.PATCH"
+    )
+if not pattern.fullmatch(actual):
+    raise SystemExit(f"rework: invalid framework VERSION '{actual}' in {sys.argv[2]}")
+if tuple(map(int, actual.split("."))) < tuple(map(int, required.split("."))):
+    raise SystemExit(
+        f"rework: this game requires C64 Rework >= {required}\n"
+        f"rework: configured framework is {actual}"
+    )
+print(actual)
+PY
+)
+[[ ${#config[@]} -eq 7 ]] || exit 2
+GAME="${config[0]}"
+framework_setting="${config[1]}"
+MINIMUM_C64REWORK_VERSION="${config[2]}"
+kb_setting="${config[3]}"
+original_setting="${config[4]}"
+rom_setting="${config[5]}"
+FRAMEWORK_VERSION="${config[6]}"
+[[ "$GAME" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "invalid game name '$GAME'"
+
+resolve_path() {
+	local setting=$1
+	python3 - "$GAME_ROOT" "$setting" <<'PY'
+import os, sys
+root, setting = sys.argv[1:]
+print(os.path.realpath(setting if os.path.isabs(setting) else os.path.join(root, setting)))
+PY
+}
+
+configured_root="$(resolve_path "$framework_setting")"
+[[ "$configured_root" == "$FRAMEWORK_ROOT" ]] ||
+	die "game configured framework is $configured_root, but invoked implementation is from $FRAMEWORK_ROOT"
+REVM_ROOT="$FRAMEWORK_ROOT"
+KB_JSON="$(resolve_path "$kb_setting")"
+ORIGINAL_LOAD="$(resolve_path "$original_setting")"
+if [[ -z "$rom_setting" ]]; then
+	ROM_DIR="$FRAMEWORK_ROOT/roms"
+else
+	ROM_DIR="$(resolve_path "$rom_setting")"
+fi
+
+BUILD="$GAME_ROOT/build"
+BIN="$GAME_ROOT/bin"
+FAIL="$GAME_ROOT/fail"
+EXPORT="$GAME_ROOT/StandaloneExport"
+KB_ANALYSIS="$GAME_ROOT/kb-analysis"
+BEGIN_SNAP="$GAME_ROOT/begin/snap.bin"
+COVERAGE_MERGED="$GAME_ROOT/plays/merged_cov.bin"
+SCRIPTS="$REVM_ROOT/scripts"
+VENV="$GAME_ROOT/.venv"
+VENV_PY="$VENV/bin/python"
+
+require_framework() {
+	[[ -f "$REVM_ROOT/src/revm/CMakeLists.txt" && -d "$REVM_ROOT/scripts" &&
+	   -f "$REVM_ROOT/reference/c64.kb.json" && -f "$REVM_ROOT/VERSION" ]] ||
+		die "invalid framework root: $REVM_ROOT"
+}
+
+require_kb() {
+	[[ -f "$KB_JSON" ]] || die "kb json is not a file: $KB_JSON"
+}
+
+require_original() {
+	[[ -f "$ORIGINAL_LOAD" ]] || die "original load is not a file: $ORIGINAL_LOAD"
+}
+
+require_begin() {
+	[[ -f "$BEGIN_SNAP" ]] || die "missing $BEGIN_SNAP"
+}
+
+require_roms() {
+	[[ -d "$ROM_DIR" ]] || die "rom_dir is not a directory: $ROM_DIR"
+}
+
+require_default_roms() {
+	has_option --rom-dir "$@" || require_roms
+}
+
+add_rom_dir() {
+	local -n _rom_args=$1
+	shift
+	has_option --rom-dir "$@" || _rom_args+=(--rom-dir "$ROM_DIR")
+}
+
+resid_complete() {
+	local root=$1
+	[[ -f "$root/sid.h" && -f "$root/siddefs.h.in" && -f "$root/samp2src.pl" ]] || return 1
+	local name
+	for name in wave6581_PST wave6581_PS_ wave6581_P_T wave6581__ST \
+		wave8580_PST wave8580_PS_ wave8580_P_T wave8580__ST; do
+		[[ -f "$root/${name}.dat" ]] || return 1
+	done
+}
+
+ensure_resid() {
+	resid_complete "$REVM_ROOT/src/resid" && return 0
+	command -v git >/dev/null 2>&1 || die "git is required to initialize reSID"
+	[[ -f "$REVM_ROOT/.gitmodules" ]] || die "reSID is missing and framework has no .gitmodules"
+	echo "rework: initializing framework reSID submodule" >&2
+	git -C "$REVM_ROOT" submodule update --init -- src/resid
+	resid_complete "$REVM_ROOT/src/resid" || die "reSID initialization failed"
+}
+
+vendor_resid() {
+	local destination=$1
+	ensure_resid
+	mkdir -p -- "$(dirname -- "$destination")"
+	rm -rf -- "$destination"
+	cp -a -- "$REVM_ROOT/src/resid" "$destination"
+	rm -rf -- "$destination/.git"
+	resid_complete "$destination" || die "standalone export is missing reSID sources at $destination"
+}
+
+setup_venv() {
+	require_framework
+	local req="$SCRIPTS/requirements.txt"
+	[[ -f "$req" ]] || die "missing $req"
+	if [[ ! -x "$VENV_PY" ]]; then
+		echo "rework: creating $VENV" >&2
+		python3 -m venv "$VENV"
+	fi
+	if ! cmp -s "$req" "$VENV/requirements.txt" 2>/dev/null; then
+		echo "rework: installing script dependencies" >&2
+		"$VENV_PY" -m pip install --quiet --upgrade pip
+		"$VENV_PY" -m pip install --quiet -r "$req"
+		cp "$req" "$VENV/requirements.txt"
+	fi
+	[[ -x "$VENV_PY" ]] || die "venv python is missing: $VENV_PY"
+	echo "rework: venv ready $VENV"
+}
+
+run_script() {
+	[[ -x "$VENV_PY" ]] || die "missing $VENV; run './rework setup-venv' first"
+	"$VENV_PY" "$@"
+}
+
+jobs() {
+	if [[ -n "${THREADS:-}" ]]; then echo "$THREADS"
+	elif command -v nproc >/dev/null 2>&1; then nproc
+	else echo 4
+	fi
+}
+
+refresh_compile_commands() {
+	local databases=()
+	while IFS= read -r -d '' file; do databases+=("$file"); done \
+		< <(find "$BUILD" -mindepth 2 -name compile_commands.json -type f -print0 2>/dev/null)
+	((${#databases[@]})) || return 0
+	python3 - "$GAME_ROOT/compile_commands.json" "${databases[@]}" <<'PY'
+import json, os, sys
+destination, *sources = sys.argv[1:]
+entries, seen = [], set()
+for source in sorted(sources):
+    with open(source, encoding="utf-8") as stream:
+        for entry in json.load(stream):
+            key = (entry.get("file"), entry.get("output"), entry.get("command"),
+                   tuple(entry.get("arguments", ())))
+            if key not in seen:
+                seen.add(key)
+                entries.append(entry)
+temporary = destination + ".tmp"
+with open(temporary, "w", encoding="utf-8") as stream:
+    json.dump(entries, stream, indent=2)
+    stream.write("\n")
+os.replace(temporary, destination)
+print(f"rework: wrote {destination} ({len(entries)} entries from {len(sources)} builds)")
+PY
+}
+
+cmake_build() {
+	local source=$1 destination=$2
+	shift 2
+	mkdir -p -- "$destination" "$BIN"
+	cmake -S "$source" -B "$destination" \
+		-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+		-DC64REWORK_ROOT="$REVM_ROOT" \
+		-DREWORK_RUNTIME_OUTPUT_DIRECTORY="$BIN" "$@"
+	cmake --build "$destination" --parallel "$(jobs)"
+	refresh_compile_commands
+}
+
+build_revm() {
+	require_framework
+	ensure_resid
+	local source="$BUILD/revm-source"
+	mkdir -p -- "$source"
+	cat > "$source/CMakeLists.txt" <<'CMAKE'
+cmake_minimum_required(VERSION 3.16)
+project(revm-workspace LANGUAGES CXX)
+if(NOT C64REWORK_ROOT OR NOT REWORK_RUNTIME_OUTPUT_DIRECTORY)
+  message(FATAL_ERROR "workspace roots are required")
+endif()
+include("${C64REWORK_ROOT}/src/revm/cmake/RevmCommon.cmake")
+set_target_properties(revm revm-tool PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${REWORK_RUNTIME_OUTPUT_DIRECTORY}")
+CMAKE
+	cmake_build "$source" "$BUILD/revm"
+	[[ -x "$BIN/revm" && -x "$BIN/revm-tool" ]] || die "stock build outputs are missing"
+}
+
+build_stage() {
+	local stage=$1 number="${1#stage}" source output
+	require_framework
+	source="$GAME_ROOT/Stage$number"
+	[[ -f "$source/CMakeLists.txt" ]] || die "missing $source/CMakeLists.txt"
+	cmake_build "$source" "$BUILD/$stage" \
+		-DREWORK_GAME_NAME="$GAME" -DREWORK_STAGE_NUMBER="$number"
+	output="$BIN/revm-s$number-$GAME"
+	[[ -x "$output" ]] || die "stage build output is missing: $output"
+}
+
+update_docs() {
+	local template="$REVM_ROOT/game-template"
+	[[ -d "$template" ]] || die "missing game template: $template"
+	local files=(
+		AGENTS.md
+		C64REWORK.md
+		CLAUDE.md
+		GEMINI.md
+		docs/agents/PREPARATION.md
+		docs/agents/STAGE1.md
+		docs/agents/STAGE2.md
+		docs/agents/STAGE3.md
+		docs/agents/STAGE3-MANUAL.md
+		docs/agents/STAGE3-REVIEW.md
+		docs/agents/STAGE4.md
+		docs/agents/STAGE4-REVIEW.md
+		docs/agents/STANDALONE-EXPORT.md
+		docs/revm/HINTS.md
+		docs/revm/EVENTS.md
+	)
+	local rel src dest
+	for rel in "${files[@]}"; do
+		src="$template/$rel"
+		dest="$GAME_ROOT/$rel"
+		[[ -f "$src" ]] || die "missing template file: $src"
+		mkdir -p -- "$(dirname -- "$dest")"
+		cp -a -- "$src" "$dest"
+		echo "rework: updated $rel"
+	done
+}
+
+start_stage4() {
+	local source="$GAME_ROOT/Stage3" destination="$GAME_ROOT/Stage4"
+	[[ -f "$source/CMakeLists.txt" ]] || die "missing $source/CMakeLists.txt"
+	mkdir -p -- "$destination"
+	local unexpected
+	unexpected="$(find "$destination" -mindepth 1 -maxdepth 1 \
+		! -name .gitkeep ! -name NOTES.md ! -name REVIEW.md -print -quit)"
+	[[ -z "$unexpected" ]] || die "Stage4 is not pristine: $unexpected"
+	python3 - "$source" "$destination" <<'PY'
+import pathlib, shutil, sys
+source, destination = map(pathlib.Path, sys.argv[1:])
+skip = {".git", "build", "bin", "NOTES.md", "REVIEW.md", "stage3-lint.json"}
+for path in source.iterdir():
+    if path.name in skip:
+        continue
+    target = destination / path.name
+    if path.is_dir():
+        shutil.copytree(path, target, dirs_exist_ok=True)
+    else:
+        shutil.copy2(path, target)
+print(f"rework: initialized {destination} from {source}")
+PY
+}
+
+resolve_play() {
+	local play=$1
+	if [[ -f "$play" ]]; then resolve_path "$play"
+	elif [[ -f "$GAME_ROOT/plays/$play" ]]; then echo "$GAME_ROOT/plays/$play"
+	elif [[ -f "$GAME_ROOT/plays/$play.json" ]]; then echo "$GAME_ROOT/plays/$play.json"
+	else die "play not found: $play"
+	fi
+}
+
+has_option() {
+	local wanted=$1 argument; shift
+	for argument in "$@"; do
+		[[ "$argument" == "$wanted" || "$argument" == "$wanted="* ]] && return 0
+	done
+	return 1
+}
+
+print_run() {
+	printf 'rework:' >&2
+	printf ' %q' "$@" >&2
+	printf '\n' >&2
+}
+
+invoke_play() {
+	local kind=$1 target=$2 exe
+	shift 2
+	local load_args=() extra=() fail_args=() play cmd
+	case "$kind" in
+		test) cmd=test-play ;;
+		show) cmd=show-play ;;
+		live) cmd=play-game ;;
+		*) die "internal: unknown play kind '$kind'" ;;
+	esac
+	case "$target" in
+		original)
+			require_original
+			require_kb
+			exe="$BIN/revm"
+			load_args=(--load-prg "$ORIGINAL_LOAD" --kb "$KB_JSON")
+			;;
+		begin)
+			require_begin
+			require_kb
+			exe="$BIN/revm"
+			load_args=(--load-snapshot "$BEGIN_SNAP" --kb "$KB_JSON")
+			;;
+		stage3)
+			require_begin
+			require_kb
+			exe="$BIN/revm-s3-$GAME"
+			load_args=(--load-snapshot "$BEGIN_SNAP" --kb "$KB_JSON")
+			;;
+		stage4)
+			require_begin
+			require_kb
+			exe="$BIN/revm-s4-$GAME"
+			load_args=(--load-snapshot "$BEGIN_SNAP" --kb "$KB_JSON")
+			;;
+		*) die "$cmd TARGET must be original, begin, stage3, or stage4" ;;
+	esac
+	[[ -x "$exe" ]] || die "missing $exe; build it first"
+	if [[ "$kind" != live ]]; then
+		[[ $# -ge 1 ]] || die "$cmd $target requires a play"
+		play="$(resolve_play "$1")"
+		shift
+		load_args+=(--use-play "$play")
+	fi
+	if [[ "$kind" == test ]]; then
+		has_option --headless "$@" || extra+=(--headless)
+	fi
+	require_default_roms "$@"
+	add_rom_dir extra "$@"
+	has_option --dump-fail "$@" || fail_args=(--dump-fail "$FAIL")
+	mkdir -p -- "$FAIL"
+	print_run "$exe" "${load_args[@]}" "${extra[@]}" "${fail_args[@]}" "$@"
+	(cd -- "$GAME_ROOT" && exec "$exe" "${load_args[@]}" "${extra[@]}" "${fail_args[@]}" "$@")
+}
+
+generate_cov() {
+	require_kb
+	require_begin
+	require_roms
+	local exe="$BIN/revm" tool="$BIN/revm-tool"
+	[[ $# -ge 1 ]] || die "generate-cov requires a play"
+	[[ -x "$exe" ]] || die "missing $exe; build revm first"
+	local play stem out covs=()
+	mkdir -p -- "$GAME_ROOT/plays" "$FAIL"
+	for play in "$@"; do
+		play="$(resolve_play "$play")"
+		stem="$(basename -- "$play")"
+		stem="${stem%.json}"
+		out="$GAME_ROOT/plays/${stem}_cov.bin"
+		covs+=("$out")
+		print_run "$exe" --load-snapshot "$BEGIN_SNAP" --use-play "$play" --kb "$KB_JSON" \
+			--rom-dir "$ROM_DIR" --headless --no-audio --dump-fail "$FAIL" --coverage "$out"
+		(cd -- "$GAME_ROOT" && "$exe" --load-snapshot "$BEGIN_SNAP" --use-play "$play" \
+			--kb "$KB_JSON" --rom-dir "$ROM_DIR" --headless --no-audio --dump-fail "$FAIL" --coverage "$out")
+	done
+	((${#covs[@]} > 1)) || return 0
+	[[ -x "$tool" ]] || die "missing $tool; build revm first"
+	print_run "$tool" merge-cov "${covs[@]}" "$COVERAGE_MERGED"
+	(cd -- "$GAME_ROOT" && "$tool" merge-cov "${covs[@]}" "$COVERAGE_MERGED")
+}
+
+kb_analysis() {
+	require_framework
+	require_kb
+	require_begin
+	require_roms
+	local tool="$BIN/revm-tool"
+	local support="$REVM_ROOT/reference/c64.kb.json"
+	local dest="$KB_ANALYSIS"
+	[[ -x "$tool" ]] || die "missing $tool; build revm first"
+	[[ -f "$support" ]] || die "missing support KB: $support"
+	local stage_dir backup=""
+	stage_dir="$(mktemp -d "$GAME_ROOT/.kb-analysis.tmp.XXXXXX")"
+	trap '[[ -z "${stage_dir:-}" ]] || rm -rf -- "$stage_dir"' EXIT
+	mkdir -p -- "$stage_dir/assets"
+	local args=(snap "$BEGIN_SNAP"
+		--rom-dir "$ROM_DIR"
+		--kb "$KB_JSON"
+		--kb-support "$support"
+		--listing "$stage_dir/disasm_begin.txt"
+		--map "$stage_dir/addr_map.txt"
+		--dump-blobs "$stage_dir/assets")
+	if [[ -f "$COVERAGE_MERGED" ]]; then
+		args+=(--cov "$COVERAGE_MERGED"
+			--call-graph "$stage_dir/call_graph.txt"
+			--hot-undoc "$stage_dir/hot_undoc.txt")
+	else
+		echo "rework: warning: missing $COVERAGE_MERGED; skipping --cov / --call-graph / --hot-undoc" >&2
+	fi
+	print_run "$tool" "${args[@]}"
+	(cd -- "$GAME_ROOT" && "$tool" "${args[@]}")
+	if [[ -e "$dest" ]]; then
+		backup="$GAME_ROOT/.kb-analysis.previous.$$"
+		mv -- "$dest" "$backup"
+	fi
+	if mv -- "$stage_dir" "$dest"; then
+		stage_dir=""; [[ -z "$backup" ]] || rm -rf -- "$backup"
+	else
+		[[ -z "$backup" ]] || mv -- "$backup" "$dest"
+		exit 1
+	fi
+	trap - EXIT
+	echo "rework: generated $dest"
+}
+
+run_stock() {
+	local name=$1; shift
+	local exe="$BIN/$name"
+	[[ -x "$exe" ]] || die "missing $exe; build revm first"
+	mkdir -p -- "$FAIL"
+	print_run "$exe" "$@"
+	(cd -- "$GAME_ROOT" && exec "$exe" "$@")
+}
+
+run_revm() {
+	require_default_roms "$@"
+	local fail_args=() extra=()
+	has_option --dump-fail "$@" || fail_args=(--dump-fail "$FAIL")
+	add_rom_dir extra "$@"
+	run_stock revm "${fail_args[@]}" "${extra[@]}" "$@"
+}
+
+run_revm_tool() {
+	local extra=()
+	if [[ ${1:-} == snap || ${1:-} == ram ]]; then
+		add_rom_dir extra "$@"
+	fi
+	run_stock revm-tool "$@" "${extra[@]}"
+}
+
+lint_stage() {
+	require_framework
+	case "$1" in
+		stage3) run_script "$SCRIPTS/lint_s3.py" "$GAME_ROOT" ;;
+		stage4) run_script "$SCRIPTS/lint_s4.py" "$GAME_ROOT" ;;
+		*) die "lint target must be stage3 or stage4" ;;
+	esac
+}
+
+stage4_diag() {
+	require_framework
+	[[ -d "$GAME_ROOT/Stage4" ]] || die "missing $GAME_ROOT/Stage4"
+	run_script "$SCRIPTS/lower_standalone_game.py" audit "$GAME_ROOT/Stage4"
+}
+
+audit_runtime() {
+	require_framework
+	run_script "$SCRIPTS/audit_standalone_runtime.py"
+}
+
+run_selftests() {
+	require_framework
+	run_script "$SCRIPTS/lint_s3.py" --selftest
+	run_script "$SCRIPTS/lint_s4.py" --selftest
+	run_script "$SCRIPTS/export_standalone.py" selftest
+	run_script "$SCRIPTS/audit_standalone_runtime.py" --selftest
+	audit_runtime
+	run_script "$SCRIPTS/lower_standalone_game.py" selftest
+}
+
+generate_export() {
+	require_framework
+	ensure_resid
+	local replace=false
+	if [[ ${1:-} == --replace ]]; then replace=true; shift; fi
+	[[ $# -eq 0 ]] || die "export accepts only --replace"
+	[[ ! -e "$EXPORT" || "$replace" == true ]] || die "$EXPORT exists; pass --replace"
+	stage4_diag
+	audit_runtime
+	local stage_dir backup=""
+	stage_dir="$(mktemp -d "$GAME_ROOT/.Export.tmp.XXXXXX")"
+	trap '[[ -z "${stage_dir:-}" ]] || rm -rf -- "$stage_dir"' EXIT
+	cp -a -- "$REVM_ROOT/src/template-standalone/." "$stage_dir/"
+	mkdir -p -- "$stage_dir/src/game"
+	cp -a -- "$REVM_ROOT/VERSION" "$stage_dir/c64rework.version"
+	cp -a -- "$GAME_ROOT/Stage4/." "$stage_dir/src/game/"
+	rm -f -- "$stage_dir/src/game/CMakeLists.txt"
+	find "$stage_dir/src/game" -type f -name '*.md' -delete
+	run_script "$SCRIPTS/lower_standalone_game.py" lower "$stage_dir/src/game"
+	cp -a -- "$REVM_ROOT/src/revm-standalone" "$stage_dir/src/revm"
+	vendor_resid "$stage_dir/src/resid"
+	cp -a -- "$GAME_ROOT/revm.cfg" "$stage_dir/revm.cfg"
+	if [[ -e "$EXPORT" ]]; then
+		backup="$GAME_ROOT/.Export.previous.$$"
+		mv -- "$EXPORT" "$backup"
+	fi
+	if mv -- "$stage_dir" "$EXPORT"; then
+		stage_dir=""; [[ -z "$backup" ]] || rm -rf -- "$backup"
+	else
+		[[ -z "$backup" ]] || mv -- "$backup" "$EXPORT"
+		exit 1
+	fi
+	trap - EXIT
+	echo "rework: generated $EXPORT"
+}
+
+check_export() {
+	[[ -f "$EXPORT/c64rework.version" ]] || die "missing standalone-export version: $EXPORT/c64rework.version"
+	resid_complete "$EXPORT/src/resid" || die "standalone export is missing reSID sources at $EXPORT/src/resid"
+	[[ -d "$EXPORT/src/game" ]] || die "missing exported game source: $EXPORT/src/game"
+	run_script "$SCRIPTS/lower_standalone_game.py" check "$EXPORT/src/game"
+	echo "rework: standalone-export verification PASS"
+}
+
+doctor() {
+	printf 'game:      %s\ngame root: %s\nframework: %s\nversion:   %s (required >= %s)\nkb:        %s\nkb-analysis: %s\noriginal:  %s\nrom dir:   %s\n' \
+		"$GAME" "$GAME_ROOT" "$REVM_ROOT" "$FRAMEWORK_VERSION" "$MINIMUM_C64REWORK_VERSION" "$KB_JSON" "$KB_ANALYSIS" "$ORIGINAL_LOAD" "$ROM_DIR"
+	printf 'begin:     %s\ncoverage:  %s\nbuild:     %s\nbin:       %s\nfail:      %s\nexport:    %s\nvenv:      %s\nlauncher:  %s\n' \
+		"$BEGIN_SNAP" "$COVERAGE_MERGED" "$BUILD" "$BIN" "$FAIL" "$EXPORT" "$VENV" "$launcher"
+	local failures=0
+	if [[ ! -f "$REVM_ROOT/src/revm/CMakeLists.txt" || ! -d "$REVM_ROOT/scripts" ||
+	      ! -f "$REVM_ROOT/reference/c64.kb.json" || ! -f "$REVM_ROOT/VERSION" ]]; then
+		echo "rework: FAIL invalid framework root: $REVM_ROOT" >&2
+		failures=1
+	fi
+	if [[ ! -f "$KB_JSON" ]]; then
+		echo "rework: FAIL missing game KB: $KB_JSON" >&2
+		failures=1
+	fi
+	if [[ ! -f "$ORIGINAL_LOAD" ]]; then
+		echo "rework: FAIL missing original loader: $ORIGINAL_LOAD" >&2
+		failures=1
+	fi
+	if [[ ! -d "$ROM_DIR" ]]; then
+		echo "rework: FAIL rom_dir is not a directory: $ROM_DIR" >&2
+		failures=1
+	fi
+	if ! resid_complete "$REVM_ROOT/src/resid"; then
+		echo "rework: WARN reSID submodule is not initialized; export and revm builds will fetch it" >&2
+	fi
+	((failures == 0)) || return 1
+	echo "rework: workspace PASS"
+}
+
+case "$command" in
+	version) [[ $# -eq 0 ]] || die "version takes no arguments"; echo "C64 Rework $FRAMEWORK_VERSION" ;;
+	setup-venv) [[ $# -eq 0 ]] || die "setup-venv takes no arguments"; setup_venv ;;
+	doctor) [[ $# -eq 0 ]] || die "doctor takes no arguments"; doctor ;;
+	paths)
+		[[ $# -eq 0 ]] || die "paths takes no arguments"
+		printf 'GAME_ROOT=%q\nREVM_ROOT=%q\nKB_JSON=%q\nKB_ANALYSIS=%q\nORIGINAL_LOAD=%q\nROM_DIR=%q\nBEGIN_SNAP=%q\nCOVERAGE_MERGED=%q\nBUILD=%q\nBIN=%q\nFAIL=%q\nEXPORT=%q\nVENV=%q\n' \
+			"$GAME_ROOT" "$REVM_ROOT" "$KB_JSON" "$KB_ANALYSIS" "$ORIGINAL_LOAD" "$ROM_DIR" "$BEGIN_SNAP" "$COVERAGE_MERGED" "$BUILD" "$BIN" "$FAIL" "$EXPORT" "$VENV"
+		;;
+	kb-analysis) [[ $# -eq 0 ]] || die "kb-analysis takes no arguments"; kb_analysis ;;
+	generate-cov) generate_cov "$@" ;;
+	start-stage4) [[ $# -eq 0 ]] || die "start-stage4 takes no arguments"; start_stage4 ;;
+	update-docs) [[ $# -eq 0 ]] || die "update-docs takes no arguments"; update_docs ;;
+	build)
+		[[ $# -eq 1 ]] || die "build requires a target"
+		target=$1
+		case "$target" in
+			revm) build_revm ;;
+			stage3|stage4) build_stage "$target" ;;
+			export) [[ -x "$EXPORT/build.sh" ]] || die "generate Export first"; (cd -- "$EXPORT" && ./build.sh) ;;
+			*) die "unknown build target: $target" ;;
+		esac
+		;;
+	lint)
+		[[ $# -eq 1 ]] || die "lint requires a target"
+		target=$1
+		case "$target" in
+			stage3|stage4) lint_stage "$target" ;;
+			*) die "unknown lint target: $target" ;;
+		esac
+		;;
+	revm) run_revm "$@" ;;
+	revm-tool) run_revm_tool "$@" ;;
+	test-play)
+		[[ $# -ge 1 ]] || die "test-play requires a target"
+		invoke_play test "$@"
+		;;
+	show-play)
+		[[ $# -ge 1 ]] || die "show-play requires a target"
+		invoke_play show "$@"
+		;;
+	play-game)
+		[[ $# -ge 1 ]] || die "play-game requires a target"
+		invoke_play live "$@"
+		;;
+	export) generate_export "$@" ;;
+	stage4-diag) [[ $# -eq 0 ]] || die "stage4-diag takes no arguments"; stage4_diag ;;
+	selftest) [[ $# -eq 0 ]] || die "selftest takes no arguments"; run_selftests ;;
+	check-export) [[ $# -eq 0 ]] || die "check-export takes no arguments"; check_export ;;
+	*) die "unknown command: $command (try './rework help')" ;;
+esac

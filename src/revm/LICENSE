@@ -1,0 +1,14 @@
+# Licensing
+
+## REVM project code (src/revm except vendor/, apps/)
+Copyright (c) 2026 C64 REWORK contributors.
+Unless otherwise noted, new REVM wrapper code is provided under the same terms
+as the Frodo cores it links against for a consistent whole-program license.
+
+## Vendored Frodo SC cores (src/revm/vendor/frodo/)
+Frodo Copyright (C) Christian Bauer
+Licensed under the GNU General Public License version 2 (or later).
+See COPYING.Frodo and the copyright headers in each source file.
+
+Because REVM Stage-1 links the Frodo SC cores, binaries produced by this
+project are subject to GPLv2 obligations.

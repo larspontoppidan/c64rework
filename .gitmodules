@@ -1,0 +1,3 @@
+[submodule "src/resid"]
+	path = src/resid
+	url = https://github.com/libsidplayfp/resid.git

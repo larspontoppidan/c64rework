@@ -1,0 +1,202 @@
+# Ownership map for the canonical standalone runtime.
+#
+# Paths are relative to standalone_root. A mirrored path is required to be
+# byte-identical to the same path below upstream_root. A fork is allowed to
+# differ, but records the exact upstream bytes from which it was forked. A
+# standalone-only path must not exist in the upstream tree.
+format = 1
+upstream_root = "src/revm"
+standalone_root = "src/revm-standalone"
+manifest_file = "OWNERSHIP.toml"
+
+# Prefixes make newly added files in these runtime areas owned by default.
+# Files outside these prefixes must be listed explicitly below.
+mirrored_prefixes = [
+  "src/sid",
+]
+
+mirrored_files = [
+  "CMakeLists.txt",
+  "COPYING.Frodo",
+  "LICENSE",
+  "src/input/IInputSource.hpp",
+  "src/input/InputState.hpp",
+  "src/vendor/frodo/CPU_common.cpp",
+  "src/vendor/frodo/CPU_common.h",
+  "src/vendor/frodo/CPU_emulcycle.h",
+  "src/vendor/frodo/MenuFont.h",
+  "src/vendor/frodo/SID.cpp",
+  "src/vendor/frodo/SID.h",
+  "src/vendor/frodo/SID_catweasel.h",
+  "src/vendor/frodo/SID_wave_tables.h",
+  "src/vendor/frodo/VIC.h",
+  "src/vendor/frodo/Version.h",
+  "src/vendor/frodo/debug.h",
+  "src/vendor/frodo/frodo_globals.cpp",
+  "src/vendor/frodo/main.h",
+  "src/vendor/frodo/sysconfig.h",
+  "src/vendor/frodo/sysdeps.h",
+  "src/vendor/nlohmann/json.hpp",
+]
+
+standalone_only = [
+  "STANDALONE.md",
+  "src/core/StandaloneRunner.cpp",
+  "src/core/StandaloneRunner.hpp",
+  "src/gamehost/GameHost.cpp",
+  "src/gamehost/GameHost.hpp",
+  "src/gamehost/Log.hpp",
+]
+
+[[forked]]
+path = "src/cpumock/AdvanceResult.hpp"
+upstream = "src/twin/TwinBoard.hpp"
+base_sha256 = "fc66cd670a36e429be7ee5fac8f083cbb2ab296e72382b6c46825797c8b5144f"
+reason = "Standalone extracts the shared AdvanceResult enum and name helper from TwinBoard.hpp after removing the Twin board implementation."
+
+[[forked]]
+path = "src/core/Board.cpp"
+base_sha256 = "c74fb45495f462a676351276e3e871740c5f769455a2bfbe6e177e80f2c7f3d2"
+reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write a Pepto PPM from the VIC bitmap without the full media/snapshot stack. Optional PlayRecorder captures sticky C64 input at VSYNC."
+
+[[forked]]
+path = "src/core/Board.hpp"
+base_sha256 = "f34ca3a80098d966e3e77f2da2d34eabbc7aa7ab57cb0bb52344ffedcc4a70f5"
+reason = "Standalone Board API omits secondary/Twin, snapshots, playback-oracle callbacks, debug, coverage, analysis, unused Reset/Run/hook surfaces, the shadow Clock object, and EmulateCycleInjectCpu. --save-screen and Ctrl+F9 are Main-only PPM captures. SetPlayRecorder is the slim input recorder, not the FullSnapshot oracle."
+
+[[forked]]
+path = "src/core/Clock.hpp"
+base_sha256 = "4e0f2ccbe782088e4df3bf98abfeb1c25366ae52b42c172c8a330944702adcb3"
+reason = "Standalone keeps the PAL timing constants and drops the unused Clock class; Board counters come from C64."
+
+[[forked]]
+path = "src/util/Log.hpp"
+base_sha256 = "1d715be02570efbb5b37e677f0d192bfb6feb7e4a7da15718e490a2ffc35a416"
+reason = "Standalone logging samples one Main BoardClock; Twin stamps and the unused SampleClocks event-stream API are omitted."
+
+[[forked]]
+path = "src/util/Log.cpp"
+base_sha256 = "317a6667d56086bf3d892838f163fd479f4602cd8f09ba3889491a327b450c47"
+reason = "Standalone timed logs format only the Main clock; Twin suffixes and SampleClocks are omitted."
+
+[[forked]]
+path = "src/core/Config.hpp"
+base_sha256 = "01126b00587afd253456474d31e6e300e4d1dc673fe40533a170a545c40234a2"
+reason = "Standalone configuration is blank-Main only and uses one SidMode instead of overlapping audio flags. --save-screen FRAME FILE is retained."
+
+[[forked]]
+path = "src/input/JoystickConfig.cpp"
+base_sha256 = "f1bf8b5cd4cc1eda20c7c170fa222a7f265e884dc1c466ae3b544e1565e391be"
+reason = "Standalone input config keeps joystick bindings, accepts and ignores a shared [cheats] section, and omits cheat bindings from runtime state and the default file it writes."
+
+[[forked]]
+path = "src/input/JoystickConfig.hpp"
+base_sha256 = "340d58fc740718f236245e9a375c2bb2c653c6eb6d612ad0b3b0dfba451a0122"
+reason = "Standalone joystick config has no cheat-key bindings."
+
+[[forked]]
+path = "src/input/LiveInput.cpp"
+base_sha256 = "5e060d00c34991b023ab43d9f27b79bd542700954c010d1e266a654da9daef5c"
+reason = "Standalone live input keeps pause, quit, joystick bindings, port swap, keyboard matrix translation, and Ctrl+F9 C64-CTRL suppression so the host screenshot chord is not recorded; F9 timestamp and cheat-key suppression are omitted."
+
+[[forked]]
+path = "src/input/LiveInput.hpp"
+base_sha256 = "6ed6c8ec76df81e9136f0a704fb639d163a5defeea8730c893760baf16f8406d"
+reason = "Standalone live input API exposes only pause, quit, and joystick-swap controls."
+
+[[forked]]
+path = "src/goldens/PlayInput.cpp"
+upstream = "src/goldens/PlayLog.cpp"
+base_sha256 = "188701c19d8235486a2a6654100bf2b18fb67d4cc438798e22875e7437f43d35"
+reason = "Standalone playback is one input source: the retained JSON parser plus sticky PollFrame, without PlayPlayer, GoldenInput mutation APIs, recorder paths, or oracle comparisons. Parses optional JSON no-twin, warns when an original recording is replayed on this no-twin system, and warns on non-empty mod_events which standalone does not apply."
+
+[[forked]]
+path = "src/goldens/PlayInput.hpp"
+upstream = "src/goldens/PlayLog.hpp"
+base_sha256 = "16612874d85298f782ccd9c2b8854c65dd4ac1d6c578526e614e22b110f501fe"
+reason = "Standalone playback contract is a single IInputSource exposing play seed, start/end timing, and sticky frame input."
+
+[[forked]]
+path = "src/goldens/PlayRecorder.cpp"
+base_sha256 = "81f7c0d966aa999efe5bcd2bff82c6c69cfd1b83166c51872e879dd1c5bc9c89"
+reason = "Standalone PlayRecorder writes the same play JSON shape as REVM (sticky input_events, rand_seed, start/end timing, always no-twin) without FullSnapshot hashes, ROM records, F9 timestamps, or memory-mod events."
+
+[[forked]]
+path = "src/goldens/PlayRecorder.hpp"
+base_sha256 = "25ed1495dab85071ec438dc2f3a93de67b91b1c35d2aabd8781600acf48f7434"
+reason = "Standalone recorder API is Configure/Start/OnFrame/Finish only; no PlayLog, snapshot hashing, timestamps, or mod_events."
+
+[[forked]]
+path = "src/vendor/frodo/C64.h"
+base_sha256 = "838915c36eda9c6fd6ce51fbfdb1ab08a09ca8363f3fa3515c7212c4a0e625ac"
+reason = "Standalone C64 owns only RAM/color buffers and the CPU, VIC, SID, CIA, display, and the public EmulateCycle lifecycle; unused Reset/NMI and frame-counter freeze are omitted. StringForKeycode is kept for play JSON key names."
+
+[[forked]]
+path = "src/vendor/frodo/C64_SC.cpp"
+base_sha256 = "397c99b8a99a10ae056a6f438528df3c624a4c8a8b5861eeac8434de0a27c0cd"
+reason = "Standalone directly wires the retained chips without desktop, media, drive, expansion, snapshot, or ROM-image setup, and without unused Reset/NMI helpers. StringForKeycode is kept next to KeycodeFromString for play JSON key names."
+
+[[forked]]
+path = "src/vendor/frodo/CIA.h"
+base_sha256 = "2c016b15cad2b8742a40cc3ec1dd0ef9a297a809497c0f51375e379a8491409d"
+reason = "Standalone CIA2 retains VIC bank and interrupt behavior without IEC or 1541 wiring."
+
+[[forked]]
+path = "src/vendor/frodo/CIA_SC.cpp"
+base_sha256 = "d18f536500bdc7155075dfa9f7e01bc5b5825c52401f06ffc7c7569d9866de1c"
+reason = "Standalone CIA implementation removes IEC and drive-CPU side effects."
+
+[[forked]]
+path = "src/vendor/frodo/CPUC64.h"
+base_sha256 = "c3996617e4e285a2fa2e3acbca484f6bc5cb86c4885ea1d670857846c766dd14"
+reason = "Standalone CPU interface removes cartridge, IEC, tape, REU, and autostart surfaces while retaining CPU-mock access."
+
+[[forked]]
+path = "src/vendor/frodo/CPUC64_SC.cpp"
+base_sha256 = "16b8105a96c467430c1999489595a191926e4ec96257be4caf2a28ed8ac8707b"
+reason = "Standalone CPU memory map treats removed cartridge I/O as open bus and omits media and expansion handlers."
+
+[[forked]]
+path = "src/vendor/frodo/Display.h"
+base_sha256 = "8b915d7926b519c8cbee82fd54b9dc3930911db87694c29a63d26da2b41b07a5"
+reason = "Standalone display omits drive/tape indicators, media UI operations, and unused Pause/Resume, NewPrefs, speedometer, and NumLock APIs."
+
+[[forked]]
+path = "src/vendor/frodo/Display.cpp"
+base_sha256 = "eac2ed56f2223a16a3252f177fd3a499299dfb6a2c47db0e075dc9a0a4a91d99"
+reason = "Standalone SDL display and input handling omit media drops, cartridge insertion, tape control, drive LEDs, and unused Pause/Resume, NewPrefs, speedometer, and NumLock APIs."
+
+[[forked]]
+path = "src/vendor/frodo/Prefs.h"
+base_sha256 = "d4d7088abd865d82685b3dff4ba2a2230347678dbc958d4419a8440618f8e6e1"
+reason = "Standalone preferences retain only fields consumed by the remaining chip, audio, display, and input implementation."
+
+[[forked]]
+path = "src/vendor/frodo/Prefs.cpp"
+base_sha256 = "011bd504506197e6783bd3c574109817c806a6f895396db55e57d26697f7629e"
+reason = "Standalone preferences provide retained defaults without editor, persistence, ROM-set, media, or expansion configuration."
+
+[[forked]]
+path = "src/vendor/frodo/VIC_SC.cpp"
+base_sha256 = "f4da8d7409e9377e0df7b901ba229666785d8711ce37b314907c65d976a6f60e"
+reason = "Standalone VIC removes its stale cartridge reference while preserving raster and rendering behavior."
+
+[[forked]]
+path = "apps/revm/main.cpp"
+base_sha256 = "9c7ee8f6cf4044a5247b94a04f5911e60012a0a2e5feead8a169d496f0539bcf"
+reason = "Standalone entry point omits REVM CLI, oracle, Twin, and analysis startup; launch uses StandaloneRunner and one SidMode for interactive play, --record-play, and replay. Prints a live key sheet (including Ctrl+F9) on windowed launches. --save-screen FRAME FILE is retained."
+
+[[forked]]
+path = "cmake/RevmCommon.cmake"
+base_sha256 = "115ba28cff1f30c1d40e6382596e83f4e5894f25b28b5421ec10d28a9d33c927"
+reason = "Standalone build always produces one executable and one cpu-mock game object set; reSID remains a runtime SidMode, not a second build graph. The runtime compiles GameHost plus StandaloneRunner instead of CpuMockHost, including the slim PlayRecorder. reSID is vendored at export src/resid/ (not a git submodule); CMake requires those sources and perl to generate wave tables."
+
+[[forked]]
+path = "src/cpumock/Mem.hpp"
+base_sha256 = "9cbb0c92cc52b981cdb97465a8e312da7d11571c7c64f9ac9cc9b7eb51362ea3"
+reason = "Standalone register-shaped memory access preserves Main reads, writes, and I/O RMW effects without Twin fences, implicit conversion, get/set aliases, or Mem/Mem16; bags bind to gamehost::GameHost and Fail."
+
+[[forked]]
+path = "src/cpumock/VideoAssets.hpp"
+base_sha256 = "e963cbd6688a8af64aab09d477ef2252b2b39568b9c59f9bfdc8f28ca7562875"
+reason = "Standalone asset installation retains validation and mutable surface seeding but has no pending Sync marker; surfaces bind to gamehost::GameHost."

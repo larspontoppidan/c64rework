@@ -1,0 +1,14 @@
+*.bin
+*.prg
+/bin/
+/build/
+/fail/
+/.venv/
+/.cache/
+/kb-analysis/
+/StandaloneExport/
+/.Export.tmp.*/
+/.Export.previous.*/
+/.kb-analysis.tmp.*/
+/.kb-analysis.previous.*/
+/compile_commands.json

@@ -1,0 +1,10 @@
+{
+    "cmake.sourceDirectory": "${workspaceFolder}/src/revm",
+    "C_Cpp.intelliSenseEngine": "disabled",
+    "clangd.arguments": [
+        "--compile-commands-dir=${workspaceFolder}",
+        "--background-index",
+        "--header-insertion=never"
+    ],
+    "git.autoRepositoryDetection": true
+}

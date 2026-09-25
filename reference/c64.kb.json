@@ -1,0 +1,1494 @@
+{
+  "version": 1,
+  "objects": [
+    {
+      "name": "D6510",
+      "kind": "variable",
+      "addr": "0000",
+      "bank": "chip",
+      "comment": "6510 data direction register"
+    },
+    {
+      "name": "R6510",
+      "kind": "variable",
+      "addr": "0001",
+      "bank": "chip",
+      "comment": "6510 I/O port (LORAM/HIRAM/CHAREN)"
+    },
+    {
+      "name": "SP0X",
+      "kind": "variable",
+      "addr": "D000",
+      "bank": "chip",
+      "comment": "VIC sprite 0 X"
+    },
+    {
+      "name": "SP0Y",
+      "kind": "variable",
+      "addr": "D001",
+      "bank": "chip",
+      "comment": "VIC sprite 0 Y"
+    },
+    {
+      "name": "SP1X",
+      "kind": "variable",
+      "addr": "D002",
+      "bank": "chip",
+      "comment": "VIC sprite 1 X"
+    },
+    {
+      "name": "SP1Y",
+      "kind": "variable",
+      "addr": "D003",
+      "bank": "chip",
+      "comment": "VIC sprite 1 Y"
+    },
+    {
+      "name": "SP2X",
+      "kind": "variable",
+      "addr": "D004",
+      "bank": "chip",
+      "comment": "VIC sprite 2 X"
+    },
+    {
+      "name": "SP2Y",
+      "kind": "variable",
+      "addr": "D005",
+      "bank": "chip",
+      "comment": "VIC sprite 2 Y"
+    },
+    {
+      "name": "SP3X",
+      "kind": "variable",
+      "addr": "D006",
+      "bank": "chip",
+      "comment": "VIC sprite 3 X"
+    },
+    {
+      "name": "SP3Y",
+      "kind": "variable",
+      "addr": "D007",
+      "bank": "chip",
+      "comment": "VIC sprite 3 Y"
+    },
+    {
+      "name": "SP4X",
+      "kind": "variable",
+      "addr": "D008",
+      "bank": "chip",
+      "comment": "VIC sprite 4 X"
+    },
+    {
+      "name": "SP4Y",
+      "kind": "variable",
+      "addr": "D009",
+      "bank": "chip",
+      "comment": "VIC sprite 4 Y"
+    },
+    {
+      "name": "SP5X",
+      "kind": "variable",
+      "addr": "D00A",
+      "bank": "chip",
+      "comment": "VIC sprite 5 X"
+    },
+    {
+      "name": "SP5Y",
+      "kind": "variable",
+      "addr": "D00B",
+      "bank": "chip",
+      "comment": "VIC sprite 5 Y"
+    },
+    {
+      "name": "SP6X",
+      "kind": "variable",
+      "addr": "D00C",
+      "bank": "chip",
+      "comment": "VIC sprite 6 X"
+    },
+    {
+      "name": "SP6Y",
+      "kind": "variable",
+      "addr": "D00D",
+      "bank": "chip",
+      "comment": "VIC sprite 6 Y"
+    },
+    {
+      "name": "SP7X",
+      "kind": "variable",
+      "addr": "D00E",
+      "bank": "chip",
+      "comment": "VIC sprite 7 X"
+    },
+    {
+      "name": "SP7Y",
+      "kind": "variable",
+      "addr": "D00F",
+      "bank": "chip",
+      "comment": "VIC sprite 7 Y"
+    },
+    {
+      "name": "MSIGX",
+      "kind": "variable",
+      "addr": "D010",
+      "bank": "chip",
+      "comment": "VIC sprite X MSB (sprites 0-7)"
+    },
+    {
+      "name": "SCROLY",
+      "kind": "variable",
+      "addr": "D011",
+      "bank": "chip",
+      "comment": "VIC control 1 (Y scroll, RSEL, DEN, BMM, ECM, RST8)"
+    },
+    {
+      "name": "RASTER",
+      "kind": "variable",
+      "addr": "D012",
+      "bank": "chip",
+      "comment": "VIC current raster line (lo; MSB in $D011)"
+    },
+    {
+      "name": "LPENX",
+      "kind": "variable",
+      "addr": "D013",
+      "bank": "chip",
+      "comment": "VIC light-pen X"
+    },
+    {
+      "name": "LPENY",
+      "kind": "variable",
+      "addr": "D014",
+      "bank": "chip",
+      "comment": "VIC light-pen Y"
+    },
+    {
+      "name": "SPENA",
+      "kind": "variable",
+      "addr": "D015",
+      "bank": "chip",
+      "comment": "VIC sprite enable"
+    },
+    {
+      "name": "SCROLX",
+      "kind": "variable",
+      "addr": "D016",
+      "bank": "chip",
+      "comment": "VIC control 2 (X scroll, CSEL, MCM, RES)"
+    },
+    {
+      "name": "YXPAND",
+      "kind": "variable",
+      "addr": "D017",
+      "bank": "chip",
+      "comment": "VIC sprite Y expand"
+    },
+    {
+      "name": "VMCSB",
+      "kind": "variable",
+      "addr": "D018",
+      "bank": "chip",
+      "comment": "VIC memory pointers (screen/charset base)"
+    },
+    {
+      "name": "VIC_IRR",
+      "kind": "variable",
+      "addr": "D019",
+      "bank": "chip",
+      "comment": "VIC interrupt request register"
+    },
+    {
+      "name": "IRQMASK",
+      "kind": "variable",
+      "addr": "D01A",
+      "bank": "chip",
+      "comment": "VIC interrupt enable (IRQ mask)"
+    },
+    {
+      "name": "SPBGPR",
+      "kind": "variable",
+      "addr": "D01B",
+      "bank": "chip",
+      "comment": "VIC sprite-to-background priority"
+    },
+    {
+      "name": "SPMC",
+      "kind": "variable",
+      "addr": "D01C",
+      "bank": "chip",
+      "comment": "VIC sprite multicolor enable"
+    },
+    {
+      "name": "XXPAND",
+      "kind": "variable",
+      "addr": "D01D",
+      "bank": "chip",
+      "comment": "VIC sprite X expand"
+    },
+    {
+      "name": "SPSPCL",
+      "kind": "variable",
+      "addr": "D01E",
+      "bank": "chip",
+      "comment": "VIC sprite-sprite collision (read clears)"
+    },
+    {
+      "name": "SPBGCL",
+      "kind": "variable",
+      "addr": "D01F",
+      "bank": "chip",
+      "comment": "VIC sprite-background collision (read clears)"
+    },
+    {
+      "name": "BORDER",
+      "kind": "variable",
+      "addr": "D020",
+      "bank": "chip",
+      "comment": "VIC border color"
+    },
+    {
+      "name": "BG0",
+      "kind": "variable",
+      "addr": "D021",
+      "bank": "chip",
+      "comment": "VIC background color 0"
+    },
+    {
+      "name": "BG1",
+      "kind": "variable",
+      "addr": "D022",
+      "bank": "chip",
+      "comment": "VIC background color 1"
+    },
+    {
+      "name": "BG2",
+      "kind": "variable",
+      "addr": "D023",
+      "bank": "chip",
+      "comment": "VIC background color 2"
+    },
+    {
+      "name": "BG3",
+      "kind": "variable",
+      "addr": "D024",
+      "bank": "chip",
+      "comment": "VIC background color 3"
+    },
+    {
+      "name": "SPMC0",
+      "kind": "variable",
+      "addr": "D025",
+      "bank": "chip",
+      "comment": "VIC sprite multicolor 0"
+    },
+    {
+      "name": "SPMC1",
+      "kind": "variable",
+      "addr": "D026",
+      "bank": "chip",
+      "comment": "VIC sprite multicolor 1"
+    },
+    {
+      "name": "SP0COL",
+      "kind": "variable",
+      "addr": "D027",
+      "bank": "chip",
+      "comment": "VIC sprite 0 color"
+    },
+    {
+      "name": "SP1COL",
+      "kind": "variable",
+      "addr": "D028",
+      "bank": "chip",
+      "comment": "VIC sprite 1 color"
+    },
+    {
+      "name": "SP2COL",
+      "kind": "variable",
+      "addr": "D029",
+      "bank": "chip",
+      "comment": "VIC sprite 2 color"
+    },
+    {
+      "name": "SP3COL",
+      "kind": "variable",
+      "addr": "D02A",
+      "bank": "chip",
+      "comment": "VIC sprite 3 color"
+    },
+    {
+      "name": "SP4COL",
+      "kind": "variable",
+      "addr": "D02B",
+      "bank": "chip",
+      "comment": "VIC sprite 4 color"
+    },
+    {
+      "name": "SP5COL",
+      "kind": "variable",
+      "addr": "D02C",
+      "bank": "chip",
+      "comment": "VIC sprite 5 color"
+    },
+    {
+      "name": "SP6COL",
+      "kind": "variable",
+      "addr": "D02D",
+      "bank": "chip",
+      "comment": "VIC sprite 6 color"
+    },
+    {
+      "name": "SP7COL",
+      "kind": "variable",
+      "addr": "D02E",
+      "bank": "chip",
+      "comment": "VIC sprite 7 color"
+    },
+    {
+      "name": "FRELO1",
+      "kind": "variable",
+      "addr": "D400",
+      "bank": "chip",
+      "comment": "SID voice 1 frequency lo"
+    },
+    {
+      "name": "FREHI1",
+      "kind": "variable",
+      "addr": "D401",
+      "bank": "chip",
+      "comment": "SID voice 1 frequency hi"
+    },
+    {
+      "name": "PWLO1",
+      "kind": "variable",
+      "addr": "D402",
+      "bank": "chip",
+      "comment": "SID voice 1 pulse width lo"
+    },
+    {
+      "name": "PWHI1",
+      "kind": "variable",
+      "addr": "D403",
+      "bank": "chip",
+      "comment": "SID voice 1 pulse width hi"
+    },
+    {
+      "name": "VCREG1",
+      "kind": "variable",
+      "addr": "D404",
+      "bank": "chip",
+      "comment": "SID voice 1 control (wave/gate/sync/ring)"
+    },
+    {
+      "name": "ATDCY1",
+      "kind": "variable",
+      "addr": "D405",
+      "bank": "chip",
+      "comment": "SID voice 1 attack/decay"
+    },
+    {
+      "name": "SUREL1",
+      "kind": "variable",
+      "addr": "D406",
+      "bank": "chip",
+      "comment": "SID voice 1 sustain/release"
+    },
+    {
+      "name": "FRELO2",
+      "kind": "variable",
+      "addr": "D407",
+      "bank": "chip",
+      "comment": "SID voice 2 frequency lo"
+    },
+    {
+      "name": "FREHI2",
+      "kind": "variable",
+      "addr": "D408",
+      "bank": "chip",
+      "comment": "SID voice 2 frequency hi"
+    },
+    {
+      "name": "PWLO2",
+      "kind": "variable",
+      "addr": "D409",
+      "bank": "chip",
+      "comment": "SID voice 2 pulse width lo"
+    },
+    {
+      "name": "PWHI2",
+      "kind": "variable",
+      "addr": "D40A",
+      "bank": "chip",
+      "comment": "SID voice 2 pulse width hi"
+    },
+    {
+      "name": "VCREG2",
+      "kind": "variable",
+      "addr": "D40B",
+      "bank": "chip",
+      "comment": "SID voice 2 control"
+    },
+    {
+      "name": "ATDCY2",
+      "kind": "variable",
+      "addr": "D40C",
+      "bank": "chip",
+      "comment": "SID voice 2 attack/decay"
+    },
+    {
+      "name": "SUREL2",
+      "kind": "variable",
+      "addr": "D40D",
+      "bank": "chip",
+      "comment": "SID voice 2 sustain/release"
+    },
+    {
+      "name": "FRELO3",
+      "kind": "variable",
+      "addr": "D40E",
+      "bank": "chip",
+      "comment": "SID voice 3 frequency lo"
+    },
+    {
+      "name": "FREHI3",
+      "kind": "variable",
+      "addr": "D40F",
+      "bank": "chip",
+      "comment": "SID voice 3 frequency hi"
+    },
+    {
+      "name": "PWLO3",
+      "kind": "variable",
+      "addr": "D410",
+      "bank": "chip",
+      "comment": "SID voice 3 pulse width lo"
+    },
+    {
+      "name": "PWHI3",
+      "kind": "variable",
+      "addr": "D411",
+      "bank": "chip",
+      "comment": "SID voice 3 pulse width hi"
+    },
+    {
+      "name": "VCREG3",
+      "kind": "variable",
+      "addr": "D412",
+      "bank": "chip",
+      "comment": "SID voice 3 control"
+    },
+    {
+      "name": "ATDCY3",
+      "kind": "variable",
+      "addr": "D413",
+      "bank": "chip",
+      "comment": "SID voice 3 attack/decay"
+    },
+    {
+      "name": "SUREL3",
+      "kind": "variable",
+      "addr": "D414",
+      "bank": "chip",
+      "comment": "SID voice 3 sustain/release"
+    },
+    {
+      "name": "FCLO",
+      "kind": "variable",
+      "addr": "D415",
+      "bank": "chip",
+      "comment": "SID filter cutoff lo (3 bits)"
+    },
+    {
+      "name": "FCHI",
+      "kind": "variable",
+      "addr": "D416",
+      "bank": "chip",
+      "comment": "SID filter cutoff hi"
+    },
+    {
+      "name": "RESFILT",
+      "kind": "variable",
+      "addr": "D417",
+      "bank": "chip",
+      "comment": "SID filter resonance / voice filter routing"
+    },
+    {
+      "name": "MODEVOL",
+      "kind": "variable",
+      "addr": "D418",
+      "bank": "chip",
+      "comment": "SID filter mode / volume"
+    },
+    {
+      "name": "POTX",
+      "kind": "variable",
+      "addr": "D419",
+      "bank": "chip",
+      "comment": "SID paddle X (read)"
+    },
+    {
+      "name": "POTY",
+      "kind": "variable",
+      "addr": "D41A",
+      "bank": "chip",
+      "comment": "SID paddle Y (read)"
+    },
+    {
+      "name": "OSC3",
+      "kind": "variable",
+      "addr": "D41B",
+      "bank": "chip",
+      "comment": "SID oscillator 3 random (read)"
+    },
+    {
+      "name": "ENV3",
+      "kind": "variable",
+      "addr": "D41C",
+      "bank": "chip",
+      "comment": "SID envelope 3 (read)"
+    },
+    {
+      "name": "CIA1_PRA",
+      "kind": "variable",
+      "addr": "DC00",
+      "bank": "chip",
+      "comment": "CIA1 PRA \u2014 keyboard columns / joy2"
+    },
+    {
+      "name": "CIA1_PRB",
+      "kind": "variable",
+      "addr": "DC01",
+      "bank": "chip",
+      "comment": "CIA1 PRB \u2014 keyboard rows / joy1"
+    },
+    {
+      "name": "CIA1_DDRA",
+      "kind": "variable",
+      "addr": "DC02",
+      "bank": "chip",
+      "comment": "CIA1 DDRA"
+    },
+    {
+      "name": "CIA1_DDRB",
+      "kind": "variable",
+      "addr": "DC03",
+      "bank": "chip",
+      "comment": "CIA1 DDRB"
+    },
+    {
+      "name": "CIA1_TALO",
+      "kind": "variable",
+      "addr": "DC04",
+      "bank": "chip",
+      "comment": "CIA1 timer A lo"
+    },
+    {
+      "name": "CIA1_TAHI",
+      "kind": "variable",
+      "addr": "DC05",
+      "bank": "chip",
+      "comment": "CIA1 timer A hi"
+    },
+    {
+      "name": "CIA1_TBLO",
+      "kind": "variable",
+      "addr": "DC06",
+      "bank": "chip",
+      "comment": "CIA1 timer B lo"
+    },
+    {
+      "name": "CIA1_TBHI",
+      "kind": "variable",
+      "addr": "DC07",
+      "bank": "chip",
+      "comment": "CIA1 timer B hi"
+    },
+    {
+      "name": "CIA1_TOD10",
+      "kind": "variable",
+      "addr": "DC08",
+      "bank": "chip",
+      "comment": "CIA1 TOD tenths"
+    },
+    {
+      "name": "CIA1_TODSEC",
+      "kind": "variable",
+      "addr": "DC09",
+      "bank": "chip",
+      "comment": "CIA1 TOD seconds (BCD)"
+    },
+    {
+      "name": "CIA1_TODMIN",
+      "kind": "variable",
+      "addr": "DC0A",
+      "bank": "chip",
+      "comment": "CIA1 TOD minutes (BCD)"
+    },
+    {
+      "name": "CIA1_TODHRS",
+      "kind": "variable",
+      "addr": "DC0B",
+      "bank": "chip",
+      "comment": "CIA1 TOD hours (BCD)"
+    },
+    {
+      "name": "CIA1_ICR",
+      "kind": "variable",
+      "addr": "DC0D",
+      "bank": "chip",
+      "comment": "CIA1 interrupt control register"
+    },
+    {
+      "name": "CIA1_CRA",
+      "kind": "variable",
+      "addr": "DC0E",
+      "bank": "chip",
+      "comment": "CIA1 control register A (timer A run/IRQ)"
+    },
+    {
+      "name": "CIA1_CRB",
+      "kind": "variable",
+      "addr": "DC0F",
+      "bank": "chip",
+      "comment": "CIA1 control register B"
+    },
+    {
+      "name": "CIA2_PRA",
+      "kind": "variable",
+      "addr": "DD00",
+      "bank": "chip",
+      "comment": "CIA2 PRA \u2014 VIC bank select / serial"
+    },
+    {
+      "name": "CIA2_PRB",
+      "kind": "variable",
+      "addr": "DD01",
+      "bank": "chip",
+      "comment": "CIA2 PRB \u2014 user port / serial"
+    },
+    {
+      "name": "CIA2_DDRA",
+      "kind": "variable",
+      "addr": "DD02",
+      "bank": "chip",
+      "comment": "CIA2 DDRA"
+    },
+    {
+      "name": "CIA2_DDRB",
+      "kind": "variable",
+      "addr": "DD03",
+      "bank": "chip",
+      "comment": "CIA2 DDRB"
+    },
+    {
+      "name": "CIA2_TALO",
+      "kind": "variable",
+      "addr": "DD04",
+      "bank": "chip",
+      "comment": "CIA2 timer A lo"
+    },
+    {
+      "name": "CIA2_TAHI",
+      "kind": "variable",
+      "addr": "DD05",
+      "bank": "chip",
+      "comment": "CIA2 timer A hi"
+    },
+    {
+      "name": "CIA2_ICR",
+      "kind": "variable",
+      "addr": "DD0D",
+      "bank": "chip",
+      "comment": "CIA2 interrupt control register"
+    },
+    {
+      "name": "CIA2_CRA",
+      "kind": "variable",
+      "addr": "DD0E",
+      "bank": "chip",
+      "comment": "CIA2 control register A"
+    },
+    {
+      "name": "CIA2_CRB",
+      "kind": "variable",
+      "addr": "DD0F",
+      "bank": "chip",
+      "comment": "CIA2 control register B"
+    },
+    {
+      "name": "kernal_store_color",
+      "kind": "function",
+      "addr": "E4DA",
+      "end": "E4E0",
+      "bank": "kernal",
+      "comment": "KERNAL: store COLOR into color RAM via USER"
+    },
+    {
+      "name": "kernal_cint_init",
+      "kind": "function",
+      "addr": "E518",
+      "end": "E5B4",
+      "bank": "kernal",
+      "comment": "KERNAL CINT/screen-editor init body"
+    },
+    {
+      "name": "kernal_cint_screen_done",
+      "kind": "label",
+      "addr": "E598",
+      "bank": "kernal",
+      "comment": "KERNAL CINT screen init RTS (before set_def_devices tail)"
+    },
+    {
+      "name": "kernal_set_def_devices",
+      "kind": "label",
+      "addr": "E5A0",
+      "bank": "kernal",
+      "comment": "KERNAL: set DFLTN/DFLTO; copy default vector bytes"
+    },
+    {
+      "name": "kernal_vector_dispatch",
+      "kind": "function",
+      "addr": "E6A0",
+      "end": "E6B5",
+      "bank": "kernal",
+      "comment": "KERNAL indirect-vector / IRQ dispatch"
+    },
+    {
+      "name": "kernal_scr_line_attr",
+      "kind": "function",
+      "addr": "E9F0",
+      "end": "E9FE",
+      "bank": "kernal",
+      "comment": "KERNAL: build screen line address and color attribute"
+    },
+    {
+      "name": "kernal_scr_fill_line",
+      "kind": "function",
+      "addr": "E9FF",
+      "end": "EA30",
+      "bank": "kernal",
+      "comment": "KERNAL: fill one screen line with spaces"
+    },
+    {
+      "name": "kernal_set_user_ptr",
+      "kind": "label",
+      "addr": "EA24",
+      "bank": "kernal",
+      "comment": "KERNAL: set USER ($F3/$F4) from PNT/D2"
+    },
+    {
+      "name": "kernal_irq_exit",
+      "kind": "label",
+      "addr": "EA31",
+      "bank": "kernal",
+      "comment": "KERNAL IRQ exit (calls UDTIM; tails from game irq_game)"
+    },
+    {
+      "name": "kernal_irq_path",
+      "kind": "function",
+      "addr": "EA32",
+      "end": "EB48",
+      "bank": "kernal",
+      "comment": "KERNAL IRQ keyboard/VIC restore path (after irq_exit)"
+    },
+    {
+      "name": "kernal_irq_rti",
+      "kind": "label",
+      "addr": "EA79",
+      "bank": "kernal",
+      "comment": "KERNAL IRQ: restore 6510 port and RTI"
+    },
+    {
+      "name": "kernal_irq_clear_shflag",
+      "kind": "label",
+      "addr": "EA87",
+      "bank": "kernal",
+      "comment": "KERNAL IRQ: clear SHFLAG; keyboard/CIA poll"
+    },
+    {
+      "name": "kernal_irq_vic_restore",
+      "kind": "label",
+      "addr": "EB26",
+      "bank": "kernal",
+      "comment": "KERNAL IRQ: restore VIC bank and SHFLAG copy"
+    },
+    {
+      "name": "kernal_irq_unmask_cia",
+      "kind": "label",
+      "addr": "EB42",
+      "bank": "kernal",
+      "comment": "KERNAL IRQ: unmask CIA1 keyboard columns"
+    },
+    {
+      "name": "kernal_default_vectors",
+      "kind": "blob",
+      "addr": "EC00",
+      "end": "EC08",
+      "bank": "kernal",
+      "comment": "KERNAL default vector table fragment"
+    },
+    {
+      "name": "kernal_vector_src",
+      "kind": "blob",
+      "addr": "ECB9",
+      "end": "ECE7",
+      "bank": "kernal",
+      "comment": "KERNAL source bytes copied by RESTOR/CINT"
+    },
+    {
+      "name": "kernal_scr_line_tbl",
+      "kind": "blob",
+      "addr": "ECF0",
+      "end": "ED08",
+      "bank": "kernal",
+      "comment": "KERNAL screen line attribute table ($E9F0)"
+    },
+    {
+      "name": "kernal_dd00_vic_bank",
+      "kind": "function",
+      "addr": "EE8E",
+      "end": "EE97",
+      "bank": "kernal",
+      "comment": "KERNAL: set VIC memory bank via CIA2 $DD00"
+    },
+    {
+      "name": "kernal_rs232_break_wait",
+      "kind": "label",
+      "addr": "EEEC",
+      "bank": "kernal",
+      "comment": "KERNAL RS-232 break / timing loop branch"
+    },
+    {
+      "name": "kernal_udtim",
+      "kind": "function",
+      "addr": "F69B",
+      "end": "F6FF",
+      "bank": "kernal",
+      "comment": "KERNAL UDTIM body \u2014 increment jiffy clock TIME (+ keyboard poll)"
+    },
+    {
+      "name": "kernal_poll_keyboard",
+      "kind": "label",
+      "addr": "F6BC",
+      "bank": "kernal",
+      "comment": "KERNAL: debounced keyboard read into STKEY"
+    },
+    {
+      "name": "kernal_restore_vectors",
+      "kind": "function",
+      "addr": "FD15",
+      "end": "FD4F",
+      "bank": "kernal",
+      "comment": "KERNAL RESTOR body \u2014 swap in default vectors at $0314"
+    },
+    {
+      "name": "kernal_ioinit",
+      "kind": "function",
+      "addr": "FDA3",
+      "end": "FDEB",
+      "bank": "kernal",
+      "comment": "KERNAL IOINIT body \u2014 init CIA/SID/6510 port"
+    },
+    {
+      "name": "kernal_ioinit_timer",
+      "kind": "label",
+      "addr": "FDDD",
+      "bank": "kernal",
+      "comment": "KERNAL IOINIT: CIA timer A setup tail"
+    },
+    {
+      "name": "kernal_ioinit_ciab",
+      "kind": "function",
+      "addr": "FDF3",
+      "end": "FDF8",
+      "bank": "kernal",
+      "comment": "KERNAL IOINIT: STA CIA1 timer A hi; JMP $FF6E"
+    },
+    {
+      "name": "kernal_romirq",
+      "kind": "function",
+      "addr": "FF48",
+      "end": "FF7F",
+      "bank": "kernal",
+      "comment": "KERNAL ROM IRQ dispatch + CINT timer path"
+    },
+    {
+      "name": "kernal_irq_dispatch",
+      "kind": "label",
+      "addr": "FF58",
+      "bank": "kernal",
+      "comment": "KERNAL: JMP (CINV) IRQ dispatch"
+    },
+    {
+      "name": "kernal_cint_entry",
+      "kind": "label",
+      "addr": "FF5B",
+      "bank": "kernal",
+      "comment": "KERNAL CINT body entry (jumped from $FF81)"
+    },
+    {
+      "name": "kernal_start_ciab_timer",
+      "kind": "label",
+      "addr": "FF6E",
+      "bank": "kernal",
+      "comment": "KERNAL: start CIA1 timer A for 60 Hz IRQ"
+    },
+    {
+      "name": "CINT",
+      "kind": "function",
+      "addr": "FF81",
+      "end": "FF83",
+      "bank": "kernal",
+      "comment": "KERNAL jump: initialize screen editor"
+    },
+    {
+      "name": "IOINIT",
+      "kind": "function",
+      "addr": "FF84",
+      "end": "FF86",
+      "bank": "kernal",
+      "comment": "KERNAL jump: initialize I/O chips"
+    },
+    {
+      "name": "RAMTAS",
+      "kind": "label",
+      "addr": "FF87",
+      "bank": "kernal",
+      "comment": "KERNAL jump: RAM test; set MEMSTR/MEMSIZ/HIBASE"
+    },
+    {
+      "name": "RESTOR",
+      "kind": "function",
+      "addr": "FF8A",
+      "end": "FF8C",
+      "bank": "kernal",
+      "comment": "KERNAL jump: restore default I/O vectors"
+    },
+    {
+      "name": "VECTOR",
+      "kind": "label",
+      "addr": "FF8D",
+      "bank": "kernal",
+      "comment": "KERNAL jump: read/set RAM vector table"
+    },
+    {
+      "name": "SETMSG",
+      "kind": "label",
+      "addr": "FF90",
+      "bank": "kernal",
+      "comment": "KERNAL jump: control KERNAL message output"
+    },
+    {
+      "name": "SECOND",
+      "kind": "label",
+      "addr": "FF93",
+      "bank": "kernal",
+      "comment": "KERNAL jump: send secondary address after LISTEN"
+    },
+    {
+      "name": "TKSA",
+      "kind": "label",
+      "addr": "FF96",
+      "bank": "kernal",
+      "comment": "KERNAL jump: send secondary address after TALK"
+    },
+    {
+      "name": "MEMTOP",
+      "kind": "label",
+      "addr": "FF99",
+      "bank": "kernal",
+      "comment": "KERNAL jump: read/set top of memory"
+    },
+    {
+      "name": "MEMBOT",
+      "kind": "label",
+      "addr": "FF9C",
+      "bank": "kernal",
+      "comment": "KERNAL jump: read/set bottom of memory"
+    },
+    {
+      "name": "SCNKEY",
+      "kind": "label",
+      "addr": "FF9F",
+      "bank": "kernal",
+      "comment": "KERNAL jump: scan keyboard"
+    },
+    {
+      "name": "SETTMO",
+      "kind": "label",
+      "addr": "FFA2",
+      "bank": "kernal",
+      "comment": "KERNAL jump: set serial-bus timeout"
+    },
+    {
+      "name": "ACPTR",
+      "kind": "label",
+      "addr": "FFA5",
+      "bank": "kernal",
+      "comment": "KERNAL jump: input byte from serial bus"
+    },
+    {
+      "name": "CIOUT",
+      "kind": "label",
+      "addr": "FFA8",
+      "bank": "kernal",
+      "comment": "KERNAL jump: output byte to serial bus"
+    },
+    {
+      "name": "UNTLK",
+      "kind": "label",
+      "addr": "FFAB",
+      "bank": "kernal",
+      "comment": "KERNAL jump: serial bus UNTALK"
+    },
+    {
+      "name": "UNLSN",
+      "kind": "label",
+      "addr": "FFAE",
+      "bank": "kernal",
+      "comment": "KERNAL jump: serial bus UNLISTEN"
+    },
+    {
+      "name": "LISTEN",
+      "kind": "label",
+      "addr": "FFB1",
+      "bank": "kernal",
+      "comment": "KERNAL jump: serial bus LISTEN"
+    },
+    {
+      "name": "TALK",
+      "kind": "label",
+      "addr": "FFB4",
+      "bank": "kernal",
+      "comment": "KERNAL jump: serial bus TALK"
+    },
+    {
+      "name": "READST",
+      "kind": "label",
+      "addr": "FFB7",
+      "bank": "kernal",
+      "comment": "KERNAL jump: read I/O status word ST"
+    },
+    {
+      "name": "SETLFS",
+      "kind": "label",
+      "addr": "FFBA",
+      "bank": "kernal",
+      "comment": "KERNAL jump: set logical file, device, secondary addr"
+    },
+    {
+      "name": "SETNAM",
+      "kind": "label",
+      "addr": "FFBD",
+      "bank": "kernal",
+      "comment": "KERNAL jump: set filename pointer/length"
+    },
+    {
+      "name": "OPEN",
+      "kind": "label",
+      "addr": "FFC0",
+      "bank": "kernal",
+      "comment": "KERNAL jump: open logical file"
+    },
+    {
+      "name": "CLOSE",
+      "kind": "label",
+      "addr": "FFC3",
+      "bank": "kernal",
+      "comment": "KERNAL jump: close logical file"
+    },
+    {
+      "name": "CHKIN",
+      "kind": "label",
+      "addr": "FFC6",
+      "bank": "kernal",
+      "comment": "KERNAL jump: open channel for input"
+    },
+    {
+      "name": "CHKOUT",
+      "kind": "label",
+      "addr": "FFC9",
+      "bank": "kernal",
+      "comment": "KERNAL jump: open channel for output"
+    },
+    {
+      "name": "CLRCHN",
+      "kind": "label",
+      "addr": "FFCC",
+      "bank": "kernal",
+      "comment": "KERNAL jump: restore default I/O channels"
+    },
+    {
+      "name": "CHRIN",
+      "kind": "label",
+      "addr": "FFCF",
+      "bank": "kernal",
+      "comment": "KERNAL jump: input char from current channel"
+    },
+    {
+      "name": "CHROUT",
+      "kind": "label",
+      "addr": "FFD2",
+      "bank": "kernal",
+      "comment": "KERNAL jump: output char in A to current channel"
+    },
+    {
+      "name": "LOAD",
+      "kind": "label",
+      "addr": "FFD5",
+      "bank": "kernal",
+      "comment": "KERNAL jump: load/verify RAM from device"
+    },
+    {
+      "name": "SAVE",
+      "kind": "label",
+      "addr": "FFD8",
+      "bank": "kernal",
+      "comment": "KERNAL jump: save RAM to device"
+    },
+    {
+      "name": "SETTIM",
+      "kind": "label",
+      "addr": "FFDB",
+      "bank": "kernal",
+      "comment": "KERNAL jump: set jiffy clock TIME"
+    },
+    {
+      "name": "RDTIM",
+      "kind": "label",
+      "addr": "FFDE",
+      "bank": "kernal",
+      "comment": "KERNAL jump: read jiffy clock TIME"
+    },
+    {
+      "name": "STOP",
+      "kind": "label",
+      "addr": "FFE1",
+      "bank": "kernal",
+      "comment": "KERNAL jump: test STOP key (Z=1 if pressed)"
+    },
+    {
+      "name": "GETIN",
+      "kind": "label",
+      "addr": "FFE4",
+      "bank": "kernal",
+      "comment": "KERNAL jump: get char from keyboard queue"
+    },
+    {
+      "name": "CLALL",
+      "kind": "label",
+      "addr": "FFE7",
+      "bank": "kernal",
+      "comment": "KERNAL jump: close all files and channels"
+    },
+    {
+      "name": "UDTIM",
+      "kind": "function",
+      "addr": "FFEA",
+      "end": "FFEC",
+      "bank": "kernal",
+      "comment": "KERNAL jump: increment jiffy clock (IRQ)"
+    },
+    {
+      "name": "SCREEN",
+      "kind": "label",
+      "addr": "FFED",
+      "bank": "kernal",
+      "comment": "KERNAL jump: return screen X/Y organization"
+    },
+    {
+      "name": "PLOT",
+      "kind": "label",
+      "addr": "FFF0",
+      "bank": "kernal",
+      "comment": "KERNAL jump: read/set cursor X,Y position"
+    },
+    {
+      "name": "IOBASE",
+      "kind": "label",
+      "addr": "FFF3",
+      "bank": "kernal",
+      "comment": "KERNAL jump: base address of I/O devices in X/Y"
+    },
+    {
+      "name": "kernal_hw_vectors",
+      "kind": "blob",
+      "addr": "FFFE",
+      "end": "FFFF",
+      "bank": "kernal",
+      "comment": "6510 hardware IRQ/BRK vector word"
+    },
+    {
+      "name": "STATUS",
+      "kind": "variable",
+      "addr": "0090",
+      "comment": "KERNAL I/O status word ST"
+    },
+    {
+      "name": "STKEY",
+      "kind": "variable",
+      "addr": "0091",
+      "comment": "KERNAL STOP key flag ($7F = STOP pressed)"
+    },
+    {
+      "name": "SVXT",
+      "kind": "variable",
+      "addr": "0092",
+      "comment": "KERNAL tape timing constant"
+    },
+    {
+      "name": "DFLTN",
+      "kind": "variable",
+      "addr": "0099",
+      "comment": "KERNAL default input device (0 = keyboard)"
+    },
+    {
+      "name": "DFLTO",
+      "kind": "variable",
+      "addr": "009A",
+      "comment": "KERNAL default output device (3 = screen)"
+    },
+    {
+      "name": "MSGFLG",
+      "kind": "variable",
+      "addr": "009D",
+      "comment": "KERNAL error-message flag ($00 program, $40 KERNAL only, $80 direct)"
+    },
+    {
+      "name": "TIME",
+      "kind": "variable",
+      "addr": "00A0",
+      "end": "00A2",
+      "comment": "KERNAL jiffy clock (1/60 s; updated by UDTIM)"
+    },
+    {
+      "name": "INBIT",
+      "kind": "variable",
+      "addr": "00A7",
+      "comment": "KERNAL RS-232 / tape bit temp"
+    },
+    {
+      "name": "RINONE",
+      "kind": "variable",
+      "addr": "00A9",
+      "comment": "KERNAL RS-232 start-bit check flag"
+    },
+    {
+      "name": "RIDATA",
+      "kind": "variable",
+      "addr": "00AA",
+      "comment": "KERNAL RS-232 input byte buffer"
+    },
+    {
+      "name": "CAS1",
+      "kind": "variable",
+      "addr": "00C0",
+      "comment": "KERNAL cassette motor interlock"
+    },
+    {
+      "name": "STAL",
+      "kind": "variable",
+      "addr": "00C1",
+      "end": "00C2",
+      "comment": "KERNAL I/O start address (LOAD/tape)"
+    },
+    {
+      "name": "MEMUSS",
+      "kind": "variable",
+      "addr": "00C3",
+      "end": "00C4",
+      "comment": "KERNAL tape/general pointer temp"
+    },
+    {
+      "name": "INDX",
+      "kind": "variable",
+      "addr": "00C8",
+      "end": "00C9",
+      "comment": "KERNAL end-of-line pointer for INPUT"
+    },
+    {
+      "name": "LXSP",
+      "kind": "variable",
+      "addr": "00C9",
+      "end": "00CA",
+      "comment": "KERNAL cursor X/Y at start of INPUT"
+    },
+    {
+      "name": "SFDX",
+      "kind": "variable",
+      "addr": "00CB",
+      "comment": "KERNAL print shifted characters flag"
+    },
+    {
+      "name": "BLNSW",
+      "kind": "variable",
+      "addr": "00CC",
+      "comment": "KERNAL cursor blink enable ($00 = on)"
+    },
+    {
+      "name": "BLNCT",
+      "kind": "variable",
+      "addr": "00CD",
+      "comment": "KERNAL cursor blink countdown"
+    },
+    {
+      "name": "GDBLN",
+      "kind": "variable",
+      "addr": "00CE",
+      "comment": "KERNAL character under inverted cursor"
+    },
+    {
+      "name": "BLNON",
+      "kind": "variable",
+      "addr": "00CF",
+      "comment": "KERNAL cursor blink on/off state"
+    },
+    {
+      "name": "PNT",
+      "kind": "variable",
+      "addr": "00D1",
+      "end": "00D2",
+      "comment": "KERNAL pointer to current screen line"
+    },
+    {
+      "name": "PNTR",
+      "kind": "variable",
+      "addr": "00D3",
+      "comment": "KERNAL cursor column on current line"
+    },
+    {
+      "name": "LNMX",
+      "kind": "variable",
+      "addr": "00D5",
+      "comment": "KERNAL current logical line length (39 or 79)"
+    },
+    {
+      "name": "TBLX",
+      "kind": "variable",
+      "addr": "00D6",
+      "comment": "KERNAL current screen line number of cursor"
+    },
+    {
+      "name": "LDTB1",
+      "kind": "variable",
+      "addr": "00D9",
+      "end": "00F2",
+      "comment": "KERNAL screen line link table / editor temps"
+    },
+    {
+      "name": "USER",
+      "kind": "variable",
+      "addr": "00F3",
+      "end": "00F4",
+      "comment": "KERNAL pointer to current color RAM location"
+    },
+    {
+      "name": "MEMSTR",
+      "kind": "variable",
+      "addr": "0281",
+      "end": "0282",
+      "comment": "KERNAL bottom-of-memory pointer ($0800)"
+    },
+    {
+      "name": "MEMSIZ",
+      "kind": "variable",
+      "addr": "0283",
+      "end": "0284",
+      "comment": "KERNAL top-of-memory pointer ($A000)"
+    },
+    {
+      "name": "COLOR",
+      "kind": "variable",
+      "addr": "0286",
+      "comment": "KERNAL current text color code"
+    },
+    {
+      "name": "HIBASE",
+      "kind": "variable",
+      "addr": "0288",
+      "comment": "KERNAL screen memory page (hi byte; $04 = $0400)"
+    },
+    {
+      "name": "XMAX",
+      "kind": "variable",
+      "addr": "0289",
+      "comment": "KERNAL keyboard buffer size"
+    },
+    {
+      "name": "RPTFLG",
+      "kind": "variable",
+      "addr": "028A",
+      "comment": "KERNAL key repeat mode flag"
+    },
+    {
+      "name": "KOUNT",
+      "kind": "variable",
+      "addr": "028B",
+      "comment": "KERNAL repeat-key speed counter"
+    },
+    {
+      "name": "DELAY",
+      "kind": "variable",
+      "addr": "028C",
+      "comment": "KERNAL repeat-key initial delay counter"
+    },
+    {
+      "name": "SHFLAG",
+      "kind": "variable",
+      "addr": "028D",
+      "comment": "KERNAL shift/Ctrl/C= key state (game IRQ reads)"
+    },
+    {
+      "name": "LSTSHF",
+      "kind": "variable",
+      "addr": "028E",
+      "comment": "KERNAL last keyboard shift pattern"
+    },
+    {
+      "name": "KEYLOG",
+      "kind": "variable",
+      "addr": "028F",
+      "end": "0290",
+      "comment": "KERNAL keyboard-table setup vector"
+    },
+    {
+      "name": "MODE",
+      "kind": "variable",
+      "addr": "0291",
+      "comment": "KERNAL upper/lower-case shift flag ($80 = enabled)"
+    },
+    {
+      "name": "AUTODN",
+      "kind": "variable",
+      "addr": "0292",
+      "comment": "KERNAL auto-scroll-down flag"
+    },
+    {
+      "name": "TVSFLG",
+      "kind": "variable",
+      "addr": "02A6",
+      "comment": "KERNAL TV standard flag ($00 NTSC, $01 PAL; set in CINT)"
+    },
+    {
+      "name": "CINV",
+      "kind": "variable",
+      "addr": "0314",
+      "end": "0315",
+      "comment": "KERNAL hardware IRQ vector ($EA31 default)"
+    },
+    {
+      "name": "CBINV",
+      "kind": "variable",
+      "addr": "0316",
+      "end": "0317",
+      "comment": "KERNAL BRK instruction vector"
+    },
+    {
+      "name": "NMINV",
+      "kind": "variable",
+      "addr": "0318",
+      "end": "0319",
+      "comment": "KERNAL NMI vector ($FE47 default)"
+    }
+  ]
+}

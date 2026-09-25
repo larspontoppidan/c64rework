@@ -1,0 +1,477 @@
+// Created  : 2026-07-20
+// Author   : Lars Ole Pontoppidan
+// Project  : REVM - C64rework
+
+#include "goldens/CompareReport.hpp"
+#include "snapshot/ChipIo.hpp"
+
+#include <algorithm>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <vector>
+#define REVM_LOG_MODULE "compare"
+#include "util/Log.hpp"
+
+namespace fs = std::filesystem;
+
+namespace revm {
+
+void IgnoreTally::LogLine(const char * module, const char * label) const {
+	REVM_LOG_M(module, REVM_DEBUG, "%s: compared=%llu failed=%llu", label,
+	           static_cast<unsigned long long>(compared),
+	           static_cast<unsigned long long>(failed));
+}
+
+namespace {
+
+// Pepto palette (same as Frodo Display.cpp default)
+constexpr uint8_t kPeptoR[16] = {
+	0x00, 0xff, 0x86, 0x4c, 0x88, 0x35, 0x20, 0xcf, 0x88, 0x40, 0xcb, 0x34, 0x68, 0x8b, 0x68, 0xa1
+};
+constexpr uint8_t kPeptoG[16] = {
+	0x00, 0xff, 0x19, 0xc1, 0x17, 0xac, 0x07, 0xf2, 0x3e, 0x2a, 0x55, 0x34, 0x68, 0xff, 0x4a, 0xa1
+};
+constexpr uint8_t kPeptoB[16] = {
+	0x00, 0xff, 0x01, 0xe3, 0xbd, 0x0a, 0xc0, 0x2d, 0x00, 0x00, 0x37, 0x34, 0x68, 0x59, 0xff, 0xa1
+};
+
+bool excluded(const RamCompareMask & mask, uint16_t addr) {
+	for (const auto & r : mask.Ranges()) {
+		if (addr >= r.lo && addr <= r.hi) return true;
+	}
+	return false;
+}
+
+template <typename T>
+void field_u8(FILE * out, const char * name, T e, T a) {
+	if (e != a) {
+		std::fprintf(out, "    %-12s  expected=$%02X  actual=$%02X\n", name,
+		             unsigned(e) & 0xff, unsigned(a) & 0xff);
+	}
+}
+
+template <typename T>
+void field_u16(FILE * out, const char * name, T e, T a) {
+	if (e != a) {
+		std::fprintf(out, "    %-12s  expected=$%04X  actual=$%04X\n", name,
+		             unsigned(e) & 0xffff, unsigned(a) & 0xffff);
+	}
+}
+
+void field_bool(FILE * out, const char * name, bool e, bool a) {
+	if (e != a) {
+		std::fprintf(out, "    %-12s  expected=%s  actual=%s\n", name,
+		             e ? "true" : "false", a ? "true" : "false");
+	}
+}
+
+void print_vic_diff(FILE * out, const MOS6569State & e, const MOS6569State & a) {
+	if (PublicVicIoEqual(e, a)) return;
+	std::fprintf(out, "  VIC public I/O diffs:\n");
+	field_u8(out, "m0x", e.m0x, a.m0x);
+	field_u8(out, "m0y", e.m0y, a.m0y);
+	field_u8(out, "m1x", e.m1x, a.m1x);
+	field_u8(out, "m1y", e.m1y, a.m1y);
+	field_u8(out, "m2x", e.m2x, a.m2x);
+	field_u8(out, "m2y", e.m2y, a.m2y);
+	field_u8(out, "m3x", e.m3x, a.m3x);
+	field_u8(out, "m3y", e.m3y, a.m3y);
+	field_u8(out, "m4x", e.m4x, a.m4x);
+	field_u8(out, "m4y", e.m4y, a.m4y);
+	field_u8(out, "m5x", e.m5x, a.m5x);
+	field_u8(out, "m5y", e.m5y, a.m5y);
+	field_u8(out, "m6x", e.m6x, a.m6x);
+	field_u8(out, "m6y", e.m6y, a.m6y);
+	field_u8(out, "m7x", e.m7x, a.m7x);
+	field_u8(out, "m7y", e.m7y, a.m7y);
+	field_u8(out, "mx8", e.mx8, a.mx8);
+	field_u8(out, "ctrl1", e.ctrl1, a.ctrl1);
+	field_u8(out, "raster", e.raster, a.raster);
+	field_u8(out, "lpx", e.lpx, a.lpx);
+	field_u8(out, "lpy", e.lpy, a.lpy);
+	field_u8(out, "me", e.me, a.me);
+	field_u8(out, "ctrl2", e.ctrl2, a.ctrl2);
+	field_u8(out, "mye", e.mye, a.mye);
+	field_u8(out, "vbase", e.vbase, a.vbase);
+	field_u8(out, "irq_flag", e.irq_flag, a.irq_flag);
+	field_u8(out, "irq_mask", e.irq_mask, a.irq_mask);
+	field_u8(out, "mdp", e.mdp, a.mdp);
+	field_u8(out, "mmc", e.mmc, a.mmc);
+	field_u8(out, "mxe", e.mxe, a.mxe);
+	field_u8(out, "mm", e.mm, a.mm);
+	field_u8(out, "md", e.md, a.md);
+	field_u8(out, "ec", e.ec, a.ec);
+	field_u8(out, "b0c", e.b0c, a.b0c);
+	field_u8(out, "b1c", e.b1c, a.b1c);
+	field_u8(out, "b2c", e.b2c, a.b2c);
+	field_u8(out, "b3c", e.b3c, a.b3c);
+	field_u8(out, "mm0", e.mm0, a.mm0);
+	field_u8(out, "mm1", e.mm1, a.mm1);
+	field_u8(out, "m0c", e.m0c, a.m0c);
+	field_u8(out, "m1c", e.m1c, a.m1c);
+	field_u8(out, "m2c", e.m2c, a.m2c);
+	field_u8(out, "m3c", e.m3c, a.m3c);
+	field_u8(out, "m4c", e.m4c, a.m4c);
+	field_u8(out, "m5c", e.m5c, a.m5c);
+	field_u8(out, "m6c", e.m6c, a.m6c);
+	field_u8(out, "m7c", e.m7c, a.m7c);
+	field_u16(out, "irq_raster", e.irq_raster, a.irq_raster);
+}
+
+void print_sid_diff(FILE * out, const MOS6581State & e, const MOS6581State & a) {
+	if (PublicSidIoEqual(e, a)) return;
+	std::fprintf(out, "  SID public I/O diffs:\n");
+	field_u8(out, "freq_lo_1", e.freq_lo_1, a.freq_lo_1);
+	field_u8(out, "freq_hi_1", e.freq_hi_1, a.freq_hi_1);
+	field_u8(out, "pw_lo_1", e.pw_lo_1, a.pw_lo_1);
+	field_u8(out, "pw_hi_1", e.pw_hi_1, a.pw_hi_1);
+	field_u8(out, "ctrl_1", e.ctrl_1, a.ctrl_1);
+	field_u8(out, "AD_1", e.AD_1, a.AD_1);
+	field_u8(out, "SR_1", e.SR_1, a.SR_1);
+	field_u8(out, "freq_lo_2", e.freq_lo_2, a.freq_lo_2);
+	field_u8(out, "freq_hi_2", e.freq_hi_2, a.freq_hi_2);
+	field_u8(out, "pw_lo_2", e.pw_lo_2, a.pw_lo_2);
+	field_u8(out, "pw_hi_2", e.pw_hi_2, a.pw_hi_2);
+	field_u8(out, "ctrl_2", e.ctrl_2, a.ctrl_2);
+	field_u8(out, "AD_2", e.AD_2, a.AD_2);
+	field_u8(out, "SR_2", e.SR_2, a.SR_2);
+	field_u8(out, "freq_lo_3", e.freq_lo_3, a.freq_lo_3);
+	field_u8(out, "freq_hi_3", e.freq_hi_3, a.freq_hi_3);
+	field_u8(out, "pw_lo_3", e.pw_lo_3, a.pw_lo_3);
+	field_u8(out, "pw_hi_3", e.pw_hi_3, a.pw_hi_3);
+	field_u8(out, "ctrl_3", e.ctrl_3, a.ctrl_3);
+	field_u8(out, "AD_3", e.AD_3, a.AD_3);
+	field_u8(out, "SR_3", e.SR_3, a.SR_3);
+	field_u8(out, "fc_lo", e.fc_lo, a.fc_lo);
+	field_u8(out, "fc_hi", e.fc_hi, a.fc_hi);
+	field_u8(out, "res_filt", e.res_filt, a.res_filt);
+	field_u8(out, "mode_vol", e.mode_vol, a.mode_vol);
+	field_u8(out, "pot_x", e.pot_x, a.pot_x);
+	field_u8(out, "pot_y", e.pot_y, a.pot_y);
+}
+
+void print_cia_diff(FILE * out, const char * label, const MOS6526State & e,
+                    const MOS6526State & a, bool compare_ifr) {
+	if (PublicCiaIoEqual(e, a, compare_ifr)) return;
+	std::fprintf(out, "  %s public I/O diffs:\n", label);
+	field_u8(out, "pra", e.pra, a.pra);
+	field_u8(out, "ddra", e.ddra, a.ddra);
+	field_u8(out, "prb", e.prb, a.prb);
+	field_u8(out, "ddrb", e.ddrb, a.ddrb);
+	field_u8(out, "ta_lo", e.ta_lo, a.ta_lo);
+	field_u8(out, "ta_hi", e.ta_hi, a.ta_hi);
+	field_u8(out, "tb_lo", e.tb_lo, a.tb_lo);
+	field_u8(out, "tb_hi", e.tb_hi, a.tb_hi);
+	field_u8(out, "tod_10ths", e.tod_10ths, a.tod_10ths);
+	field_u8(out, "tod_sec", e.tod_sec, a.tod_sec);
+	field_u8(out, "tod_min", e.tod_min, a.tod_min);
+	field_u8(out, "tod_hr", e.tod_hr, a.tod_hr);
+	field_u8(out, "sdr", e.sdr, a.sdr);
+	if (compare_ifr) field_u8(out, "int_flags", e.int_flags, a.int_flags);
+	field_u8(out, "cra", e.cra, a.cra);
+	field_u8(out, "crb", e.crb, a.crb);
+	field_u16(out, "ta_latch", e.ta_latch, a.ta_latch);
+	field_u16(out, "tb_latch", e.tb_latch, a.tb_latch);
+	field_u8(out, "ltc_10ths", e.ltc_10ths, a.ltc_10ths);
+	field_u8(out, "ltc_sec", e.ltc_sec, a.ltc_sec);
+	field_u8(out, "ltc_min", e.ltc_min, a.ltc_min);
+	field_u8(out, "ltc_hr", e.ltc_hr, a.ltc_hr);
+	field_u8(out, "alm_10ths", e.alm_10ths, a.alm_10ths);
+	field_u8(out, "alm_sec", e.alm_sec, a.alm_sec);
+	field_u8(out, "alm_min", e.alm_min, a.alm_min);
+	field_u8(out, "alm_hr", e.alm_hr, a.alm_hr);
+	field_u8(out, "int_mask", e.int_mask, a.int_mask);
+}
+
+} // namespace
+
+void PrintSidDiff(FILE * out, const MOS6581State & expected,
+                  const MOS6581State & actual) {
+	print_sid_diff(out, expected, actual);
+}
+
+size_t CollectMemDiffs(const uint8_t * expected, const uint8_t * actual, size_t size,
+                       const RamCompareMask & mask, size_t max_hits,
+                       std::vector<MemDiffHit> & out) {
+	out.clear();
+	if (!expected || !actual) return 0;
+	size_t total = 0;
+	const size_t n = std::min(size, size_t(0x10000));
+	for (size_t i = 0; i < n; ++i) {
+		if (expected[i] == actual[i]) continue;
+		const uint16_t addr = uint16_t(i);
+		if (excluded(mask, addr)) continue;
+		++total;
+		if (out.size() < max_hits) {
+			out.push_back({addr, expected[i], actual[i]});
+		}
+	}
+	return total;
+}
+
+void PrintMemDiffs(FILE * out, const char * label, const std::vector<MemDiffHit> & hits,
+                   size_t total) {
+	if (total == 0) return;
+	std::fprintf(out, "  %s: %zu byte(s) differ", label, total);
+	if (!hits.empty() && hits.size() < total) {
+		std::fprintf(out, " (showing first %zu)", hits.size());
+	}
+	std::fprintf(out, "\n");
+	for (const auto & h : hits) {
+		std::fprintf(out, "    $%04X  expected=$%02X  actual=$%02X\n", h.addr, h.expected,
+		             h.actual);
+	}
+}
+
+void PrintCpuDiff(FILE * out, const MOS6510State & e, const MOS6510State & a) {
+	if (std::memcmp(&e, &a, sizeof(MOS6510State)) == 0) return;
+	std::fprintf(out, "  CPU state diffs:\n");
+	field_u8(out, "A", e.a, a.a);
+	field_u8(out, "X", e.x, a.x);
+	field_u8(out, "Y", e.y, a.y);
+	field_u8(out, "P", e.p, a.p);
+	field_u16(out, "PC", e.pc, a.pc);
+	field_u16(out, "SP", e.sp, a.sp);
+	field_u8(out, "ddr", e.ddr, a.ddr);
+	field_u8(out, "pr", e.pr, a.pr);
+	field_u8(out, "pr_out", e.pr_out, a.pr_out);
+	field_bool(out, "irq_pending", e.irq_pending, a.irq_pending);
+	field_bool(out, "nmi_pending", e.nmi_pending, a.nmi_pending);
+	field_bool(out, "nmi_trig", e.nmi_triggered, a.nmi_triggered);
+	field_bool(out, "instr_done", e.instruction_complete, a.instruction_complete);
+	field_u8(out, "state", e.state, a.state);
+	field_u8(out, "op", e.op, a.op);
+	field_u16(out, "ar", e.ar, a.ar);
+	field_u16(out, "ar2", e.ar2, a.ar2);
+	field_u8(out, "rdbuf", e.rdbuf, a.rdbuf);
+	field_u8(out, "irq_delay", e.irq_delay, a.irq_delay);
+	field_u8(out, "irq_off_dly", e.irq_off_delay, a.irq_off_delay);
+	field_u8(out, "nmi_delay", e.nmi_delay, a.nmi_delay);
+	field_bool(out, "INT_VIC", e.int_line[0], a.int_line[0]);
+	field_bool(out, "INT_CIA", e.int_line[1], a.int_line[1]);
+	field_bool(out, "INT_NMI", e.int_line[2], a.int_line[2]);
+}
+
+void PrintPublicChipIoDiff(FILE * out,
+                           const MOS6569State & vic_e, const MOS6569State & vic_a,
+                           const MOS6581State & sid_e, const MOS6581State & sid_a,
+                           const MOS6526State & cia1_e, const MOS6526State & cia1_a,
+                           const MOS6526State & cia2_e, const MOS6526State & cia2_a,
+                           bool compare_sid, bool compare_cia_ifr) {
+	print_vic_diff(out, vic_e, vic_a);
+	if (compare_sid) {
+		print_sid_diff(out, sid_e, sid_a);
+	} else {
+		std::fprintf(out, "  SID compare: skipped\n");
+	}
+	print_cia_diff(out, "CIA1", cia1_e, cia1_a, compare_cia_ifr);
+	print_cia_diff(out, "CIA2", cia2_e, cia2_a, compare_cia_ifr);
+}
+
+void PrintPublicVicIoDiff(FILE * out, const MOS6569State & expected,
+                          const MOS6569State & actual) {
+	print_vic_diff(out, expected, actual);
+}
+
+void PrintScreenDiff(FILE * out, const ScreenSnapshot & expected,
+                     const ScreenSnapshot & actual, size_t max_hits) {
+	std::fprintf(out, "  screen diffs (%ux%u palette indices):\n",
+	             ScreenSnapshot::kWidth, ScreenSnapshot::kHeight);
+	size_t shown = 0;
+	size_t total = 0;
+	for (size_t i = 0; i < ScreenSnapshot::kBytes; ++i) {
+		if (expected.pixels[i] == actual.pixels[i]) continue;
+		++total;
+		if (shown < max_hits) {
+			const unsigned x = unsigned(i % ScreenSnapshot::kWidth);
+			const unsigned y = unsigned(i / ScreenSnapshot::kWidth);
+			std::fprintf(out,
+			             "    (%u,%u)  expected=$%02X  actual=$%02X\n", x, y,
+			             unsigned(expected.pixels[i]), unsigned(actual.pixels[i]));
+			++shown;
+		}
+	}
+	if (total > shown) {
+		std::fprintf(out, "    … %zu more pixel(s)\n", total - shown);
+	}
+	std::fprintf(out, "  screen mismatch total: %zu pixel(s)\n", total);
+}
+
+void PrintFullCompareReport(FILE * out, uint32_t frame, uint32_t cycle, size_t snap_index,
+                            const FullSnapshot & expected, const FullSnapshot & actual,
+                            const RamCompareMask & ram_mask, bool compare_cpu,
+                            bool chip_stream_mismatch, bool compare_sid,
+                            bool compare_cia_ifr) {
+	std::fprintf(out,
+		"---- playback FAIL detail  frame=%u cycle=%u (snap #%zu) ----\n"
+		"  expected snap: cycle=%u frame=%u pc=$%04X\n"
+		"  actual:        cycle=%u frame=%u pc=$%04X\n",
+		frame, cycle, snap_index,
+		expected.cycle, expected.frame, expected.cpu.pc,
+		actual.cycle, actual.frame, actual.cpu.pc);
+
+	std::vector<MemDiffHit> hits;
+	size_t total = CollectMemDiffs(expected.ram, actual.ram, C64_RAM_SIZE, ram_mask, 32, hits);
+	PrintMemDiffs(out, "RAM", hits, total);
+
+	RamCompareMask no_excl;
+	hits.clear();
+	total = CollectMemDiffs(expected.color, actual.color, COLOR_RAM_SIZE, no_excl, 16, hits);
+	PrintMemDiffs(out, "color RAM", hits, total);
+
+	if (compare_cpu) {
+		PrintCpuDiff(out, expected.cpu, actual.cpu);
+	} else {
+		std::fprintf(out, "  CPU compare: skipped\n");
+	}
+
+	PrintPublicChipIoDiff(out, expected.vic, actual.vic, expected.sid, actual.sid,
+	                      expected.cia1, actual.cia1, expected.cia2, actual.cia2,
+	                      compare_sid, compare_cia_ifr);
+	if (chip_stream_mismatch) {
+		std::fprintf(out, "  (chip I/O stream also mismatched — same public fields)\n");
+	}
+	std::fprintf(out, "---- end FAIL detail ----\n");
+}
+
+bool WriteFailDumpPair(const std::string & dir, uint32_t frame, size_t snap_index,
+                       const FullSnapshot & expected, const FullSnapshot & actual,
+                       const std::string & report_text, std::string & error) {
+	std::error_code ec;
+	fs::create_directories(dir, ec);
+	if (ec) {
+		error = "cannot create dump dir: " + dir;
+		return false;
+	}
+
+	char base[128];
+	std::snprintf(base, sizeof(base), "fail_f%06u_s%zu", frame, snap_index);
+	const fs::path root = fs::path(dir) / base;
+	const std::string exp_path = root.string() + "_expected.bin";
+	const std::string act_path = root.string() + "_actual.bin";
+	const std::string rpt_path = root.string() + "_report.txt";
+
+	{
+		std::ofstream f(exp_path, std::ios::binary);
+		if (!f) {
+			error = "cannot write " + exp_path;
+			return false;
+		}
+		f.write(reinterpret_cast<const char *>(&expected), sizeof(expected));
+	}
+	{
+		std::ofstream f(act_path, std::ios::binary);
+		if (!f) {
+			error = "cannot write " + act_path;
+			return false;
+		}
+		f.write(reinterpret_cast<const char *>(&actual), sizeof(actual));
+	}
+	{
+		std::ofstream f(rpt_path);
+		if (!f) {
+			error = "cannot write " + rpt_path;
+			return false;
+		}
+		f << report_text;
+	}
+
+	REVM_LOG(REVM_DEBUG, "dump-fail → %s_{expected,actual}.bin + _report.txt",
+	             root.string().c_str());
+	return true;
+}
+
+namespace {
+
+void screen_to_rgb24(const ScreenSnapshot & screen, std::vector<uint8_t> & rgb_out) {
+	rgb_out.resize(ScreenSnapshot::kBytes * 3);
+	for (size_t i = 0; i < ScreenSnapshot::kBytes; ++i) {
+		const uint8_t color = screen.pixels[i] & 0x0f;
+		rgb_out[i * 3 + 0] = kPeptoR[color];
+		rgb_out[i * 3 + 1] = kPeptoG[color];
+		rgb_out[i * 3 + 2] = kPeptoB[color];
+	}
+}
+
+bool write_ppm_rgb(const std::string & path, unsigned w, unsigned h,
+                   const uint8_t * rgb, std::string & error) {
+	std::ofstream f(path, std::ios::binary);
+	if (!f) {
+		error = "cannot write " + path;
+		return false;
+	}
+	f << "P6\n" << w << " " << h << "\n255\n";
+	f.write(reinterpret_cast<const char *>(rgb), std::streamsize(w * h * 3));
+	if (!f) {
+		error = "write failed: " + path;
+		return false;
+	}
+	return true;
+}
+
+} // namespace
+
+bool WriteScreenFailImages(const std::string & dir, uint32_t frame,
+                           const ScreenSnapshot & expected,
+                           const ScreenSnapshot & actual, std::string & error) {
+	std::error_code ec;
+	fs::create_directories(dir, ec);
+	if (ec) {
+		error = "cannot create dump dir: " + dir;
+		return false;
+	}
+
+	char base[128];
+	std::snprintf(base, sizeof(base), "fail_f%06u", frame);
+	const fs::path root = fs::path(dir) / base;
+	const std::string exp_path = root.string() + "_expected.ppm";
+	const std::string act_path = root.string() + "_actual.ppm";
+	const std::string diff_path = root.string() + "_diff.ppm";
+
+	std::vector<uint8_t> exp_rgb;
+	std::vector<uint8_t> act_rgb;
+	screen_to_rgb24(expected, exp_rgb);
+	screen_to_rgb24(actual, act_rgb);
+
+	std::vector<uint8_t> diff_rgb(exp_rgb.size());
+	for (size_t i = 0; i < ScreenSnapshot::kBytes; ++i) {
+		if (expected.pixels[i] == actual.pixels[i]) {
+			diff_rgb[i * 3 + 0] = exp_rgb[i * 3 + 0];
+			diff_rgb[i * 3 + 1] = exp_rgb[i * 3 + 1];
+			diff_rgb[i * 3 + 2] = exp_rgb[i * 3 + 2];
+		} else {
+			// Hot magenta on mismatch — easy to spot next to Pepto colors.
+			diff_rgb[i * 3 + 0] = 0xff;
+			diff_rgb[i * 3 + 1] = 0x00;
+			diff_rgb[i * 3 + 2] = 0xff;
+		}
+	}
+
+	if (!write_ppm_rgb(exp_path, ScreenSnapshot::kWidth, ScreenSnapshot::kHeight,
+	                   exp_rgb.data(), error)) {
+		return false;
+	}
+	if (!write_ppm_rgb(act_path, ScreenSnapshot::kWidth, ScreenSnapshot::kHeight,
+	                   act_rgb.data(), error)) {
+		return false;
+	}
+	if (!write_ppm_rgb(diff_path, ScreenSnapshot::kWidth, ScreenSnapshot::kHeight,
+	                   diff_rgb.data(), error)) {
+		return false;
+	}
+
+	REVM_LOG(REVM_DEBUG, "screen dump → %s_{expected,actual,diff}.ppm",
+	             root.string().c_str());
+	return true;
+}
+
+bool WriteScreenPpm(const std::string & path, const ScreenSnapshot & screen,
+                    std::string & error) {
+	std::vector<uint8_t> rgb;
+	screen_to_rgb24(screen, rgb);
+	return write_ppm_rgb(path, ScreenSnapshot::kWidth, ScreenSnapshot::kHeight,
+	                     rgb.data(), error);
+}
+
+} // namespace revm

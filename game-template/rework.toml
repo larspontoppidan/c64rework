@@ -1,0 +1,5 @@
+game = "GameName"
+original_load = "game.prg"
+revm_root = "/path/to/c64rework"
+minimum_c64rework_version = "0.9.0"
+kb_json = "Stage2/gamename.kb.json"

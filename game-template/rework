@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+die() { echo "rework: $*" >&2; exit 2; }
+
+launcher="${BASH_SOURCE[0]}"
+[[ "$launcher" == */* ]] || launcher="$(command -v -- "$launcher")"
+GAME_ROOT="$(cd -- "$(dirname -- "$launcher")" && pwd -P)"
+MANIFEST="$GAME_ROOT/rework.toml"
+
+command -v python3 >/dev/null 2>&1 || die "python3 is required"
+[[ -f "$MANIFEST" ]] || die "missing $MANIFEST"
+
+REVM_ROOT="$(python3 - "$GAME_ROOT" "$MANIFEST" <<'PY'
+import os
+import re
+import sys
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    raise SystemExit("rework: Python 3.11 or newer is required")
+
+game_root, manifest = sys.argv[1:]
+with open(manifest, "rb") as stream:
+    data = tomllib.load(stream)
+
+for key in ("revm_root", "minimum_c64rework_version"):
+    value = data.get(key)
+    if not isinstance(value, str) or not value.strip() or "\n" in value:
+        raise SystemExit(
+            f"rework: rework.toml requires a non-empty one-line string '{key}'"
+        )
+
+framework = os.path.realpath(
+    data["revm_root"] if os.path.isabs(data["revm_root"])
+    else os.path.join(game_root, data["revm_root"])
+)
+version_file = os.path.join(framework, "VERSION")
+try:
+    with open(version_file, encoding="ascii") as stream:
+        actual = stream.read().strip()
+except OSError:
+    raise SystemExit(f"rework: configured framework has no VERSION file: {framework}")
+
+pattern = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
+required = data["minimum_c64rework_version"]
+if not pattern.fullmatch(required):
+    raise SystemExit(
+        f"rework: invalid minimum_c64rework_version '{required}'; expected MAJOR.MINOR.PATCH"
+    )
+if not pattern.fullmatch(actual):
+    raise SystemExit(f"rework: invalid framework VERSION '{actual}' in {version_file}")
+
+def parts(version):
+    return tuple(map(int, version.split(".")))
+
+if parts(actual) < parts(required):
+    raise SystemExit(
+        f"rework: this game requires C64 Rework >= {required}\n"
+        f"rework: configured framework is {actual}: {framework}\n"
+        "rework: update the framework or select a newer revm_root"
+    )
+
+print(framework)
+PY
+)"
+
+implementation="$REVM_ROOT/scripts/rework"
+[[ -x "$implementation" ]] || die "framework launcher is missing or not executable: $implementation"
+exec "$implementation" --game-root "$GAME_ROOT" "$@"
