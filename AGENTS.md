@@ -17,3 +17,6 @@ to work on revm. Always use the game folder's `rework` script to build revm.
 Having a game with an advanced state provides the best vehicle to work on revm,
 as plays there can be used as test gates.
 
+When modifying files in revm source files, remember to check if it affects the
+hashes in standalone/OWNERSHIP.toml. From a game folder, run ./rework selftest
+to verify.

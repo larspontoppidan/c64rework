@@ -1,18 +1,20 @@
 
 # Stage 1 — BEGIN and plays
 
-Record a draft find-BEGIN play from the cold PRG. Play through the loader.
-Press F9 when the real game first becomes visible. The printed cycle/frame is
-a draft upper bound because the key was pressed after the true game entry.
-Quit cleanly so the play JSON is finalized.
+Ask user to record a play from the cold PRG that reaches the true beginning 
+of the game. At that point user must press F9 to record a timestamp. The 
+captured cycle/frame is a draft upper of bound of BEGIN because the key was
+pressed somewhat after the true game entry. The timestamp can be seen in
+terminal and in the play json file. Quit revm cleanly so the json is correctly
+stored.
 
 ```bash
 ./rework play-game original --record-play plays/find-begin.json
 ```
 
-Inspect the draft and locate the stable entry PC after the loader/decruncher.
-Probe a candidate during deterministic replay (`test-play` is already
-headless):
+Inspect memory snapshot at the timestamp and locate the stable entry PC after 
+the loader/decruncher. Probe a candidate during deterministic replay 
+(`test-play` is already headless):
 
 ```bash
 DRAFT_CYCLE=12345678

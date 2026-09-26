@@ -183,7 +183,7 @@ reason = "Standalone VIC removes its stale cartridge reference while preserving 
 
 [[forked]]
 path = "apps/revm/main.cpp"
-base_sha256 = "9c7ee8f6cf4044a5247b94a04f5911e60012a0a2e5feead8a169d496f0539bcf"
+base_sha256 = "ed090926f99e2e8c8a1080c6a2f5bfb02c97576ce78b06868903571011b39e3e"
 reason = "Standalone entry point omits REVM CLI, oracle, Twin, and analysis startup; launch uses StandaloneRunner and one SidMode for interactive play, --record-play, and replay. Prints a live key sheet (including Ctrl+F9) on windowed launches. --save-screen FRAME FILE is retained."
 
 [[forked]]

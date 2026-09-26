@@ -129,7 +129,7 @@ void print_usage(const char * argv0) {
 		"\n"
 		"Snapshot hash = sha256sum of FullSnapshot .bin (entire POD).\n"
 		"F12 or Ctrl+C quits cleanly (finalizes play / media).\n",
-		argv0, argv0, argv0, argv0, argv0, argv0);
+		argv0);
 }
 
 std::string exe_dir(const char * argv0) {
