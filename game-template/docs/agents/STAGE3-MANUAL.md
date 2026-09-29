@@ -109,7 +109,7 @@ Everything in this file follows from that question.
 ```
 <game-root>/               # this folder
   rework                   launcher (framework trampoline)
-  rework.toml              game, revm_root, minimum version, kb_json, original_load; optional rom_dir
+  rework.toml              game, revm_root, exact version, kb_json, original_load; optional rom_dir
   Stage2/<game>.kb.json    KB (Stage 2). Names, addresses, watch flags.
   begin/snap.bin           BEGIN snapshot
   plays/original1.json …   Twin-backed recordings

@@ -115,7 +115,7 @@ a game project that builds and plays on its own. The rework concludes.
 This file is at the root of a game folder for a game being reworked.
 
 - `rework` — Small trampoline into the configured framework's `scripts/rework`.
-- `rework.toml` — Specifies the game, its paths, and minimum framework version.
+- `rework.toml` — Specifies the game, its paths, and exact framework version.
 - `$REVM_ROOT/VERSION` — Authoritative C64 Rework framework version.
 - `$REVM_ROOT/src/revm/` — REVM, its tools and the Stage 3 host headers.
 - `$REVM_ROOT/src/resid/` — external reSID submodule; never modify.

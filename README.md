@@ -42,7 +42,7 @@ the game to be reworked. Remember to include hidden files, eg.:
 `cp -a /path/to/c64rework/game-template/. /path/to/MyGame/`
 2. Place the loader `.prg` file in the folder.
 3. Rename `gamename.kb.json` in the Stage2 folder to reflect the game name.
-4. Set the paths and minimum framework version in `rework.toml`.
+4. Set the paths and exact framework version in `rework.toml`.
 5. Place C64 ROM dumps in the framework `roms/` directory (gitignored), see below.
 6. Run `./rework doctor` to validate the game, framework, and version.
 7. Recommended, initialize a git repository in the root.
@@ -110,7 +110,7 @@ Read more about the process in
 is where the documentation lives.
 
 The framework release is recorded in `VERSION`. A game's small `./rework`
-trampoline checks its required minimum, then runs the implementation in
+trampoline requires an exact match, then runs the implementation in
 `scripts/rework` from the configured framework.
 
 

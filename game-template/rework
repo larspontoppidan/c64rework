@@ -52,14 +52,11 @@ if not pattern.fullmatch(required):
 if not pattern.fullmatch(actual):
     raise SystemExit(f"rework: invalid framework VERSION '{actual}' in {version_file}")
 
-def parts(version):
-    return tuple(map(int, version.split(".")))
-
-if parts(actual) < parts(required):
+if actual != required:
     raise SystemExit(
-        f"rework: this game requires C64 Rework >= {required}\n"
+        f"rework: this game requires C64 Rework {required} (exact)\n"
         f"rework: configured framework is {actual}: {framework}\n"
-        "rework: update the framework or select a newer revm_root"
+        "rework: set minimum_c64rework_version to match VERSION, or select a matching revm_root"
     )
 
 print(framework)

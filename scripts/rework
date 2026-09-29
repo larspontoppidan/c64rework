@@ -100,9 +100,9 @@ if not pattern.fullmatch(required):
     )
 if not pattern.fullmatch(actual):
     raise SystemExit(f"rework: invalid framework VERSION '{actual}' in {sys.argv[2]}")
-if tuple(map(int, actual.split("."))) < tuple(map(int, required.split("."))):
+if actual != required:
     raise SystemExit(
-        f"rework: this game requires C64 Rework >= {required}\n"
+        f"rework: this game requires C64 Rework {required} (exact)\n"
         f"rework: configured framework is {actual}"
     )
 print(actual)
@@ -612,7 +612,7 @@ check_export() {
 }
 
 doctor() {
-	printf 'game:      %s\ngame root: %s\nframework: %s\nversion:   %s (required >= %s)\nkb:        %s\nkb-analysis: %s\noriginal:  %s\nrom dir:   %s\n' \
+	printf 'game:      %s\ngame root: %s\nframework: %s\nversion:   %s (rework.toml %s)\nkb:        %s\nkb-analysis: %s\noriginal:  %s\nrom dir:   %s\n' \
 		"$GAME" "$GAME_ROOT" "$REVM_ROOT" "$FRAMEWORK_VERSION" "$MINIMUM_C64REWORK_VERSION" "$KB_JSON" "$KB_ANALYSIS" "$ORIGINAL_LOAD" "$ROM_DIR"
 	printf 'begin:     %s\ncoverage:  %s\nbuild:     %s\nbin:       %s\nfail:      %s\nexport:    %s\nvenv:      %s\nlauncher:  %s\n' \
 		"$BEGIN_SNAP" "$COVERAGE_MERGED" "$BUILD" "$BIN" "$FAIL" "$EXPORT" "$VENV" "$launcher"
