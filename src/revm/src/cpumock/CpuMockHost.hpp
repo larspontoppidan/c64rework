@@ -155,7 +155,7 @@ public:
 		__attribute__((format(printf, 3, 4)));
 
 	// BEGIN tripwire (QuitOnAssert): Twin PC + Φ2 lock. Replaces
-	// AssertTwinPc + AssertTwinCycleSync.
+	// AssertTwinPc + AssertVsTwinCycleSync.
 	void AssertBegin(uint16_t pc);
 
 	// Oracle door — logs/diagnostics, not translation. Use inside REVM_LOG*
@@ -259,9 +259,9 @@ private:
 	void ClearTwinPcWatches();
 	bool AssertTwinMem(uint16_t addr, uint8_t expected);
 	bool AssertTwinMemRange(uint16_t lo, uint16_t hi, const uint8_t * expected);
-	bool AssertTwinSid();
+	bool AssertVsTwinSid();
 	bool AssertTwinPc(uint16_t pc);
-	bool AssertTwinCycleSync();
+	bool AssertVsTwinCycleSync();
 	bool AssertKbCheck();
 	bool AssertVsTwinVic();
 	bool AssertVsTwinVicState();

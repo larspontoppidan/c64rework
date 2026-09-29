@@ -99,11 +99,12 @@ with different banks (e.g. a RAM trampoline and a KERNAL jump-table entry).
 | `basic` | BASIC ROM (`$A000-$BFFF` when banked in) |
 | `char` | Character ROM (`$D000-$DFFF` when CHAREN selects it) |
 | `chip` | Memory-mapped I/O / CPU port (VIC/SID/CIA/`$0000`–`$0001`, …) |
-| other | Any id matching `[A-Za-z0-9_-]+` (future / cart ROMs) |
+| `color` | Color-RAM nybble file (`$D800-$DBFF`). |
 
 Lookups that take only an address (disasm operand names, watches, etc.) prefer
-the **RAM** object when several banks share an address. `--dump-blobs` and
-`--watch` only use RAM-bank objects. Address **map** emits **sections** (RAM /
+the **RAM** object when several banks share an address. `--dump-blobs` uses
+RAM-bank objects. `--watch` / Stage 3 kb-check enroll `ram` (including omitted
+`bank`) and `color`. Address **map** emits **sections** (RAM /
 BASIC / KERNAL). With `--cov`, BASIC and
 KERNAL rows require a real ROM-plane hit (`pc_rom` / `mem_rom`) or a
 `bank:"basic"` / `bank:"kernal"` KB object — under-ROM RAM code-operand refs in
@@ -160,6 +161,18 @@ Rules:
   banks). Overlapping ranges in the **same** bank: tools may warn.
 
 ### `watch` (REVM)
+
+A watch samples a **named memory plane**. It never follows `$01` / `io_in` and
+never reads VIC, SID, or CIA registers.
+
+| Plane | `bank` | What is sampled |
+|-------|--------|-----------------|
+| DRAM | omitted, or `"ram"` | `RAM[addr]` |
+| Color RAM | `"color"` | nybble file at `$D800-$DBFF` (`Color[addr & $3FF] & $0F`) |
+
+Omitted `bank` defaults to DRAM. If the object's range overlays I/O chips 
+(`$0000-$0001` or `$D000-$DFFF`), `bank` is **required**. `kernal`, `basic`, 
+`char`, and `chip` cannot be watched.
 
 | Value | When enabled |
 |-------|----------------|

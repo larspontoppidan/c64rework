@@ -14,6 +14,7 @@
 
 #include "debug/Disasm6502.hpp"
 #include "debug/KnowledgeBase.hpp"
+#include "debug/KbWatchSample.hpp"
 #include "debug/Coverage.hpp"
 #include "cpumock/LinkedRegistry.hpp"
 #include "snapshot/Snapshot.hpp"
@@ -1578,6 +1579,7 @@ int generate_hot_undoc(const uint8_t ram[0x10000],
 }
 
 int generate_watch_diff(const uint8_t ram_a[0x10000],
+                        const uint8_t color_a[COLOR_RAM_SIZE],
                         const std::string & other_snap_path,
                         const revm::KnowledgeBase & kb,
                         bool include_same) {
@@ -1592,11 +1594,18 @@ int generate_watch_diff(const uint8_t ram_a[0x10000],
 	size_t n_diff = 0;
 	size_t n_same = 0;
 	for (const auto & o : kb.Objects()) {
-		if (!o.IsRamBank() || o.watch == revm::KbWatchLevel::No) continue;
+		if ((!o.IsRamBank() && !o.IsColorBank()) ||
+		    o.watch == revm::KbWatchLevel::No)
+			continue;
 		++n_slots;
 		const unsigned len = o.ByteLength();
-		const bool same =
-		    std::memcmp(ram_a + o.addr, other.ram + o.addr, len) == 0;
+		std::vector<uint8_t> a_bytes(len), b_bytes(len);
+		for (unsigned i = 0; i < len; ++i) {
+			const uint16_t addr = uint16_t(o.addr + i);
+			a_bytes[i] = revm::KbWatchSamplePlanes(o, addr, ram_a, color_a);
+			b_bytes[i] = revm::KbWatchSamplePlanes(o, addr, other.ram, other.color);
+		}
+		const bool same = a_bytes == b_bytes;
 		if (same) {
 			++n_same;
 			if (!include_same) continue;
@@ -1616,15 +1625,14 @@ int generate_watch_diff(const uint8_t ram_a[0x10000],
 
 		if (same) {
 			std::fprintf(stdout, "SAME  %-24s  %-11s  %s\n", label, addr_col,
-			             format_hex_bytes(ram_a + o.addr, len).c_str());
+			             format_hex_bytes(a_bytes.data(), len).c_str());
 		} else if (len == 1) {
 			std::fprintf(stdout, "DIFF  %-24s  %-11s  a=$%02X  b=$%02X\n",
-			             label, addr_col, ram_a[o.addr], other.ram[o.addr]);
+			             label, addr_col, a_bytes[0], b_bytes[0]);
 		} else {
 			std::fprintf(stdout, "DIFF  %-24s  %-11s  a=%s  b=%s\n", label,
-			             addr_col,
-			             format_hex_bytes(ram_a + o.addr, len).c_str(),
-			             format_hex_bytes(other.ram + o.addr, len).c_str());
+			             addr_col, format_hex_bytes(a_bytes.data(), len).c_str(),
+			             format_hex_bytes(b_bytes.data(), len).c_str());
 		}
 	}
 
@@ -1957,8 +1965,8 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 		if (hrc != 0) rc = hrc;
 	}
 	if (want_watch_diff) {
-		const int wrc =
-		    generate_watch_diff(ram, watch_diff_path, kb, watch_diff_all);
+		const int wrc = generate_watch_diff(ram, snap.color, watch_diff_path, kb,
+		                                    watch_diff_all);
 		if (wrc != 0) rc = wrc;
 	}
 
@@ -2000,6 +2008,90 @@ int cmd_selftest() {
 			std::fputs("All linked-registry self-tests passed.\n", stdout);
 		} else {
 			std::fputs("Linked-registry self-test failed.\n", stderr);
+			rc = 1;
+		}
+	}
+	{
+		std::ostringstream r;
+		int fails = 0;
+		auto check = [&](bool ok, const char * name) {
+			if (ok) r << "  PASS  " << name << "\n";
+			else {
+				r << "  FAIL  " << name << "\n";
+				++fails;
+			}
+		};
+		revm::KnowledgeBase kb;
+		std::string err;
+		check(kb.LoadString("{\"version\":1,\"objects\":["
+		                    "{\"name\":\"zp\",\"kind\":\"variable\","
+		                    "\"addr\":\"0048\",\"watch\":\"yes\"}]}",
+		                    err),
+		      "watch omitted bank outside I/O");
+		check(kb.LoadString("{\"version\":1,\"objects\":["
+		                    "{\"name\":\"stream\",\"kind\":\"blob\","
+		                    "\"addr\":\"D000\",\"end\":\"D024\","
+		                    "\"watch\":\"yes\",\"bank\":\"ram\"}]}",
+		                    err),
+		      "watch bank ram in I/O window");
+		check(kb.LoadString("{\"version\":1,\"objects\":["
+		                    "{\"name\":\"col\",\"kind\":\"blob\","
+		                    "\"addr\":\"D800\",\"end\":\"DBFF\","
+		                    "\"watch\":\"yes\",\"bank\":\"color\"}]}",
+		                    err),
+		      "watch bank color");
+		check(!kb.LoadString("{\"version\":1,\"objects\":["
+		                     "{\"name\":\"stream\",\"kind\":\"blob\","
+		                     "\"addr\":\"D000\",\"end\":\"D024\","
+		                     "\"watch\":\"yes\"}]}",
+		                     err) &&
+		          err.find("overlaps I/O") != std::string::npos,
+		      "watch omitted bank in I/O window rejected");
+		check(!kb.LoadString("{\"version\":1,\"objects\":["
+		                     "{\"name\":\"vic\",\"kind\":\"variable\","
+		                     "\"addr\":\"D026\",\"watch\":\"yes\","
+		                     "\"bank\":\"chip\"}]}",
+		                     err) &&
+		          err.find("cannot be watched") != std::string::npos,
+		      "watch bank chip rejected");
+		check(!kb.LoadString("{\"version\":1,\"objects\":["
+		                     "{\"name\":\"col\",\"kind\":\"blob\","
+		                     "\"addr\":\"D000\",\"end\":\"D024\","
+		                     "\"watch\":\"yes\",\"bank\":\"color\"}]}",
+		                     err) &&
+		          err.find("nybble file") != std::string::npos,
+		      "watch color outside $D800-$DBFF rejected");
+		check(!kb.LoadString("{\"version\":1,\"objects\":["
+		                     "{\"name\":\"col\",\"kind\":\"blob\","
+		                     "\"addr\":\"D800\",\"end\":\"DBFF\","
+		                     "\"watch\":\"yes\",\"bank\":\"colour\"}]}",
+		                     err) &&
+		          err.find("not \"colour\"") != std::string::npos,
+		      "watch bank colour spelling rejected");
+		check(!kb.LoadString("{\"version\":1,\"objects\":["
+		                     "{\"name\":\"tbl\",\"kind\":\"blob\","
+		                     "\"addr\":\"EA40\",\"end\":\"EB7F\","
+		                     "\"bank\":\"main\"}]}",
+		                     err) &&
+		          err.find("illegal bank") != std::string::npos,
+		      "illegal bank main rejected");
+		check(!kb.LoadString("{\"version\":1,\"objects\":["
+		                     "{\"name\":\"chrout\",\"kind\":\"label\","
+		                     "\"addr\":\"FFD2\",\"watch\":\"yes\","
+		                     "\"bank\":\"kernal\"}]}",
+		                     err) &&
+		          err.find("cannot be watched") != std::string::npos,
+		      "watch bank kernal rejected");
+		check(kb.LoadString("{\"version\":1,\"objects\":["
+		                    "{\"name\":\"chrout\",\"kind\":\"label\","
+		                    "\"addr\":\"FFD2\",\"bank\":\"kernal\"}]}",
+		                    err),
+		      "bank kernal without watch");
+		std::fputs(r.str().c_str(), fails ? stderr : stdout);
+		if (fails == 0)
+			std::fputs("All KB-watch-bank self-tests passed.\n", stdout);
+		else {
+			std::fputs("KB-watch-bank self-test failed.\n", stderr);
 			rc = 1;
 		}
 	}
@@ -2107,7 +2199,8 @@ int cmd_selftest() {
 		// heavy; instead compare ram directly using the same predicate.
 		const bool differ = ram_a[0x0048] != snap_b.ram[0x0048];
 		check(differ, "watch-diff byte differs");
-		check(generate_watch_diff(ram_a, snap_b_path, kb, false) == 0,
+		uint8_t color_a[COLOR_RAM_SIZE]{};
+		check(generate_watch_diff(ram_a, color_a, snap_b_path, kb, false) == 0,
 		      "watch-diff gen");
 
 		std::error_code ec;

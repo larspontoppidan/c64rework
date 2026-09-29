@@ -2426,7 +2426,7 @@ bool CpuMockHost::AssertTwinMemRange(uint16_t lo, uint16_t hi,
 	return ok;
 }
 
-bool CpuMockHost::AssertTwinSid() {
+bool CpuMockHost::AssertVsTwinSid() {
 	if (NoTwin()) return true;
 	ChipSnapshot main_chip{};
 	ChipSnapshot twin_chip{};
@@ -2455,7 +2455,7 @@ void CpuMockHost::AssertBegin(uint16_t pc) {
 		}
 	}
 	(void)AssertTwinPc(pc);
-	(void)AssertTwinCycleSync();
+	(void)AssertVsTwinCycleSync();
 }
 
 bool CpuMockHost::AssertTwinPc(uint16_t pc) {
@@ -2466,7 +2466,7 @@ bool CpuMockHost::AssertTwinPc(uint16_t pc) {
 	return false;
 }
 
-bool CpuMockHost::AssertTwinCycleSync() {
+bool CpuMockHost::AssertVsTwinCycleSync() {
 	if (NoTwin()) return true;
 	const uint32_t mn = board_.CycleCounter();
 	const uint32_t tw = twin_->CycleCounter();

@@ -149,6 +149,7 @@ void Board::Configure(const Config & cfg) {
 	if (coverage_active_) coverage_.Clear();
 
 	kb_.Clear();
+	kb_load_error_.clear();
 	kb_watch_.Reset();
 	kb_watch_window_.reset();
 	trace_calls_ = false;
@@ -160,6 +161,7 @@ void Board::Configure(const Config & cfg) {
 	if (!cfg_.kb_path.empty()) {
 		std::string err;
 		if (!kb_.LoadFile(cfg_.kb_path, err)) {
+			kb_load_error_ = err;
 			REVM_LOG(REVM_ERROR, "KB load failed: %s", err.c_str());
 		} else {
 			REVM_LOG(REVM_DEBUG, "KB: %s (%zu objects)", cfg_.kb_path.c_str(),
@@ -225,6 +227,10 @@ bool Board::InitAs(BoardInitRole role, std::string & error) {
 bool Board::init_machine(std::string & error, BoardInitRole role) {
 	if (c64_) {
 		error = "Board already initialized";
+		return false;
+	}
+	if (!kb_load_error_.empty()) {
+		error = "KB load failed: " + kb_load_error_;
 		return false;
 	}
 

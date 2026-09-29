@@ -258,6 +258,7 @@ private:
 	bool keep_state_on_run_ = false;
 
 	KnowledgeBase kb_;
+	std::string kb_load_error_;
 	KbWatch kb_watch_;
 	std::unique_ptr<KbWatchWindow> kb_watch_window_;
 	bool trace_calls_ = false;

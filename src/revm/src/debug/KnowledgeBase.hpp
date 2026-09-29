@@ -38,11 +38,18 @@ struct KbObject {
 	std::string format; // blob format id → assets/FORMATS.md
 	KbWatchLevel watch = KbWatchLevel::No;
 	bool trace = false; // --trace-calls logs fetches here when true
-	// "ram" (default), "kernal", "basic", "char", "chip", or other ROM id.
+	// Closed set: "ram" (default / DRAM), "kernal", "basic", "char", "chip",
+	// "color" (nybble file $D800-$DBFF). Empty means ram for lookups.
+	// Unknown ids refuse the KB. A watch whose range overlays I/O chips
+	// must set bank; only ram and color may carry watch.
 	std::string bank;
 
 	bool IsRamBank() const { return bank.empty() || bank == "ram"; }
+	bool IsColorBank() const { return bank == "color"; }
 	bool IsChipBank() const { return bank == "chip"; }
+	// Inclusive [addr, end] (or [addr, addr]) overlaps the CPU port
+	// ($0000-$0001) or the $D000-$DFFF I/O window.
+	bool OverlapsIoChips() const;
 
 	// Inclusive span length in bytes (1 if no end).
 	unsigned ByteLength() const {

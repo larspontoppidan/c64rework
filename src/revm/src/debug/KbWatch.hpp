@@ -26,7 +26,7 @@ struct KbWatchSlotView {
 };
 
 // Polls KB objects with watch=yes/verbose at each VSYNC.
-// Always samples; optional REVM_LOG on change; dirty flag for a watch window.
+// Samples DRAM or bank:"color" nybble file — never the CPU I/O map.
 class KbWatch {
 public:
 	void Reset();

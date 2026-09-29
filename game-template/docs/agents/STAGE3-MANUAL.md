@@ -33,7 +33,8 @@ Terms in this file mean exactly this. Do not infer meanings from other docs.
 | **join** | A fence at a routine boundary that also compares. `JoinAtPc` / `JoinAtPcBounded`. |
 | **AtPc** | A fence at one original *instruction*: `Sync::AtPc(host, pc);` arms the immediately following explicit bag `.read()`, `.write(v)`, or RMW operation. A timing sample, not a compare. |
 | **compare** | Main↔Twin equality check at a fence: KB watch bytes (`kb`), SID registers (`sid`), rendered frame (`screen`). Selected by `CompareMask`. |
-| **kb (compare)** | The KB watch-slot compare: every KB entry with `"watch": "yes"` is compared Main vs Twin. Unrelated to the keyboard. |
+| **kb (compare)** | The KB watch-slot compare: every KB entry with `watch:"yes"` is compared Main vs Twin.
+May compare DRAM or `bank:"color"` plane, never any chip registers. Unrelated to the keyboard. |
 | **interval** | A stretch of original code Main executes in zero emulated time (a plain C++ body) while Twin still has to run it natively. Ends with `JoinAtPcBounded`. |
 | **Φ2 / cycle** | One 6510 clock. Both boards count cycles from BEGIN; "aligned" means equal cycle counters. |
 | **steal / accept** | The cycle at which a 6510 takes an interrupt. Twin's accept is where your C++ handler is dispatched. |
@@ -392,6 +393,9 @@ bool host.HasTwin();             // branch for Twin-backed synchronization
 bool host.NoTwin();              // branch for --no-twin siblings (§11)
 bool host.QuitRequested();       // poll in long C++ loops
 [[noreturn]] host.SoftQuit(int code, const char* fmt, ...);
+host.AssertVsTwinSid();          // public SID write regs (same as CompareMask.sid)
+host.AssertVsTwinVic();          // public VIC I/O regs — §10.1
+host.AssertVsTwinVicState();     // full MOS6569State — §10.1
 ```
 
 ### 6.3 `host.diag()` — oracle values for log text only
@@ -695,6 +699,39 @@ walks. Guard with the Step-1 rule that no original instruction is skipped,
 review, and bounded `--no-twin` smokes. Do not require the smoke to follow
 the original Twin-backed recording to the same frame or state (§11).
 
+### 10.1 Chip registers versus Twin
+
+KB watches are DRAM or `bank:"color"`. They never sample VIC, SID, or CIA.
+
+**SID has special status.** It is the only chip on `CompareMask`. `All()` —
+the default full-picture fence — includes `.sid`, and any join may set
+`CompareMask{.sid = true, .kb = true}`. That compare is a non-destructive
+snapshot of the public SID write registers (`$D400–$D418` plus pots), the
+same work as `host.AssertVsTwinSid()`. It does not read the chip.
+
+**VIC is not on the mask.** The default VIC check is indirect: `screen`
+compares the rendered frame after the chips have drawn. Sprite positions,
+colours, and scroll the VIC was programmed with show up there. The register
+file itself is not compared.
+
+When the programmed VIC registers are what you want, call the host after a
+fence (or after `Sync::Compare`):
+
+```cpp
+host.AssertVsTwinVic();       // $D000–$D02E programmer-visible regs +
+                              // irq_raster. Live raster / RST8 ignored.
+host.AssertVsTwinVicState();  // full MOS6569State, including SC internals
+```
+
+Both snapshot via `GetState`. They do not `Peek` `$Dxxx` and they do not
+clear `$D01E`/`$D01F`. Under `--no-twin` they return true. Do not use
+`host.AssertVsTwin($D000)` or a KB watch over the I/O window as a VIC
+compare — those follow the CPU map or DRAM, not the chip.
+
+`AssertVsTwinVic` still includes collision latches and `irq_flag`, which
+move with raster phase. Prefer a settled fence; use the state form when
+internals are the question.
+
 ---
 
 ## 11. `--no-twin`
@@ -710,6 +747,7 @@ fence degrades:
 | `ReturnIrq/Nmi` | `no_twin_cycles` then teardown |
 | `AdvanceCycles` / `AdvanceToVSync` | same (Main-only) |
 | `WatchMark/ExpectWatchDelta` | no-op |
+| `AssertVsTwinSid` / `AssertVsTwinVic` / `AssertVsTwinVicState` | no-op (true) |
 | `diag().*` | hard quit — keep it out of paths that run without Twin |
 
 Where an original wait is data-dependent and you cannot give a frame count,
@@ -905,6 +943,7 @@ Forbidden in a plugin, with the alternative:
 | `JoinAtPc` as a wait | A join claims position, not duration | `AdvanceCycles`, `AdvanceToVSync`, or `JoinAtPcBounded` |
 | Raise `max_frames` past a measurement to hide a miss | Twin is somewhere else | Read `twin_pc`; translate that path |
 | Drop `screen`/`sid`/`kb` from a mask to pass | Hides the bug | Fix, or record as frontier |
+| KB-watch or `AssertVsTwin($Dxxx)` for VIC/SID | CPU map / DRAM, or a destructive chip read | `AssertVsTwinSid` / `AssertVsTwinVic` (§10.1) |
 | Leave `--ignore-checks` in a checkpoint command | Not a pass | Investigation only |
 | Edit `src/revm/` | Not your slice; hides a translation gap | §15 bug case |
 

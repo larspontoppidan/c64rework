@@ -108,8 +108,11 @@ Day-to-day Stage 2 work is: edit the KB, then rebuild analysis.
 - Keep original addresses and inclusive ranges precise.
 - Use `function` for callable original routines and `label` for internal entry
   points or branch targets.
-- Use `watch: "yes"` for state expected to agree at Stage 3 VSYNC checks;
-  reserve `watch: "verbose"` for useful optional detail.
+- Use `watch: "yes"` for DRAM (or `bank:"color"` for nybble file) expected to
+  agree at Stage 3 joins; reserve `watch: "verbose"` for optional detail.
+  A watch whose range overlays `$D000-$DFFF` / `$0000-$0001` must set `bank`.
+  Do not watch VIC/SID/CIA. `bank` is `ram` / `kernal` / `basic` / `char` /
+  `chip` / `color` only — any other id refuses the KB.
 - Use `trace: "yes"` selectively on routines whose runtime calls matter.
 - Give each `blob` a real format documented in `Stage2/FORMATS.md`.
 - Treat UNDOC counts as prioritization, not a completion score.

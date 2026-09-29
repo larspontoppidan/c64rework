@@ -3,10 +3,10 @@
 // Project  : REVM - C64rework
 
 #include "debug/KbWatch.hpp"
+#include "debug/KbWatchSample.hpp"
 #include "core/Board.hpp"
 
 #include "C64.h"
-#include "CPUC64.h"
 
 #define REVM_LOG_MODULE "kb-watch"
 #include "util/Log.hpp"
@@ -32,7 +32,7 @@ void KbWatch::Configure(const KnowledgeBase & kb, bool include_yes, bool include
 	if (!include_yes && !include_verbose) return;
 
 	for (const auto & o : kb.Objects()) {
-		if (!o.IsRamBank()) continue; // watches read CPU-visible map as RAM tooling
+		if (!KbWatchEnroll(o)) continue; // DRAM or color plane; never I/O map
 		if (o.watch == KbWatchLevel::No) continue;
 		if (o.watch == KbWatchLevel::Yes && !include_yes) continue;
 		if (o.watch == KbWatchLevel::Verbose && !include_verbose) continue;
@@ -66,14 +66,16 @@ std::string KbWatch::FormatBytes(const uint8_t * p, size_t n) {
 void KbWatch::OnFrame(Board & board, uint32_t frame, uint32_t cycle) {
 	if (slots_.empty()) return;
 	C64 * c64 = board.Machine();
-	if (!c64 || !c64->TheCPU) return;
+	if (!c64 || !c64->RAM) return;
 
 	bool any_change = false;
 	std::vector<uint8_t> cur;
 	for (auto & s : slots_) {
 		cur.resize(s.len);
+		const KbObject dummy{};
+		const KbObject & obj = s.obj ? *s.obj : dummy;
 		for (uint16_t i = 0; i < s.len; ++i) {
-			cur[i] = c64->TheCPU->REUReadByte(uint16_t(s.addr + i));
+			cur[i] = KbWatchSample(c64, obj, uint16_t(s.addr + i));
 		}
 		if (!s.primed) {
 			s.last = cur;

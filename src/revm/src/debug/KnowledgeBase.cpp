@@ -219,15 +219,22 @@ bool parse_bank(const std::string & t, std::string & out, std::string & error) {
 		error = "empty bank";
 		return false;
 	}
-	// Accept any non-empty id; documented values: ram, kernal, basic, char.
-	for (unsigned char c : t) {
-		if (!std::isalnum(c) && c != '_' && c != '-') {
-			error = "invalid bank (use letters/digits/_/-): " + t;
-			return false;
+	if (t == "colour") {
+		error = "use bank \"color\" (not \"colour\")";
+		return false;
+	}
+	static const char * const legal[] = {
+	    "ram", "kernal", "basic", "char", "chip", "color",
+	};
+	for (const char * b : legal) {
+		if (t == b) {
+			out = t;
+			return true;
 		}
 	}
-	out = t;
-	return true;
+	error = "illegal bank \"" + t +
+	        "\" (use ram, kernal, basic, char, chip, color)";
+	return false;
 }
 
 // Skip a JSON value (object/array/string/number/literal) starting at i.
@@ -299,6 +306,57 @@ bool skip_value(const std::string & s, size_t & i, std::string & error) {
 		++i;
 	}
 	return true;
+}
+
+bool overlaps_io_chips(uint16_t lo, uint16_t hi) {
+	if (lo <= 0x0001) return true;
+	return lo <= 0xDFFF && hi >= 0xD000;
+}
+
+std::string watch_who(const KbObject & o) {
+	char range[24];
+	const uint16_t hi = o.end ? *o.end : o.addr;
+	if (o.end)
+		std::snprintf(range, sizeof range, "$%04X-$%04X", o.addr, hi);
+	else
+		std::snprintf(range, sizeof range, "$%04X", o.addr);
+	if (o.name.empty()) return std::string(range);
+	return o.name + " " + range;
+}
+
+bool validate_watch_bank(const KbObject & o, std::string & error) {
+	if (o.watch == KbWatchLevel::No) return true;
+	const uint16_t hi = o.end ? *o.end : o.addr;
+	const std::string who = watch_who(o);
+	if (o.bank == "colour") {
+		error = "watch " + who + ": use bank \"color\" (not \"colour\")";
+		return false;
+	}
+	if (o.IsColorBank()) {
+		if (o.addr < 0xD800 || hi > 0xDBFF) {
+			error = "watch " + who +
+			        ": bank \"color\" is the nybble file ($D800-$DBFF)";
+			return false;
+		}
+		return true;
+	}
+	if (o.bank == "chip" || o.bank == "char") {
+		error = "watch " + who + ": bank \"" + o.bank +
+		        "\" cannot be watched (use \"ram\" or \"color\")";
+		return false;
+	}
+	if (o.IsRamBank()) {
+		if (overlaps_io_chips(o.addr, hi) && o.bank.empty()) {
+			error = "watch " + who +
+			        ": overlaps I/O chips; set \"bank\":\"ram\" (DRAM) or "
+			        "\"bank\":\"color\" ($D800-$DBFF nybble file)";
+			return false;
+		}
+		return true;
+	}
+	error = "watch " + who + ": bank \"" + o.bank +
+	        "\" cannot be watched (use \"ram\" or \"color\")";
+	return false;
 }
 
 bool parse_object_fields(const std::string & s, size_t & i, KbObject & obj,
@@ -388,10 +446,17 @@ bool parse_object_fields(const std::string & s, size_t & i, KbObject & obj,
 		error = "opcodes requires \"end\"";
 		return false;
 	}
+	if (!validate_watch_bank(obj, error)) return false;
 	return true;
 }
 
 } // namespace
+
+bool KbObject::OverlapsIoChips() const {
+	const uint16_t hi = end ? *end : addr;
+	if (addr <= 0x0001) return true;
+	return addr <= 0xDFFF && hi >= 0xD000;
+}
 
 void KnowledgeBase::Clear() {
 	objects_.clear();
@@ -641,7 +706,7 @@ bool KnowledgeBase::SaveFile(const std::string & path, std::string & error) cons
 			sep();
 			json += "      \"trace\": \"yes\"";
 		}
-		if (!o.IsRamBank()) {
+		if (!o.bank.empty()) {
 			sep();
 			json += "      \"bank\": ";
 			append_json_string(json, o.bank);

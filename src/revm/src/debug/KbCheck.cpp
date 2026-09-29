@@ -3,6 +3,7 @@
 // Project  : REVM - C64rework
 
 #include "debug/KbCheck.hpp"
+#include "debug/KbWatchSample.hpp"
 
 #include "cpumock/LinkedRegistry.hpp"
 
@@ -41,7 +42,7 @@ void KbCheck::Configure(const KnowledgeBase & kb, bool include_yes,
 	if (!include_yes && !include_verbose) return;
 
 	for (const auto & o : kb.Objects()) {
-		if (!o.IsRamBank()) continue;
+		if (!KbWatchEnroll(o)) continue;
 		if (o.watch == KbWatchLevel::No) continue;
 		if (o.watch == KbWatchLevel::Yes && !include_yes) continue;
 		if (o.watch == KbWatchLevel::Verbose && !include_verbose) continue;
@@ -75,7 +76,8 @@ bool KbCheck::OnFrame(Board & main, TwinBoard & twin, uint32_t frame,
                       const cpumock::LinkedRegistry * linked) {
 	if (slots_.empty()) return true;
 	C64 * c64 = main.Machine();
-	if (!c64 || !c64->TheCPU) return true;
+	C64 * twin_c64 = twin.board().Machine();
+	if (!c64 || !c64->RAM || !twin_c64 || !twin_c64->RAM) return true;
 
 	bool ok = true;
 	std::vector<uint8_t> main_bytes;
@@ -88,11 +90,13 @@ bool KbCheck::OnFrame(Board & main, TwinBoard & twin, uint32_t frame,
 	for (const auto & s : slots_) {
 		main_bytes.resize(s.len);
 		twin_bytes.resize(s.len);
+		const KbObject dummy{};
+		const KbObject & obj = s.obj ? *s.obj : dummy;
 		for (uint16_t i = 0; i < s.len; ++i) {
 			const uint16_t a = uint16_t(s.addr + i);
 			if (!linked || !linked->Read(a, main_bytes[i]))
-				main_bytes[i] = c64->TheCPU->REUReadByte(a);
-			twin_bytes[i] = twin.Peek(a);
+				main_bytes[i] = KbWatchSample(c64, obj, a);
+			twin_bytes[i] = KbWatchSample(twin_c64, obj, a);
 		}
 		if (std::memcmp(main_bytes.data(), twin_bytes.data(), s.len) == 0)
 			continue;

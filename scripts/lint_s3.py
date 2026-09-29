@@ -87,7 +87,7 @@ HOST_FORBIDDEN = {
     "TwinPeek", "TwinCpu", "PeekMain", "TwinWatchHits",
     "WatchTwinPc", "ClearTwinPcWatches",
     "MainTakeTwinPhaseCia1", "MainTakeTwinPhaseCia2",
-    "AssertTwinPc", "AssertTwinCycleSync",
+    "AssertTwinPc", "AssertVsTwinCycleSync",
     "IFlag", "InIrq", "InNmi", "TwinInInterruptNest",
     "Quit", "LogVsTwinIrqSources",
     "MainRunToTwinCycle", "AdvanceToVSync", "AdvanceCycles",

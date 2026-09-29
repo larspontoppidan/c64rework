@@ -18,9 +18,9 @@ class TwinBoard;
 namespace cpumock { class LinkedRegistry; }
 
 // Join compare: KB watch:"yes" slots Main vs Twin at CompareNow / JoinAtPc
-// (not VBLANK). A LinkedRegistry substitutes detached local bytes by address.
-// + watch:"verbose" with --kb-check-verbose.
-// (Debugger --watch / PC watches are separate — this is a check, not a probe.)
+// (not VBLANK). DRAM (default / bank:"ram") or bank:"color" nybble file;
+// never a VIC/SID/CIA read. A LinkedRegistry substitutes detached local
+// bytes by address. + watch:"verbose" with --kb-check-verbose.
 class KbCheck {
 public:
 	void Reset();
