@@ -67,8 +67,8 @@ void field_bool(FILE * out, const char * name, bool e, bool a) {
 }
 
 void print_vic_diff(FILE * out, const MOS6569State & e, const MOS6569State & a) {
-	if (PublicVicIoEqual(e, a)) return;
-	std::fprintf(out, "  VIC public I/O diffs:\n");
+	if (VicConfigEqual(e, a)) return;
+	std::fprintf(out, "  VIC config diffs:\n");
 	field_u8(out, "m0x", e.m0x, a.m0x);
 	field_u8(out, "m0y", e.m0y, a.m0y);
 	field_u8(out, "m1x", e.m1x, a.m1x);
@@ -86,21 +86,15 @@ void print_vic_diff(FILE * out, const MOS6569State & e, const MOS6569State & a) 
 	field_u8(out, "m7x", e.m7x, a.m7x);
 	field_u8(out, "m7y", e.m7y, a.m7y);
 	field_u8(out, "mx8", e.mx8, a.mx8);
-	field_u8(out, "ctrl1", e.ctrl1, a.ctrl1);
-	field_u8(out, "raster", e.raster, a.raster);
-	field_u8(out, "lpx", e.lpx, a.lpx);
-	field_u8(out, "lpy", e.lpy, a.lpy);
+	field_u8(out, "ctrl1", uint8_t(e.ctrl1 & 0x7f), uint8_t(a.ctrl1 & 0x7f));
 	field_u8(out, "me", e.me, a.me);
 	field_u8(out, "ctrl2", e.ctrl2, a.ctrl2);
 	field_u8(out, "mye", e.mye, a.mye);
 	field_u8(out, "vbase", e.vbase, a.vbase);
-	field_u8(out, "irq_flag", e.irq_flag, a.irq_flag);
 	field_u8(out, "irq_mask", e.irq_mask, a.irq_mask);
 	field_u8(out, "mdp", e.mdp, a.mdp);
 	field_u8(out, "mmc", e.mmc, a.mmc);
 	field_u8(out, "mxe", e.mxe, a.mxe);
-	field_u8(out, "mm", e.mm, a.mm);
-	field_u8(out, "md", e.md, a.md);
 	field_u8(out, "ec", e.ec, a.ec);
 	field_u8(out, "b0c", e.b0c, a.b0c);
 	field_u8(out, "b1c", e.b1c, a.b1c);
@@ -120,8 +114,8 @@ void print_vic_diff(FILE * out, const MOS6569State & e, const MOS6569State & a) 
 }
 
 void print_sid_diff(FILE * out, const MOS6581State & e, const MOS6581State & a) {
-	if (PublicSidIoEqual(e, a)) return;
-	std::fprintf(out, "  SID public I/O diffs:\n");
+	if (SidConfigEqual(e, a)) return;
+	std::fprintf(out, "  SID config diffs:\n");
 	field_u8(out, "freq_lo_1", e.freq_lo_1, a.freq_lo_1);
 	field_u8(out, "freq_hi_1", e.freq_hi_1, a.freq_hi_1);
 	field_u8(out, "pw_lo_1", e.pw_lo_1, a.pw_lo_1);
@@ -152,42 +146,24 @@ void print_sid_diff(FILE * out, const MOS6581State & e, const MOS6581State & a) 
 }
 
 void print_cia_diff(FILE * out, const char * label, const MOS6526State & e,
-                    const MOS6526State & a, bool compare_ifr) {
-	if (PublicCiaIoEqual(e, a, compare_ifr)) return;
-	std::fprintf(out, "  %s public I/O diffs:\n", label);
-	field_u8(out, "pra", e.pra, a.pra);
+                    const MOS6526State & a, uint8_t pra_mask) {
+	if (CiaConfigEqual(e, a, pra_mask)) return;
+	std::fprintf(out, "  %s config diffs:\n", label);
+	if (pra_mask)
+		field_u8(out, "pra", uint8_t(e.pra & pra_mask), uint8_t(a.pra & pra_mask));
 	field_u8(out, "ddra", e.ddra, a.ddra);
-	field_u8(out, "prb", e.prb, a.prb);
 	field_u8(out, "ddrb", e.ddrb, a.ddrb);
-	field_u8(out, "ta_lo", e.ta_lo, a.ta_lo);
-	field_u8(out, "ta_hi", e.ta_hi, a.ta_hi);
-	field_u8(out, "tb_lo", e.tb_lo, a.tb_lo);
-	field_u8(out, "tb_hi", e.tb_hi, a.tb_hi);
-	field_u8(out, "tod_10ths", e.tod_10ths, a.tod_10ths);
-	field_u8(out, "tod_sec", e.tod_sec, a.tod_sec);
-	field_u8(out, "tod_min", e.tod_min, a.tod_min);
-	field_u8(out, "tod_hr", e.tod_hr, a.tod_hr);
-	field_u8(out, "sdr", e.sdr, a.sdr);
-	if (compare_ifr) field_u8(out, "int_flags", e.int_flags, a.int_flags);
 	field_u8(out, "cra", e.cra, a.cra);
 	field_u8(out, "crb", e.crb, a.crb);
 	field_u16(out, "ta_latch", e.ta_latch, a.ta_latch);
 	field_u16(out, "tb_latch", e.tb_latch, a.tb_latch);
-	field_u8(out, "ltc_10ths", e.ltc_10ths, a.ltc_10ths);
-	field_u8(out, "ltc_sec", e.ltc_sec, a.ltc_sec);
-	field_u8(out, "ltc_min", e.ltc_min, a.ltc_min);
-	field_u8(out, "ltc_hr", e.ltc_hr, a.ltc_hr);
-	field_u8(out, "alm_10ths", e.alm_10ths, a.alm_10ths);
-	field_u8(out, "alm_sec", e.alm_sec, a.alm_sec);
-	field_u8(out, "alm_min", e.alm_min, a.alm_min);
-	field_u8(out, "alm_hr", e.alm_hr, a.alm_hr);
 	field_u8(out, "int_mask", e.int_mask, a.int_mask);
 }
 
 } // namespace
 
-void PrintSidDiff(FILE * out, const MOS6581State & expected,
-                  const MOS6581State & actual) {
+void PrintSidConfigDiff(FILE * out, const MOS6581State & expected,
+                        const MOS6581State & actual) {
 	print_sid_diff(out, expected, actual);
 }
 
@@ -253,25 +229,30 @@ void PrintCpuDiff(FILE * out, const MOS6510State & e, const MOS6510State & a) {
 	field_bool(out, "INT_NMI", e.int_line[2], a.int_line[2]);
 }
 
-void PrintPublicChipIoDiff(FILE * out,
-                           const MOS6569State & vic_e, const MOS6569State & vic_a,
-                           const MOS6581State & sid_e, const MOS6581State & sid_a,
-                           const MOS6526State & cia1_e, const MOS6526State & cia1_a,
-                           const MOS6526State & cia2_e, const MOS6526State & cia2_a,
-                           bool compare_sid, bool compare_cia_ifr) {
+void PrintChipConfigDiff(FILE * out,
+                         const MOS6569State & vic_e, const MOS6569State & vic_a,
+                         const MOS6581State & sid_e, const MOS6581State & sid_a,
+                         const MOS6526State & cia1_e, const MOS6526State & cia1_a,
+                         const MOS6526State & cia2_e, const MOS6526State & cia2_a,
+                         bool compare_sid) {
 	print_vic_diff(out, vic_e, vic_a);
 	if (compare_sid) {
 		print_sid_diff(out, sid_e, sid_a);
 	} else {
 		std::fprintf(out, "  SID compare: skipped\n");
 	}
-	print_cia_diff(out, "CIA1", cia1_e, cia1_a, compare_cia_ifr);
-	print_cia_diff(out, "CIA2", cia2_e, cia2_a, compare_cia_ifr);
+	print_cia_diff(out, "CIA1", cia1_e, cia1_a, 0);
+	print_cia_diff(out, "CIA2", cia2_e, cia2_a, 0x03);
 }
 
-void PrintPublicVicIoDiff(FILE * out, const MOS6569State & expected,
-                          const MOS6569State & actual) {
+void PrintVicConfigDiff(FILE * out, const MOS6569State & expected,
+                        const MOS6569State & actual) {
 	print_vic_diff(out, expected, actual);
+}
+
+void PrintCiaConfigDiff(FILE * out, const char * label, const MOS6526State & expected,
+                        const MOS6526State & actual, uint8_t pra_mask) {
+	print_cia_diff(out, label, expected, actual, pra_mask);
 }
 
 void PrintScreenDiff(FILE * out, const ScreenSnapshot & expected,
@@ -301,8 +282,7 @@ void PrintScreenDiff(FILE * out, const ScreenSnapshot & expected,
 void PrintFullCompareReport(FILE * out, uint32_t frame, uint32_t cycle, size_t snap_index,
                             const FullSnapshot & expected, const FullSnapshot & actual,
                             const RamCompareMask & ram_mask, bool compare_cpu,
-                            bool chip_stream_mismatch, bool compare_sid,
-                            bool compare_cia_ifr) {
+                            bool chip_stream_mismatch, bool compare_sid) {
 	std::fprintf(out,
 		"---- playback FAIL detail  frame=%u cycle=%u (snap #%zu) ----\n"
 		"  expected snap: cycle=%u frame=%u pc=$%04X\n"
@@ -326,11 +306,11 @@ void PrintFullCompareReport(FILE * out, uint32_t frame, uint32_t cycle, size_t s
 		std::fprintf(out, "  CPU compare: skipped\n");
 	}
 
-	PrintPublicChipIoDiff(out, expected.vic, actual.vic, expected.sid, actual.sid,
-	                      expected.cia1, actual.cia1, expected.cia2, actual.cia2,
-	                      compare_sid, compare_cia_ifr);
+	PrintChipConfigDiff(out, expected.vic, actual.vic, expected.sid, actual.sid,
+	                    expected.cia1, actual.cia1, expected.cia2, actual.cia2,
+	                    compare_sid);
 	if (chip_stream_mismatch) {
-		std::fprintf(out, "  (chip I/O stream also mismatched — same public fields)\n");
+		std::fprintf(out, "  (chip I/O stream also mismatched — same config fields)\n");
 	}
 	std::fprintf(out, "---- end FAIL detail ----\n");
 }

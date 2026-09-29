@@ -12,19 +12,27 @@
 
 namespace revm {
 
-// Compare programmer-visible chip I/O register mirrors only.
-// Frodo SC pipeline / BA / EG / timer-delay internals are ignored so Stage 2+
-// can stay VSYNC-faithful without bus-accurate lockstep.
+// Config-register equality for Stage 3 CompareMask channels and any caller
+// that wants the same set. Live beam/timer/status fields and Frodo SC
+// internals are out so VSYNC-faithful lockstep does not demand Φ2 identity.
 
-bool PublicVicIoEqual(const MOS6569State & a, const MOS6569State & b);
-bool PublicSidIoEqual(const MOS6581State & a, const MOS6581State & b);
-bool PublicCiaIoEqual(const MOS6526State & a, const MOS6526State & b,
-                      bool compare_ifr = true);
+// Programmed VIC file: sprite coords, ctrl (no RST8), enable/expand,
+// vbase, irq_mask, irq_raster, priority/multicolor, colours. Not live
+// raster, irq_flag, collision latches, or lightpen.
+bool VicConfigEqual(const MOS6569State & a, const MOS6569State & b);
 
-bool PublicChipIoEqual(const MOS6569State & vic_a, const MOS6569State & vic_b,
-                       const MOS6581State & sid_a, const MOS6581State & sid_b,
-                       const MOS6526State & cia1_a, const MOS6526State & cia1_b,
-                       const MOS6526State & cia2_a, const MOS6526State & cia2_b,
-                       bool compare_sid = true, bool compare_cia_ifr = true);
+// $D400–$D418 write regs + pot readbacks. Not fake-v3 / last_sid_* internals.
+bool SidConfigEqual(const MOS6581State & a, const MOS6581State & b);
+
+// DDR, CRA/CRB, timer latches, interrupt mask. Not live counters, ICR
+// flags, TOD, or port input. pra_mask (CIA2: 0x03) compares those PRA bits.
+bool CiaConfigEqual(const MOS6526State & a, const MOS6526State & b,
+                    uint8_t pra_mask = 0);
+
+bool ChipConfigEqual(const MOS6569State & vic_a, const MOS6569State & vic_b,
+                     const MOS6581State & sid_a, const MOS6581State & sid_b,
+                     const MOS6526State & cia1_a, const MOS6526State & cia1_b,
+                     const MOS6526State & cia2_a, const MOS6526State & cia2_b,
+                     bool compare_sid = true);
 
 } // namespace revm

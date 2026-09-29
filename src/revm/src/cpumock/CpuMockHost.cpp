@@ -35,6 +35,29 @@ namespace {
 
 constexpr int kFrameTimeUs = 1000000 / 50; // PAL
 
+void fill_cia_config_detail(char * buf, size_t n, const char * which,
+                            const MOS6526State & m, const MOS6526State & t,
+                            uint8_t pra_mask) {
+	buf[0] = 0;
+	auto note8 = [&](const char * f, uint8_t mv, uint8_t tv) {
+		if (mv == tv || buf[0]) return;
+		std::snprintf(buf, n, "%s.%s main=$%02X twin=$%02X", which, f, mv, tv);
+	};
+	auto note16 = [&](const char * f, uint16_t mv, uint16_t tv) {
+		if (mv == tv || buf[0]) return;
+		std::snprintf(buf, n, "%s.%s main=$%04X twin=$%04X", which, f, mv, tv);
+	};
+	if (pra_mask)
+		note8("pra", uint8_t(m.pra & pra_mask), uint8_t(t.pra & pra_mask));
+	note8("ddra", m.ddra, t.ddra);
+	note8("ddrb", m.ddrb, t.ddrb);
+	note8("cra", m.cra, t.cra);
+	note8("crb", m.crb, t.crb);
+	note16("ta_latch", m.ta_latch, t.ta_latch);
+	note16("tb_latch", m.tb_latch, t.tb_latch);
+	note8("int_mask", m.int_mask, t.int_mask);
+}
+
 void apply_cia_live_phase(MOS6526 * cia, const CiaLivePhase & live) {
 	if (!cia)
 		return;
@@ -220,7 +243,7 @@ screenctx::Side screen_ctx_side(const ChipSnapshot & chip) {
 	return s;
 }
 
-// Public SID registers compared by PublicSidIoEqual, as {offset, member}.
+// SID config registers compared by SidConfigEqual, as {offset, member}.
 struct SidField {
 	uint16_t addr;
 	uint8_t MOS6581State::* ptr;
@@ -243,6 +266,92 @@ const SidField kSidFields[] = {
 	{0x17, &MOS6581State::res_filt},  {0x18, &MOS6581State::mode_vol},
 	{0x19, &MOS6581State::pot_x},     {0x1A, &MOS6581State::pot_y},
 };
+
+// VicConfigEqual fields as {$D0xx offset, member, compare mask}.
+// Live raster, RST8, irq_flag, collisions, and lightpen are omitted.
+struct VicField {
+	uint16_t addr;
+	uint8_t MOS6569State::* ptr;
+	uint8_t mask = 0xff;
+};
+
+const VicField kVicConfigFields[] = {
+	{0x00, &MOS6569State::m0x}, {0x01, &MOS6569State::m0y},
+	{0x02, &MOS6569State::m1x}, {0x03, &MOS6569State::m1y},
+	{0x04, &MOS6569State::m2x}, {0x05, &MOS6569State::m2y},
+	{0x06, &MOS6569State::m3x}, {0x07, &MOS6569State::m3y},
+	{0x08, &MOS6569State::m4x}, {0x09, &MOS6569State::m4y},
+	{0x0A, &MOS6569State::m5x}, {0x0B, &MOS6569State::m5y},
+	{0x0C, &MOS6569State::m6x}, {0x0D, &MOS6569State::m6y},
+	{0x0E, &MOS6569State::m7x}, {0x0F, &MOS6569State::m7y},
+	{0x10, &MOS6569State::mx8},
+	{0x11, &MOS6569State::ctrl1, 0x7f},
+	{0x15, &MOS6569State::me},   {0x16, &MOS6569State::ctrl2},
+	{0x17, &MOS6569State::mye},  {0x18, &MOS6569State::vbase},
+	{0x1A, &MOS6569State::irq_mask},
+	{0x1B, &MOS6569State::mdp},  {0x1C, &MOS6569State::mmc},
+	{0x1D, &MOS6569State::mxe},
+	{0x20, &MOS6569State::ec},   {0x21, &MOS6569State::b0c},
+	{0x22, &MOS6569State::b1c},  {0x23, &MOS6569State::b2c},
+	{0x24, &MOS6569State::b3c},  {0x25, &MOS6569State::mm0},
+	{0x26, &MOS6569State::mm1},  {0x27, &MOS6569State::m0c},
+	{0x28, &MOS6569State::m1c},  {0x29, &MOS6569State::m2c},
+	{0x2A, &MOS6569State::m3c},  {0x2B, &MOS6569State::m4c},
+	{0x2C, &MOS6569State::m5c},  {0x2D, &MOS6569State::m6c},
+	{0x2E, &MOS6569State::m7c},
+};
+
+void note_vic_config_fails(const MOS6569State & m, const MOS6569State & t,
+                           char * detail, size_t detail_n) {
+	detail[0] = 0;
+	unsigned shown = 0;
+	auto note8 = [&](uint16_t addr, uint8_t mv, uint8_t tv) {
+		if (mv == tv) return;
+		if (detail[0] == 0)
+			std::snprintf(detail, detail_n, "$D0%02X main=$%02X twin=$%02X",
+			              addr, mv, tv);
+		if (shown < kEventFailCap)
+			emit_compare_fail("vic", 0xD000u + addr, mv, tv);
+		++shown;
+	};
+	for (const VicField & f : kVicConfigFields) {
+		note8(f.addr, uint8_t(m.*f.ptr & f.mask), uint8_t(t.*f.ptr & f.mask));
+	}
+	if (m.irq_raster != t.irq_raster) {
+		if (detail[0] == 0)
+			std::snprintf(detail, detail_n, "irq_raster main=$%03X twin=$%03X",
+			              unsigned(m.irq_raster), unsigned(t.irq_raster));
+		++shown;
+	}
+	if (shown > kEventFailCap) emit_overflow_marker("vic");
+}
+
+void note_cia_config_fails(const char * channel, uint16_t base,
+                           const MOS6526State & m, const MOS6526State & t,
+                           uint8_t pra_mask) {
+	unsigned shown = 0;
+	auto note8 = [&](uint16_t off, uint8_t mv, uint8_t tv) {
+		if (mv == tv) return;
+		if (shown < kEventFailCap)
+			emit_compare_fail(channel, uint32_t(base) + off, mv, tv);
+		++shown;
+	};
+	auto note16 = [&](uint16_t off, uint16_t mv, uint16_t tv) {
+		if (mv == tv) return;
+		note8(off, uint8_t(mv), uint8_t(tv));
+		note8(uint16_t(off + 1), uint8_t(mv >> 8), uint8_t(tv >> 8));
+	};
+	if (pra_mask)
+		note8(0x00, uint8_t(m.pra & pra_mask), uint8_t(t.pra & pra_mask));
+	note8(0x02, m.ddra, t.ddra);
+	note8(0x03, m.ddrb, t.ddrb);
+	note16(0x04, m.ta_latch, t.ta_latch);
+	note16(0x06, m.tb_latch, t.tb_latch);
+	note8(0x0D, m.int_mask, t.int_mask);
+	note8(0x0E, m.cra, t.cra);
+	note8(0x0F, m.crb, t.crb);
+	if (shown > kEventFailCap) emit_overflow_marker(channel);
+}
 
 } // namespace
 
@@ -1274,11 +1383,11 @@ void CpuMockHost::compare_sid(uint32_t frame, RitualCheck & out) {
 		ok = false;
 		REVM_LOG(REVM_ERROR,
 		         "FAIL frame %u [main↔twin]: chip capture failed", frame);
-	} else if (!PublicSidIoEqual(main_chip.sid, twin_chip.sid)) {
+	} else if (!SidConfigEqual(main_chip.sid, twin_chip.sid)) {
 		ok = false;
 		REVM_LOG(REVM_ERROR, "FAIL frame %u [main↔twin]: SID mismatch",
 		         frame);
-		PrintSidDiff(log::Stream(), twin_chip.sid, main_chip.sid);
+		PrintSidConfigDiff(log::Stream(), twin_chip.sid, main_chip.sid);
 		last_sid_detail_[0] = 0;
 		unsigned shown = 0;
 		for (const SidField & f : kSidFields) {
@@ -1296,6 +1405,85 @@ void CpuMockHost::compare_sid(uint32_t frame, RitualCheck & out) {
 	}
 	out = {true, false, ok};
 	sid_tally_.Note(false, ok);
+}
+
+bool CpuMockHost::capture_compare_chips(ChipSnapshot & main_chip,
+                                        ChipSnapshot & twin_chip,
+                                        uint32_t frame) {
+	if (CaptureChipSnapshot(board_, main_chip) && twin_->CaptureChips(twin_chip))
+		return true;
+	REVM_LOG(REVM_ERROR, "FAIL frame %u [main↔twin]: chip capture failed",
+	         frame);
+	return false;
+}
+
+void CpuMockHost::compare_vic(uint32_t frame, RitualCheck & out) {
+	bool ok = true;
+	ChipSnapshot main_chip{};
+	ChipSnapshot twin_chip{};
+	last_vic_detail_[0] = 0;
+	if (!capture_compare_chips(main_chip, twin_chip, frame)) {
+		ok = false;
+	} else if (!VicConfigEqual(main_chip.vic, twin_chip.vic)) {
+		ok = false;
+		REVM_LOG(REVM_ERROR, "FAIL frame %u [main↔twin]: VIC mismatch", frame);
+		PrintVicConfigDiff(log::Stream(), twin_chip.vic, main_chip.vic);
+		note_vic_config_fails(main_chip.vic, twin_chip.vic, last_vic_detail_,
+		                      sizeof last_vic_detail_);
+	}
+	out = {true, false, ok};
+	vic_tally_.Note(false, ok);
+}
+
+void CpuMockHost::compare_vic_state(uint32_t frame, RitualCheck & out) {
+	bool ok = true;
+	ChipSnapshot main_chip{};
+	ChipSnapshot twin_chip{};
+	if (!capture_compare_chips(main_chip, twin_chip, frame)) {
+		ok = false;
+	} else if (std::memcmp(&main_chip.vic, &twin_chip.vic, sizeof(MOS6569State)) !=
+	           0) {
+		ok = false;
+		REVM_LOG(REVM_ERROR,
+		         "FAIL frame %u [main↔twin]: VIC state mismatch", frame);
+		if (!VicConfigEqual(main_chip.vic, twin_chip.vic))
+			PrintVicConfigDiff(log::Stream(), twin_chip.vic, main_chip.vic);
+		else
+			REVM_LOG(REVM_ERROR,
+			         "config regs match — divergence is status latches / SC internals");
+	}
+	out = {true, false, ok};
+	vic_state_tally_.Note(false, ok);
+}
+
+void CpuMockHost::compare_cia(int which, uint32_t frame, RitualCheck & out) {
+	bool ok = true;
+	ChipSnapshot main_chip{};
+	ChipSnapshot twin_chip{};
+	const char * name = which == 0 ? "CIA1" : "CIA2";
+	const uint8_t pra_mask = which == 0 ? uint8_t(0) : uint8_t(0x03);
+	char * detail = which == 0 ? last_cia1_detail_ : last_cia2_detail_;
+	detail[0] = 0;
+	if (!capture_compare_chips(main_chip, twin_chip, frame)) {
+		ok = false;
+	} else {
+		const MOS6526State & m = which == 0 ? main_chip.cia1 : main_chip.cia2;
+		const MOS6526State & t = which == 0 ? twin_chip.cia1 : twin_chip.cia2;
+		if (!CiaConfigEqual(m, t, pra_mask)) {
+			ok = false;
+			REVM_LOG(REVM_ERROR, "FAIL frame %u [main↔twin]: %s config mismatch",
+			         frame, name);
+			fill_cia_config_detail(detail, 96, which == 0 ? "cia1" : "cia2", m, t,
+			                       pra_mask);
+			note_cia_config_fails(which == 0 ? "cia1" : "cia2",
+			                      which == 0 ? uint16_t(0xDC00) : uint16_t(0xDD00),
+			                      m, t, pra_mask);
+			if (detail[0])
+				REVM_LOG(REVM_ERROR, "  %s", detail);
+		}
+	}
+	out = {true, false, ok};
+	(which == 0 ? cia1_tally_ : cia2_tally_).Note(false, ok);
 }
 
 void CpuMockHost::CompareNow(CompareMask mask) {
@@ -1318,8 +1506,15 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 	const uint32_t cycle = board_.CycleCounter();
 	last_screen_ = {};
 	last_sid_ = {};
+	last_vic_ = {};
+	last_vic_state_ = {};
+	last_cia1_ = {};
+	last_cia2_ = {};
 	last_screen_summary_.clear();
 	last_sid_detail_[0] = 0;
+	last_vic_detail_[0] = 0;
+	last_cia1_detail_[0] = 0;
+	last_cia2_detail_[0] = 0;
 	RitualCheck kb{};
 	bool abort_check = false;
 
@@ -1333,6 +1528,26 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 		if (!last_sid_.ok)
 			abort_check = true;
 	}
+	if (mask.vic) {
+		compare_vic(frame, last_vic_);
+		if (!last_vic_.ok)
+			abort_check = true;
+	}
+	if (mask.vic_state) {
+		compare_vic_state(frame, last_vic_state_);
+		if (!last_vic_state_.ok)
+			abort_check = true;
+	}
+	if (mask.cia1) {
+		compare_cia(0, frame, last_cia1_);
+		if (!last_cia1_.ok)
+			abort_check = true;
+	}
+	if (mask.cia2) {
+		compare_cia(1, frame, last_cia2_);
+		if (!last_cia2_.ok)
+			abort_check = true;
+	}
 	if (mask.kb && kb_check_.Active()) {
 		const bool twin_ok =
 			kb_check_.OnFrame(board_, *twin_, frame, cycle,
@@ -1343,15 +1558,20 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 			abort_check = true;
 	}
 
-	if (last_screen_.ran || last_sid_.ran || kb.ran) {
+	auto ch = [](const RitualCheck & c) {
+		return c.ran ? (c.ok ? 1 : 0) : -1;
+	};
+	if (last_screen_.ran || last_sid_.ran || last_vic_.ran ||
+	    last_vic_state_.ran || last_cia1_.ran || last_cia2_.ran || kb.ran) {
 		REVM_LOG(REVM_VERBOSE,
-		         "compare frame=%u cycle=%u screen=%s SID=%s kb=%s", frame,
-		         cycle, last_screen_.Format(), last_sid_.Format(), kb.Format());
+		         "compare frame=%u cycle=%u screen=%s SID=%s vic=%s vic_state=%s "
+		         "cia1=%s cia2=%s kb=%s",
+		         frame, cycle, last_screen_.Format(), last_sid_.Format(),
+		         last_vic_.Format(), last_vic_state_.Format(), last_cia1_.Format(),
+		         last_cia2_.Format(), kb.Format());
 	}
-	event::EmitCompareResult(
-		last_screen_.ran ? (last_screen_.ok ? 1 : 0) : -1,
-		last_sid_.ran ? (last_sid_.ok ? 1 : 0) : -1,
-		kb.ran ? (kb.ok ? 1 : 0) : -1);
+	event::EmitCompareResult(ch(last_screen_), ch(last_sid_), ch(kb), ch(last_vic_),
+	                         ch(last_vic_state_), ch(last_cia1_), ch(last_cia2_));
 
 	if (abort_check) {
 		++total_fails_;
@@ -1367,6 +1587,26 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 				QuitOnCheck("SID FAIL frame %u %s", frame, last_sid_detail_);
 			else
 				QuitOnCheck("SID FAIL frame %u", frame);
+		}
+		if (!last_vic_.ok && last_vic_.ran) {
+			if (last_vic_detail_[0])
+				QuitOnCheck("VIC FAIL frame %u %s", frame, last_vic_detail_);
+			else
+				QuitOnCheck("VIC FAIL frame %u", frame);
+		}
+		if (!last_vic_state_.ok && last_vic_state_.ran)
+			QuitOnCheck("VIC state FAIL frame %u", frame);
+		if (!last_cia1_.ok && last_cia1_.ran) {
+			if (last_cia1_detail_[0])
+				QuitOnCheck("CIA1 FAIL frame %u %s", frame, last_cia1_detail_);
+			else
+				QuitOnCheck("CIA1 FAIL frame %u", frame);
+		}
+		if (!last_cia2_.ok && last_cia2_.ran) {
+			if (last_cia2_detail_[0])
+				QuitOnCheck("CIA2 FAIL frame %u %s", frame, last_cia2_detail_);
+			else
+				QuitOnCheck("CIA2 FAIL frame %u", frame);
 		}
 		if (kb_check_.HasFirstDiff())
 			QuitOnCheck("kb-check FAIL frame %u cycle %u %s $%04X main=$%02X "
@@ -1399,6 +1639,14 @@ void CpuMockHost::print_compare_tallies() const {
 		screen_tally_.LogLine(REVM_LOG_MODULE, "screen");
 	if (sid_tally_.compared > 0)
 		sid_tally_.LogLine(REVM_LOG_MODULE, "sid");
+	if (vic_tally_.compared > 0)
+		vic_tally_.LogLine(REVM_LOG_MODULE, "vic");
+	if (vic_state_tally_.compared > 0)
+		vic_state_tally_.LogLine(REVM_LOG_MODULE, "vic_state");
+	if (cia1_tally_.compared > 0)
+		cia1_tally_.LogLine(REVM_LOG_MODULE, "cia1");
+	if (cia2_tally_.compared > 0)
+		cia2_tally_.LogLine(REVM_LOG_MODULE, "cia2");
 	kb_check_.PrintTally();
 }
 
@@ -1422,14 +1670,23 @@ void CpuMockHost::tally_tick(uint32_t frame) {
 	tally_frame_ = frame;
 
 	REVM_LOG(REVM_INFO,
-		"tally f=%u vsync=%u compares=%llu/%llu/%llu fails=%llu/%llu/%llu "
-		"(screen/sid/kb)",
+		"tally f=%u vsync=%u compares=%llu/%llu/%llu/%llu/%llu/%llu/%llu "
+		"fails=%llu/%llu/%llu/%llu/%llu/%llu/%llu "
+		"(screen/sid/vic/vic_state/cia1/cia2/kb)",
 		frame, tally_vsyncs_,
 		static_cast<unsigned long long>(screen_tally_.window.compared),
 		static_cast<unsigned long long>(sid_tally_.window.compared),
+		static_cast<unsigned long long>(vic_tally_.window.compared),
+		static_cast<unsigned long long>(vic_state_tally_.window.compared),
+		static_cast<unsigned long long>(cia1_tally_.window.compared),
+		static_cast<unsigned long long>(cia2_tally_.window.compared),
 		static_cast<unsigned long long>(kb_check_.Window().compared),
 		static_cast<unsigned long long>(screen_tally_.window.failed),
 		static_cast<unsigned long long>(sid_tally_.window.failed),
+		static_cast<unsigned long long>(vic_tally_.window.failed),
+		static_cast<unsigned long long>(vic_state_tally_.window.failed),
+		static_cast<unsigned long long>(cia1_tally_.window.failed),
+		static_cast<unsigned long long>(cia2_tally_.window.failed),
 		static_cast<unsigned long long>(kb_check_.Window().failed));
 
 	REVM_EVENT("tally_window",
@@ -1438,12 +1695,24 @@ void CpuMockHost::tally_tick(uint32_t frame) {
 	           "screen_fail", screen_tally_.window.failed,
 	           "sid_cmp", sid_tally_.window.compared,
 	           "sid_fail", sid_tally_.window.failed,
+	           "vic_cmp", vic_tally_.window.compared,
+	           "vic_fail", vic_tally_.window.failed,
+	           "vic_state_cmp", vic_state_tally_.window.compared,
+	           "vic_state_fail", vic_state_tally_.window.failed,
+	           "cia1_cmp", cia1_tally_.window.compared,
+	           "cia1_fail", cia1_tally_.window.failed,
+	           "cia2_cmp", cia2_tally_.window.compared,
+	           "cia2_fail", cia2_tally_.window.failed,
 	           "kb_cmp", kb_check_.Window().compared,
 	           "kb_fail", kb_check_.Window().failed);
 
 	tally_vsyncs_ = 0;
 	screen_tally_.ResetWindow();
 	sid_tally_.ResetWindow();
+	vic_tally_.ResetWindow();
+	vic_state_tally_.ResetWindow();
+	cia1_tally_.ResetWindow();
+	cia2_tally_.ResetWindow();
 	kb_check_.ResetWindow();
 }
 
@@ -2426,24 +2695,6 @@ bool CpuMockHost::AssertTwinMemRange(uint16_t lo, uint16_t hi,
 	return ok;
 }
 
-bool CpuMockHost::AssertVsTwinSid() {
-	if (NoTwin()) return true;
-	ChipSnapshot main_chip{};
-	ChipSnapshot twin_chip{};
-	if (!CaptureChipSnapshot(board_, main_chip) ||
-	    !twin_->CaptureChips(twin_chip)) {
-		QuitOnAssert("twin assert FAIL: chip capture failed");
-		return false;
-	}
-	if (PublicSidIoEqual(main_chip.sid, twin_chip.sid)) return true;
-	REVM_LOG(REVM_ERROR, "twin assert FAIL: SID mismatch vs main");
-	PrintPublicChipIoDiff(log::Stream(), twin_chip.vic, main_chip.vic, twin_chip.sid,
-	                      main_chip.sid, twin_chip.cia1, main_chip.cia1,
-	                      twin_chip.cia2, main_chip.cia2, true, false);
-	QuitOnAssert("twin assert FAIL: SID mismatch vs main");
-	return false;
-}
-
 void CpuMockHost::AssertBegin(uint16_t pc) {
 	if (board_.GetConfig().main_blank) {
 		if (!main_start_) {
@@ -2488,44 +2739,6 @@ bool CpuMockHost::AssertKbCheck() {
 		return true;
 	QuitOnAssert("kb-check assert FAIL frame %u cycle %u — aborting", frame,
 	             cycle);
-	return false;
-}
-
-bool CpuMockHost::AssertVsTwinVic() {
-	if (NoTwin()) return true;
-	ChipSnapshot main_chip{};
-	ChipSnapshot twin_chip{};
-	if (!CaptureChipSnapshot(board_, main_chip) ||
-	    !twin_->CaptureChips(twin_chip)) {
-		QuitOnAssert("vs-twin VIC FAIL: chip capture failed");
-		return false;
-	}
-	if (PublicVicIoEqual(main_chip.vic, twin_chip.vic)) return true;
-	REVM_LOG(REVM_ERROR, "vs-twin VIC FAIL: public I/O regs differ (twin=expected, main=actual)");
-	PrintPublicVicIoDiff(log::Stream(), twin_chip.vic, main_chip.vic);
-	QuitOnAssert("vs-twin VIC FAIL: public I/O regs differ");
-	return false;
-}
-
-bool CpuMockHost::AssertVsTwinVicState() {
-	if (NoTwin()) return true;
-	ChipSnapshot main_chip{};
-	ChipSnapshot twin_chip{};
-	if (!CaptureChipSnapshot(board_, main_chip) ||
-	    !twin_->CaptureChips(twin_chip)) {
-		QuitOnAssert("vs-twin VIC state FAIL: chip capture failed");
-		return false;
-	}
-	if (std::memcmp(&main_chip.vic, &twin_chip.vic, sizeof(MOS6569State)) == 0) {
-		return true;
-	}
-	REVM_LOG(REVM_ERROR, "vs-twin VIC state FAIL: full MOS6569State differs");
-	if (!PublicVicIoEqual(main_chip.vic, twin_chip.vic)) {
-		PrintPublicVicIoDiff(log::Stream(), twin_chip.vic, main_chip.vic);
-	} else {
-		REVM_LOG(REVM_ERROR, "public I/O regs match — divergence is SC pipeline / internals");
-	}
-	QuitOnAssert("vs-twin VIC state FAIL: full MOS6569State differs");
 	return false;
 }
 

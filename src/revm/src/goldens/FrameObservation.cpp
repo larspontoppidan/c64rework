@@ -20,7 +20,7 @@ constexpr char kMagic[16] = {
 
 } // namespace
 
-void FillPublicSidBytes(const MOS6581State & sid,
+void FillSidConfigBytes(const MOS6581State & sid,
                         uint8_t out[FrameSnapshot::kSidBytes]) {
 	const uint8_t values[FrameSnapshot::kSidBytes] = {
 		sid.freq_lo_1, sid.freq_hi_1, sid.pw_lo_1, sid.pw_hi_1,
@@ -43,7 +43,7 @@ bool CaptureFrameSnapshot(const Board & board, FrameSnapshot & out) {
 	out.native_frame = screen.frame;
 	out.native_cycle = screen.cycle;
 	std::memcpy(out.pixels.data(), screen.pixels, FrameSnapshot::kPixels);
-	FillPublicSidBytes(chips.sid, out.sid.data());
+	FillSidConfigBytes(chips.sid, out.sid.data());
 	return true;
 }
 

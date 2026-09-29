@@ -32,7 +32,7 @@ Terms in this file mean exactly this. Do not infer meanings from other docs.
 | **fence** | Any point where the plugin stops and requires Twin to be at a specific original PC before continuing. `JoinAtPc`, `JoinAtPcBounded`, and every armed access are fences. |
 | **join** | A fence at a routine boundary that also compares. `JoinAtPc` / `JoinAtPcBounded`. |
 | **AtPc** | A fence at one original *instruction*: `Sync::AtPc(host, pc);` arms the immediately following explicit bag `.read()`, `.write(v)`, or RMW operation. A timing sample, not a compare. |
-| **compare** | Main↔Twin equality check at a fence: KB watch bytes (`kb`), SID registers (`sid`), rendered frame (`screen`). Selected by `CompareMask`. |
+| **compare** | Main↔Twin equality check at a fence: KB watch bytes (`kb`), SID (`sid`), rendered frame (`screen`), VIC/CIA config (`vic`, `cia1`, `cia2`), and opt-in `.vic_state`. Selected by `CompareMask`. |
 | **kb (compare)** | The KB watch-slot compare: every KB entry with `watch:"yes"` is compared Main vs Twin.
 May compare DRAM or `bank:"color"` plane, never any chip registers. Unrelated to the keyboard. |
 | **interval** | A stretch of original code Main executes in zero emulated time (a plain C++ body) while Twin still has to run it natively. Ends with `JoinAtPcBounded`. |
@@ -374,7 +374,8 @@ void     Sync::ExpectWatchDelta(host, uint16_t pc, uint64_t mark,
 ```
 
 `CompareMask`: `None()` (fence only), `Kb()` (default), `All()` (kb + sid +
-screen), or designated initialiser `CompareMask{.sid = true, .kb = true}`.
+screen + vic + cia1 + cia2). `.vic_state` is opt-in (§10.1). Designated
+initialiser e.g. `CompareMask{.vic_state = true, .kb = true}`.
 `FenceSlack::AllowOneVSync` tolerates one silent extra Main VBLANK if Twin misses the
 fence in this frame; `FenceSlack::Exact` makes that a failure. Prefer `Exact`
 once a fence is understood; the default will become `Exact`.
@@ -393,9 +394,6 @@ bool host.HasTwin();             // branch for Twin-backed synchronization
 bool host.NoTwin();              // branch for --no-twin siblings (§11)
 bool host.QuitRequested();       // poll in long C++ loops
 [[noreturn]] host.SoftQuit(int code, const char* fmt, ...);
-host.AssertVsTwinSid();          // public SID write regs (same as CompareMask.sid)
-host.AssertVsTwinVic();          // public VIC I/O regs — §10.1
-host.AssertVsTwinVicState();     // full MOS6569State — §10.1
 ```
 
 ### 6.3 `host.diag()` — oracle values for log text only
@@ -686,10 +684,11 @@ Prefer pairing the programming writes with `Sync::AtPc` plus `.write()`.
   listed in `stage3-lint.json` with a reason (lint S3-003). `Compare(None())`
   is a no-op (S3-011).
 - **Weakening a mask to make a fail disappear is forbidden.** Dropping
-  `screen` because sprites drift, dropping `sid` because a voice differs, or
-  moving a join later so a byte has "settled" hides the translation bug you
-  were paid to find. Keep the mask; fix the translation; or record the fail
-  as the frontier.
+  `screen` because sprites drift, dropping `sid` because a voice differs,
+  dropping `vic`/`cia*` because a config register differs, or moving a join
+  later so a byte has "settled" hides the translation bug you were paid to
+  find. Keep the mask; fix the translation; or record the fail as the
+  frontier.
 - `--ignore-checks` is for looking past a known frontier during
   investigation. It never appears in a checkpoint command.
 
@@ -702,35 +701,32 @@ the original Twin-backed recording to the same frame or state (§11).
 ### 10.1 Chip registers versus Twin
 
 KB watches are DRAM or `bank:"color"`. They never sample VIC, SID, or CIA.
+Chip compares are `CompareMask` channels on `JoinAtPc` / `Sync::Compare` —
+the same snapshot path as SID (`GetState`, never a chip read). `--no-twin`
+they no-op.
 
-**SID has special status.** It is the only chip on `CompareMask`. `All()` —
-the default full-picture fence — includes `.sid`, and any join may set
-`CompareMask{.sid = true, .kb = true}`. That compare is a non-destructive
-snapshot of the public SID write registers (`$D400–$D418` plus pots), the
-same work as `host.AssertVsTwinSid()`. It does not read the chip.
+**SID** (`.sid`) is on `All()`. Public SID write registers `$D400–$D418` plus
+pots.
 
-**VIC is not on the mask.** The default VIC check is indirect: `screen`
-compares the rendered frame after the chips have drawn. Sprite positions,
-colours, and scroll the VIC was programmed with show up there. The register
-file itself is not compared.
-
-When the programmed VIC registers are what you want, call the host after a
-fence (or after `Sync::Compare`):
+**VIC** `.vic` is on `All()`. It is the programmed file (sprite coords, ctrl
+without RST8, enable/expand, vbase, irq_mask, irq_raster, priority,
+multicolor, colours). Not live raster, `irq_flag`, collision latches, or
+lightpen — those are beam-phase. `.screen` remains the picture check.
+`.vic_state` is the full `MOS6569State` (SC internals) and stays opt-in:
 
 ```cpp
-host.AssertVsTwinVic();       // $D000–$D02E programmer-visible regs +
-                              // irq_raster. Live raster / RST8 ignored.
-host.AssertVsTwinVicState();  // full MOS6569State, including SC internals
+Sync::Compare(host_, CompareMask{.vic_state = true, .kb = true});
 ```
 
-Both snapshot via `GetState`. They do not `Peek` `$Dxxx` and they do not
-clear `$D01E`/`$D01F`. Under `--no-twin` they return true. Do not use
-`host.AssertVsTwin($D000)` or a KB watch over the I/O window as a VIC
-compare — those follow the CPU map or DRAM, not the chip.
+| Channel | What |
+|---------|------|
+| `.vic` | Config (on `All()`). Status latches and live raster are out. |
+| `.vic_state` | Full `MOS6569State`, including SC internals. Diagnostic / strict. Not on `All()`. |
+| `.cia1` / `.cia2` | Config (on `All()`): DDR, CRA/CRB, timer **latches**, interrupt mask. CIA2 also PRA bits 0–1 (VIC bank). Not live counters, ICR flags, TOD, or CIA1 ports. |
 
-`AssertVsTwinVic` still includes collision latches and `irq_flag`, which
-move with raster phase. Prefer a settled fence; use the state form when
-internals are the question.
+`All()` is `screen` + `sid` + `vic` + `cia1` + `cia2` + `kb`. Not `.vic_state`.
+
+A KB watch over the I/O window is DRAM or color RAM, not a chip compare.
 
 ---
 
@@ -747,7 +743,6 @@ fence degrades:
 | `ReturnIrq/Nmi` | `no_twin_cycles` then teardown |
 | `AdvanceCycles` / `AdvanceToVSync` | same (Main-only) |
 | `WatchMark/ExpectWatchDelta` | no-op |
-| `AssertVsTwinSid` / `AssertVsTwinVic` / `AssertVsTwinVicState` | no-op (true) |
 | `diag().*` | hard quit — keep it out of paths that run without Twin |
 
 Where an original wait is data-dependent and you cannot give a frame count,
@@ -842,6 +837,19 @@ Wrong `pc`: not the opcode of the instruction that touches `A`.
   an armed `.write()`, or the `All()` is too early.
 - Otherwise: a translation bug in the driver body; `kb` on the driver's
   state bytes will usually show it too.
+
+**`VIC FAIL` / `VIC state FAIL`**
+- Config regs (`.vic`) after a sprite/scroll store → the AtPc write is
+  wrong or missing. Sprite coords at an `All()` that is still mid-mux →
+  the fence is too early; move `All()`, do not drop `.vic` or `screen`.
+  Collision latches / `irq_flag` / lightpen are not this channel.
+- `.vic_state` when config regs match → SC internals / status latches;
+  too strict for a join unless that is the question.
+
+**`CIA1 FAIL` / `CIA2 FAIL`**
+- DDR / CRA / latch / mask differ → a programming write was missed or
+  unpaired. Pair it with `Sync::AtPc`. Live timer phase is **not** this
+  channel; that is §9.4.
 
 **`IRQ schedule FAIL … silent`** → §8.4.
 
@@ -942,8 +950,8 @@ Forbidden in a plugin, with the alternative:
 | Skip original instructions | Silent divergence later | Instruction-complete or a loud SoftQuit |
 | `JoinAtPc` as a wait | A join claims position, not duration | `AdvanceCycles`, `AdvanceToVSync`, or `JoinAtPcBounded` |
 | Raise `max_frames` past a measurement to hide a miss | Twin is somewhere else | Read `twin_pc`; translate that path |
-| Drop `screen`/`sid`/`kb` from a mask to pass | Hides the bug | Fix, or record as frontier |
-| KB-watch or `AssertVsTwin($Dxxx)` for VIC/SID | CPU map / DRAM, or a destructive chip read | `AssertVsTwinSid` / `AssertVsTwinVic` (§10.1) |
+| Drop `screen`/`sid`/`vic`/`cia*`/`kb` from a mask to pass | Hides the bug | Fix, or record as frontier |
+| KB-watch VIC/SID/CIA registers | DRAM or a destructive chip read | `CompareMask` `.vic` / `.sid` / `.cia1` / `.cia2` (§10.1) |
 | Leave `--ignore-checks` in a checkpoint command | Not a pass | Investigation only |
 | Edit `src/revm/` | Not your slice; hides a translation gap | §15 bug case |
 

@@ -52,7 +52,7 @@ through the event `Hex` type are JSON strings such as `"0xEC3C"`.
 | `accept` | `phase`, `kind`, optional `boundary_cyc` | IRQ/NMI detection, resolution, dispatch, silence, or repair. |
 | `skew` | `kind`, `paired`, `phi2` | Main/Twin interrupt pairing and Φ2 difference. |
 | `handler` | `kind`, `phase` | IRQ/NMI handler entry or exit. |
-| `compare` | `screen`, `sid`, `kb` | Per-channel result; `-1` means the channel was not compared. |
+| `compare` | `screen`, `sid`, `vic`, `vic_state`, `cia1`, `cia2`, `kb` | Per-channel result; `-1` means the channel was not compared. |
 | `compare_fail` | `channel`, `addr`, `main`, `twin`, or `overflow` | A differing byte. At most 32 are emitted per comparison before an overflow marker. |
 | `screen_fail` | pixel count, bounding box, optional context | Visual mismatch and failure-oriented screen diagnosis. |
 | `extra_vsync` | `site` | An extra VBLANK crossed at a `join`, RAM fence, or nested fence. |
@@ -94,6 +94,10 @@ The report contains this top-level shape:
   "channels": {
     "screen": {"compared": 0, "failed": 0},
     "sid": {"compared": 0, "failed": 0},
+    "vic": {"compared": 0, "failed": 0},
+    "vic_state": {"compared": 0, "failed": 0},
+    "cia1": {"compared": 0, "failed": 0},
+    "cia2": {"compared": 0, "failed": 0},
     "kb": {"compared": 0, "failed": 0}
   },
   "skew": {

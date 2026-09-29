@@ -36,7 +36,7 @@ public:
 };
 
 bool CaptureFrameSnapshot(const Board & board, FrameSnapshot & out);
-void FillPublicSidBytes(const MOS6581State & sid, uint8_t out[FrameSnapshot::kSidBytes]);
+void FillSidConfigBytes(const MOS6581State & sid, uint8_t out[FrameSnapshot::kSidBytes]);
 
 // Optional file adapter for per-frame observation output.
 class FrameObservationWriter : public FrameObserver {

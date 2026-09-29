@@ -53,18 +53,30 @@ struct SoftQuitException {
 
 // Main↔Twin compare mask at a join fence (or Sync::Compare).
 // All flags default false: CompareMask{} / None() is PC-only (no compare).
-// JoinAtPc / Sync::Compare default to Kb().
+// JoinAtPc / Sync::Compare default to Kb(). All() is screen + sid + vic +
+// cia1 + cia2 + kb. vic_state is opt-in (SC internals / raster pipeline).
 struct CompareMask {
 	bool screen = false;
 	bool sid = false;
+	bool vic = false;
+	bool vic_state = false;
+	bool cia1 = false;
+	bool cia2 = false;
 	bool kb = false;
 
 	static CompareMask None() { return {}; }
 	static CompareMask Kb() { return {.kb = true}; }
 	static CompareMask All() {
-		return {.screen = true, .sid = true, .kb = true};
+		return {.screen = true,
+		        .sid = true,
+		        .vic = true,
+		        .cia1 = true,
+		        .cia2 = true,
+		        .kb = true};
 	}
-	bool any() const { return screen || sid || kb; }
+	bool any() const {
+		return screen || sid || vic || vic_state || cia1 || cia2 || kb;
+	}
 };
 
 // Join / AtPc slack: allow one extra Main VSYNC if Twin misses the fence
@@ -259,12 +271,9 @@ private:
 	void ClearTwinPcWatches();
 	bool AssertTwinMem(uint16_t addr, uint8_t expected);
 	bool AssertTwinMemRange(uint16_t lo, uint16_t hi, const uint8_t * expected);
-	bool AssertVsTwinSid();
 	bool AssertTwinPc(uint16_t pc);
 	bool AssertVsTwinCycleSync();
 	bool AssertKbCheck();
-	bool AssertVsTwinVic();
-	bool AssertVsTwinVicState();
 	bool AssertVsTwin(uint16_t addr);
 	bool AssertVsTwinRange(uint16_t lo, uint16_t hi);
 	bool AssertVsTwinIrqSources();
@@ -420,6 +429,11 @@ private:
 	void on_main_vsync(uint32_t frame, uint32_t cycle, const InputFrame & in);
 	void compare_screen(uint32_t frame, RitualCheck & out);
 	void compare_sid(uint32_t frame, RitualCheck & out);
+	bool capture_compare_chips(ChipSnapshot & main_chip, ChipSnapshot & twin_chip,
+	                           uint32_t frame);
+	void compare_vic(uint32_t frame, RitualCheck & out);
+	void compare_vic_state(uint32_t frame, RitualCheck & out);
+	void compare_cia(int which, uint32_t frame, RitualCheck & out);
 	void print_compare_tallies() const;
 	void finish_media();
 	void tally_tick(uint32_t frame);
@@ -511,10 +525,21 @@ private:
 	PlaybackCompareOpts compare_opts_{};
 	IgnoreTally screen_tally_{};
 	IgnoreTally sid_tally_{};
+	IgnoreTally vic_tally_{};
+	IgnoreTally vic_state_tally_{};
+	IgnoreTally cia1_tally_{};
+	IgnoreTally cia2_tally_{};
 	RitualCheck last_screen_{};
 	RitualCheck last_sid_{};
+	RitualCheck last_vic_{};
+	RitualCheck last_vic_state_{};
+	RitualCheck last_cia1_{};
+	RitualCheck last_cia2_{};
 	std::string last_screen_summary_;
 	char last_sid_detail_[96]{};
+	char last_vic_detail_[96]{};
+	char last_cia1_detail_[96]{};
+	char last_cia2_detail_[96]{};
 	unsigned dump_images_written_ = 0;
 
 	static constexpr uint32_t kTallyFrames = 50; // ~1 PAL second

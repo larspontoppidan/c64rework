@@ -121,7 +121,8 @@ void EmitExtraVsync(const char * site /*"join"|"ram"|"nested"*/);
 void EmitSoftquit(int code, const char * msg);
 void EmitWatchHit(uint16_t pc, const char * label, uint64_t total);
 // Per-compare channel outcomes (-1 sentinel = channel not run).
-void EmitCompareResult(int screen_ok, int sid_ok, int kb_ok);
+void EmitCompareResult(int screen_ok, int sid_ok, int kb_ok, int vic_ok = -1,
+                       int vic_state_ok = -1, int cia1_ok = -1, int cia2_ok = -1);
 void SetRunEnd(const char * result /*"ok"|"fail"|"softquit"*/,
                uint32_t frames_run);
 

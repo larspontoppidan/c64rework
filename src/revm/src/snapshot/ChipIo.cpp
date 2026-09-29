@@ -6,10 +6,7 @@
 
 namespace revm {
 
-bool PublicVicIoEqual(const MOS6569State & a, const MOS6569State & b) {
-	// $D000–$D02E programmer-visible regs (+ programmed irq_raster).
-	// Ignore live raster counter / RST8 (ctrl1 bit7) — those track beam position
-	// and differ under QuietVBlank / twin catch-up without meaning a game diverge.
+bool VicConfigEqual(const MOS6569State & a, const MOS6569State & b) {
 	const uint8_t ctrl1_a = uint8_t(a.ctrl1 & 0x7f);
 	const uint8_t ctrl1_b = uint8_t(b.ctrl1 & 0x7f);
 	return a.m0x == b.m0x && a.m0y == b.m0y &&
@@ -22,12 +19,10 @@ bool PublicVicIoEqual(const MOS6569State & a, const MOS6569State & b) {
 	       a.m7x == b.m7x && a.m7y == b.m7y &&
 	       a.mx8 == b.mx8 &&
 	       ctrl1_a == ctrl1_b &&
-	       a.lpx == b.lpx && a.lpy == b.lpy &&
 	       a.me == b.me && a.ctrl2 == b.ctrl2 && a.mye == b.mye &&
 	       a.vbase == b.vbase &&
-	       a.irq_flag == b.irq_flag && a.irq_mask == b.irq_mask &&
+	       a.irq_mask == b.irq_mask &&
 	       a.mdp == b.mdp && a.mmc == b.mmc && a.mxe == b.mxe &&
-	       a.mm == b.mm && a.md == b.md &&
 	       a.ec == b.ec && a.b0c == b.b0c && a.b1c == b.b1c &&
 	       a.b2c == b.b2c && a.b3c == b.b3c &&
 	       a.mm0 == b.mm0 && a.mm1 == b.mm1 &&
@@ -37,8 +32,7 @@ bool PublicVicIoEqual(const MOS6569State & a, const MOS6569State & b) {
 	       a.irq_raster == b.irq_raster;
 }
 
-bool PublicSidIoEqual(const MOS6581State & a, const MOS6581State & b) {
-	// $D400–$D418 write regs + pot readbacks. Not fake-v3 / last_sid_* internals.
+bool SidConfigEqual(const MOS6581State & a, const MOS6581State & b) {
 	return a.freq_lo_1 == b.freq_lo_1 && a.freq_hi_1 == b.freq_hi_1 &&
 	       a.pw_lo_1 == b.pw_lo_1 && a.pw_hi_1 == b.pw_hi_1 &&
 	       a.ctrl_1 == b.ctrl_1 && a.AD_1 == b.AD_1 && a.SR_1 == b.SR_1 &&
@@ -53,38 +47,23 @@ bool PublicSidIoEqual(const MOS6581State & a, const MOS6581State & b) {
 	       a.pot_x == b.pot_x && a.pot_y == b.pot_y;
 }
 
-bool PublicCiaIoEqual(const MOS6526State & a, const MOS6526State & b,
-                      bool compare_ifr) {
-	// Programmer-visible CIA registers. Not SC delay pipelines / TOD bookkeeping.
-	if (!(a.pra == b.pra && a.ddra == b.ddra &&
-	      a.prb == b.prb && a.ddrb == b.ddrb &&
-	      a.ta_lo == b.ta_lo && a.ta_hi == b.ta_hi &&
-	      a.tb_lo == b.tb_lo && a.tb_hi == b.tb_hi &&
-	      a.tod_10ths == b.tod_10ths && a.tod_sec == b.tod_sec &&
-	      a.tod_min == b.tod_min && a.tod_hr == b.tod_hr &&
-	      a.sdr == b.sdr &&
-	      a.cra == b.cra && a.crb == b.crb &&
-	      a.ta_latch == b.ta_latch && a.tb_latch == b.tb_latch &&
-	      a.ltc_10ths == b.ltc_10ths && a.ltc_sec == b.ltc_sec &&
-	      a.ltc_min == b.ltc_min && a.ltc_hr == b.ltc_hr &&
-	      a.alm_10ths == b.alm_10ths && a.alm_sec == b.alm_sec &&
-	      a.alm_min == b.alm_min && a.alm_hr == b.alm_hr &&
-	      a.int_mask == b.int_mask)) {
-		return false;
-	}
-	if (compare_ifr && a.int_flags != b.int_flags) return false;
-	return true;
+bool CiaConfigEqual(const MOS6526State & a, const MOS6526State & b,
+                    uint8_t pra_mask) {
+	return (a.pra & pra_mask) == (b.pra & pra_mask) && a.ddra == b.ddra &&
+	       a.ddrb == b.ddrb && a.cra == b.cra && a.crb == b.crb &&
+	       a.ta_latch == b.ta_latch && a.tb_latch == b.tb_latch &&
+	       a.int_mask == b.int_mask;
 }
 
-bool PublicChipIoEqual(const MOS6569State & vic_a, const MOS6569State & vic_b,
-                       const MOS6581State & sid_a, const MOS6581State & sid_b,
-                       const MOS6526State & cia1_a, const MOS6526State & cia1_b,
-                       const MOS6526State & cia2_a, const MOS6526State & cia2_b,
-                       bool compare_sid, bool compare_cia_ifr) {
-	if (!PublicVicIoEqual(vic_a, vic_b)) return false;
-	if (compare_sid && !PublicSidIoEqual(sid_a, sid_b)) return false;
-	return PublicCiaIoEqual(cia1_a, cia1_b, compare_cia_ifr) &&
-	       PublicCiaIoEqual(cia2_a, cia2_b, compare_cia_ifr);
+bool ChipConfigEqual(const MOS6569State & vic_a, const MOS6569State & vic_b,
+                     const MOS6581State & sid_a, const MOS6581State & sid_b,
+                     const MOS6526State & cia1_a, const MOS6526State & cia1_b,
+                     const MOS6526State & cia2_a, const MOS6526State & cia2_b,
+                     bool compare_sid) {
+	if (!VicConfigEqual(vic_a, vic_b)) return false;
+	if (compare_sid && !SidConfigEqual(sid_a, sid_b)) return false;
+	return CiaConfigEqual(cia1_a, cia1_b, 0) &&
+	       CiaConfigEqual(cia2_a, cia2_b, 0x03);
 }
 
 } // namespace revm

@@ -110,20 +110,21 @@ void PrintMemDiffs(FILE * out, const char * label, const std::vector<MemDiffHit>
 
 void PrintCpuDiff(FILE * out, const MOS6510State & expected, const MOS6510State & actual);
 
-void PrintPublicChipIoDiff(FILE * out,
-                           const MOS6569State & vic_e, const MOS6569State & vic_a,
-                           const MOS6581State & sid_e, const MOS6581State & sid_a,
-                           const MOS6526State & cia1_e, const MOS6526State & cia1_a,
-                           const MOS6526State & cia2_e, const MOS6526State & cia2_a,
-                           bool compare_sid = true, bool compare_cia_ifr = true);
+void PrintChipConfigDiff(FILE * out,
+                         const MOS6569State & vic_e, const MOS6569State & vic_a,
+                         const MOS6581State & sid_e, const MOS6581State & sid_a,
+                         const MOS6526State & cia1_e, const MOS6526State & cia1_a,
+                         const MOS6526State & cia2_e, const MOS6526State & cia2_a,
+                         bool compare_sid = true);
 
-// VIC-only public I/O diff ($D000–$D02E + irq_raster).
-void PrintPublicVicIoDiff(FILE * out, const MOS6569State & expected,
-                          const MOS6569State & actual);
+void PrintVicConfigDiff(FILE * out, const MOS6569State & expected,
+                        const MOS6569State & actual);
 
-// SID-only public register diffs (primary Stage 3 audio gate).
-void PrintSidDiff(FILE * out, const MOS6581State & expected,
-                  const MOS6581State & actual);
+void PrintSidConfigDiff(FILE * out, const MOS6581State & expected,
+                        const MOS6581State & actual);
+
+void PrintCiaConfigDiff(FILE * out, const char * label, const MOS6526State & expected,
+                        const MOS6526State & actual, uint8_t pra_mask = 0);
 
 void PrintScreenDiff(FILE * out, const ScreenSnapshot & expected,
                      const ScreenSnapshot & actual, size_t max_hits = 16);
@@ -132,8 +133,7 @@ void PrintScreenDiff(FILE * out, const ScreenSnapshot & expected,
 void PrintFullCompareReport(FILE * out, uint32_t frame, uint32_t cycle, size_t snap_index,
                             const FullSnapshot & expected, const FullSnapshot & actual,
                             const RamCompareMask & ram_mask, bool compare_cpu,
-                            bool chip_stream_mismatch, bool compare_sid = true,
-                            bool compare_cia_ifr = true);
+                            bool chip_stream_mismatch, bool compare_sid = true);
 
 bool WriteFailDumpPair(const std::string & dir, uint32_t frame, size_t snap_index,
                        const FullSnapshot & expected, const FullSnapshot & actual,

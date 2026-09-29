@@ -50,6 +50,10 @@ struct State {
 
 	Chan screen;
 	Chan sid;
+	Chan vic;
+	Chan vic_state;
+	Chan cia1;
+	Chan cia2;
 	Chan kb;
 	SkewAgg skew[2] = {}; // [irq, nmi]
 	HandlerAgg handlers[2] = {};
@@ -180,7 +184,10 @@ std::string report_json() {
 		return std::string(b);
 	};
 	o += ",\"channels\":{\"screen\":" + chan_obj(s.screen) +
-	     ",\"sid\":" + chan_obj(s.sid) + ",\"kb\":" + chan_obj(s.kb) + "}";
+	     ",\"sid\":" + chan_obj(s.sid) + ",\"vic\":" + chan_obj(s.vic) +
+	     ",\"vic_state\":" + chan_obj(s.vic_state) +
+	     ",\"cia1\":" + chan_obj(s.cia1) + ",\"cia2\":" + chan_obj(s.cia2) +
+	     ",\"kb\":" + chan_obj(s.kb) + "}";
 
 	auto skew_obj = [&](const SkewAgg & k) {
 		char b[192];
@@ -425,22 +432,25 @@ void EmitWatchHit(uint16_t pc, const char * label, uint64_t total) {
 	row.second = total;
 }
 
-void EmitCompareResult(int screen_ok, int sid_ok, int kb_ok) {
+void EmitCompareResult(int screen_ok, int sid_ok, int kb_ok, int vic_ok,
+                       int vic_state_ok, int cia1_ok, int cia2_ok) {
 	if (!Enabled()) return;
-	REVM_EVENT("compare", "screen", screen_ok, "sid", sid_ok, "kb", kb_ok);
+	REVM_EVENT("compare", "screen", screen_ok, "sid", sid_ok, "vic", vic_ok,
+	           "vic_state", vic_state_ok, "cia1", cia1_ok, "cia2", cia2_ok, "kb",
+	           kb_ok);
 	State & s = state();
-	if (screen_ok >= 0) {
-		++s.screen.compared;
-		if (screen_ok == 0) ++s.screen.failed;
-	}
-	if (sid_ok >= 0) {
-		++s.sid.compared;
-		if (sid_ok == 0) ++s.sid.failed;
-	}
-	if (kb_ok >= 0) {
-		++s.kb.compared;
-		if (kb_ok == 0) ++s.kb.failed;
-	}
+	auto note = [](Chan & c, int ok) {
+		if (ok < 0) return;
+		++c.compared;
+		if (ok == 0) ++c.failed;
+	};
+	note(s.screen, screen_ok);
+	note(s.sid, sid_ok);
+	note(s.vic, vic_ok);
+	note(s.vic_state, vic_state_ok);
+	note(s.cia1, cia1_ok);
+	note(s.cia2, cia2_ok);
+	note(s.kb, kb_ok);
 }
 
 void SetRunEnd(const char * result, uint32_t frames_run) {
