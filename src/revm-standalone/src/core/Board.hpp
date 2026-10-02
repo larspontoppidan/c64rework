@@ -92,7 +92,7 @@ private:
 	void maybe_save_screen();
 	void poll_host_screenshot();
 	void save_live_screenshot();
-	bool write_display_ppm(const std::string & path, std::string & error);
+	bool write_display_png(const std::string & path, std::string & error);
 	void check_max_cycles();
 	void check_max_seconds();
 

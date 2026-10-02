@@ -27,11 +27,11 @@ struct PlaybackCompareOpts {
 	bool ignore_asserts = false;
 	// --ignore-play-hashes: skip Twin ↔ play.json snapshot SHA checks.
 	bool ignore_play_hashes = false;
-	// If non-empty, also used as the directory for screen PPM dumps.
+	// If non-empty, also used as the directory for screen PNG dumps.
 	std::string dump_fail_dir;
 	// Cap how many screen image sets to write (0 = unlimited).
 	unsigned dump_fail_limit = 1;
-	// On screen mismatch: write expected/actual/diff PPM images (Pepto palette).
+	// On screen mismatch: write expected/actual/diff PNG images (Pepto palette).
 	// Uses dump_fail_dir, or "revm-fail" when that is empty.
 	bool dump_screen_images = true;
 
@@ -139,16 +139,16 @@ bool WriteFailDumpPair(const std::string & dir, uint32_t frame, size_t snap_inde
                        const FullSnapshot & expected, const FullSnapshot & actual,
                        const std::string & report_text, std::string & error);
 
-// Write Pepto-palette PPM images for a screen mismatch:
-//   <dir>/fail_fNNNNNN_expected.ppm
-//   <dir>/fail_fNNNNNN_actual.ppm
-//   <dir>/fail_fNNNNNN_diff.ppm   (red where pixels differ)
+// Write Pepto-palette indexed PNG images for a screen mismatch:
+//   <dir>/fail_fNNNNNN_expected.png
+//   <dir>/fail_fNNNNNN_actual.png
+//   <dir>/fail_fNNNNNN_diff.png   (magenta where pixels differ)
 bool WriteScreenFailImages(const std::string & dir, uint32_t frame,
                            const ScreenSnapshot & expected,
                            const ScreenSnapshot & actual, std::string & error);
 
-// Write a Pepto-palette binary P6 PPM of `screen` to `path`.
-bool WriteScreenPpm(const std::string & path, const ScreenSnapshot & screen,
+// Write a 16-color Pepto indexed PNG of `screen` to `path`.
+bool WriteScreenPng(const std::string & path, const ScreenSnapshot & screen,
                     std::string & error);
 
 } // namespace revm

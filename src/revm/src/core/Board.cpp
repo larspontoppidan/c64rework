@@ -698,7 +698,7 @@ void Board::maybe_save_screen() {
 	ScreenSnapshot screen{};
 	std::string err;
 	if (!CaptureScreenSnapshot(*this, screen) ||
-	    !WriteScreenPpm(cfg_.save_screen_path, screen, err)) {
+	    !WriteScreenPng(cfg_.save_screen_path, screen, err)) {
 		REVM_LOG(REVM_ERROR, "save-screen failed: %s",
 		         err.empty() ? "capture failed" : err.c_str());
 		RequestQuit(1);
@@ -711,10 +711,10 @@ void Board::maybe_save_screen() {
 
 void Board::save_live_screenshot() {
 	const uint32_t frame = FrameCounter();
-	const std::string path = "frame" + std::to_string(frame) + ".ppm";
+	const std::string path = "frame" + std::to_string(frame) + ".png";
 	ScreenSnapshot screen{};
 	std::string err;
-	if (!CaptureScreenSnapshot(*this, screen) || !WriteScreenPpm(path, screen, err)) {
+	if (!CaptureScreenSnapshot(*this, screen) || !WriteScreenPng(path, screen, err)) {
 		REVM_LOG(REVM_ERROR, "screenshot failed: %s",
 		         err.empty() ? "capture failed" : err.c_str());
 		return;

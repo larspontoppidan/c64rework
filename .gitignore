@@ -1,8 +1,6 @@
 .cursor
 .cache/
 __pycache__/
-*.ppm
 compile_commands.json
 .agents/
-# Local C64 ROM dumps (not distributed)
 /roms/

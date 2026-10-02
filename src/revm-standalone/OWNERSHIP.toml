@@ -37,6 +37,8 @@ mirrored_files = [
   "src/vendor/frodo/sysconfig.h",
   "src/vendor/frodo/sysdeps.h",
   "src/vendor/nlohmann/json.hpp",
+  "src/util/Png.hpp",
+  "src/util/Png.cpp",
 ]
 
 standalone_only = [
@@ -56,13 +58,13 @@ reason = "Standalone extracts the shared AdvanceResult enum and name helper from
 
 [[forked]]
 path = "src/core/Board.cpp"
-base_sha256 = "f7c56f20375c5ed3dcd332c65cc0031f5ce05698526f3b070d6cf62dc57134f5"
-reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write a Pepto PPM from the VIC bitmap without the full media/snapshot stack. Optional PlayRecorder captures sticky C64 input at VSYNC. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
+base_sha256 = "78a80b8e080b2992f555cbb9bcd290248b637059a53be7265ddf9ad8ce46b95a"
+reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write an indexed Pepto PNG from the VIC bitmap without the full media/snapshot stack. Optional PlayRecorder captures sticky C64 input at VSYNC. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
 
 [[forked]]
 path = "src/core/Board.hpp"
 base_sha256 = "6bd3bdb0653673e14b2b7144f98f6abe26374a1d0009cf20d158466545b365e8"
-reason = "Standalone Board API omits secondary/Twin, snapshots, playback-oracle callbacks, debug, coverage, analysis, unused Reset/Run/hook surfaces, the shadow Clock object, and EmulateCycleInjectCpu. --save-screen and Ctrl+F9 are Main-only PPM captures. SetPlayRecorder is the slim input recorder, not the FullSnapshot oracle. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
+reason = "Standalone Board API omits secondary/Twin, snapshots, playback-oracle callbacks, debug, coverage, analysis, unused Reset/Run/hook surfaces, the shadow Clock object, and EmulateCycleInjectCpu. --save-screen and Ctrl+F9 are Main-only PNG captures. SetPlayRecorder is the slim input recorder, not the FullSnapshot oracle. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
 
 [[forked]]
 path = "src/core/Clock.hpp"
@@ -81,7 +83,7 @@ reason = "Standalone timed logs format only the Main clock; Twin suffixes and Sa
 
 [[forked]]
 path = "src/core/Config.hpp"
-base_sha256 = "5a6ad1063740f92415cf80adf92b89c097bcd054b31ec73c0379c73aba8defd4"
+base_sha256 = "2ee002312dff9d279d0438dd1f77f4e57c050306ad400058d3545c975cc3dcb5"
 reason = "Standalone configuration is blank-Main only and uses one SidMode instead of overlapping audio flags. --save-screen FRAME FILE is retained."
 
 [[forked]]
@@ -183,12 +185,12 @@ reason = "Standalone VIC removes its stale cartridge reference while preserving 
 
 [[forked]]
 path = "apps/revm/main.cpp"
-base_sha256 = "9f3cf3e921b3f3c697da63a08807caa48a8a7d2273c10363770c4df0bfce93fd"
+base_sha256 = "9aa8fe605ccdc0614e35d3e954a90cd31f3a0ec69aba36c8377ee51e0528187d"
 reason = "Standalone entry point omits REVM CLI, oracle, Twin, and analysis startup; launch uses StandaloneRunner and one SidMode for interactive play, --record-play, and replay. Prints a live key sheet (including Ctrl+F9) on windowed launches. --save-screen FRAME FILE is retained."
 
 [[forked]]
 path = "cmake/RevmCommon.cmake"
-base_sha256 = "115ba28cff1f30c1d40e6382596e83f4e5894f25b28b5421ec10d28a9d33c927"
+base_sha256 = "17d6240ccfaabb906a1a8f99e7c49a6ea9a124ad19ea15d044c9a5c80dc78b8e"
 reason = "Standalone build always produces one executable and one cpu-mock game object set; reSID remains a runtime SidMode, not a second build graph. The runtime compiles GameHost plus StandaloneRunner instead of CpuMockHost, including the slim PlayRecorder. reSID is vendored at export src/resid/ (not a git submodule); CMake requires those sources and perl to generate wave tables."
 
 [[forked]]

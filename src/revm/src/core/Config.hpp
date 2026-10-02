@@ -78,7 +78,7 @@ struct Config {
 	// --save-audio / --save-video / --save-screen (Main board)
 	std::string save_audio_path;
 	std::string save_video_path;
-	// --save-screen FRAME FILE: Pepto P6 PPM at VBLANK FRAME (same counter
+	// --save-screen FRAME FILE: indexed Pepto PNG at VBLANK FRAME (same counter
 	// as --max-frames). Unset = disabled.
 	std::optional<uint32_t> save_screen_frame;
 	std::string save_screen_path;

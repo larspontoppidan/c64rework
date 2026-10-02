@@ -56,7 +56,7 @@ and diagnostics are options rather than subcommands.
   also requires `--resid`; Frodo SID only emits the sample tap through SDL
   speakers. `--save-video` writes 2× nearest-neighbor H.264 and muxes reSID
   PCM as 192 kbit/s AAC. `--no-audio` cannot be combined with either media
-  flag. `--save-screen FRAME FILE` writes a Pepto P6 PPM of Main at that
+  flag. `--save-screen FRAME FILE` writes an indexed Pepto PNG of Main at that
   VBLANK (same frame counter as `--max-frames`).
 - Record further canonical plays from the BEGIN snapshot with
   `--load-snapshot` and `--record-play`. There is no separate BEGIN-cycle
@@ -71,7 +71,7 @@ and diagnostics are options rather than subcommands.
   the other kind of system prints a warning; playback is not expected to
   match. Stage 4 does not support `mod_events` and warns if a play contains
   them.
-- `--dump-fail DIR` writes expected, actual, and diff PPM files for screen
+- `--dump-fail DIR` writes expected, actual, and diff PNG files for screen
   mismatches. `--dump-fail-limit N` caps how many mismatch sets are written:
   the default `1` matches the legacy aborting-run behavior; `0` writes every
   mismatch, which is how per-fail evidence is collected under

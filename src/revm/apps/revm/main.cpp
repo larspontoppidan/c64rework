@@ -85,7 +85,7 @@ void print_usage(const char * argv0) {
 		"  --save-audio FILE     WAV from SID (headless requires --resid)\n"
 		"  --save-video FILE     MP4 via ffmpeg: 2× nearest-neighbor RGB,\n"
 		"                        H.264 + reSID AAC. Requires --resid.\n"
-		"  --save-screen FRAME FILE  Pepto P6 PPM of Main at VBLANK FRAME\n"
+		"  --save-screen FRAME FILE  Indexed Pepto PNG of Main at VBLANK FRAME\n"
 		"                        (same frame counter as --max-frames)\n"
 		"  --frame-observations FILE  Per-frame indexed pixels + public SID bytes\n"
 		"\n"
@@ -132,7 +132,7 @@ void print_usage(const char * argv0) {
 		"  --ignore-checks       Run Main↔Twin / kb / golden compares but do not abort\n"
 		"  --ignore-asserts      Log Assert*/QuitOnAssert failures but do not hard Quit\n"
 		"  --ignore-play-hashes  Skip Twin ↔ play.json snapshot SHA checks\n"
-		"  --dump-fail DIR       Screen PPM dump dir (default revm-fail/)\n"
+		"  --dump-fail DIR       Screen PNG dump dir (default revm-fail/)\n"
 		"  --dump-fail-limit N   Write at most N screen mismatch image sets\n"
 		"                        (default 1; 0 = every mismatch, e.g. under\n"
 		"                        --ignore-checks)\n"
@@ -217,7 +217,7 @@ void print_live_key_sheet(const revm::JoystickConfig & cfg) {
 	std::fprintf(stderr, "  %-18s  %s\n", "--------", "------");
 	shortcut("F1-F8", "C64 function keys");
 	shortcut("F9", "Mark frame/cycle timestamp");
-	shortcut("Ctrl+F9", "Save screenshot as frameN.ppm in the current directory");
+	shortcut("Ctrl+F9", "Save screenshot as frameN.png in the current directory");
 	shortcut("F10", "Pause / resume");
 	shortcut("Ctrl+Tab", "Swap joystick ports 1 / 2");
 	shortcut("F11", "C64 Restore (NMI) (disabled)");

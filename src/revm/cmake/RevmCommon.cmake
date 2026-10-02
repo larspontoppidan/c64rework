@@ -195,6 +195,7 @@ set(REVM_SOURCES
   ${REVM_DIR}/util/Hash.cpp
   ${REVM_DIR}/util/Log.cpp
   ${REVM_DIR}/util/Event.cpp
+  ${REVM_DIR}/util/Png.cpp
   ${REVM_DIR}/goldens/RamCompareMask.cpp
   ${REVM_DIR}/goldens/FrameObservation.cpp
   ${REVM_DIR}/goldens/CompareReport.cpp

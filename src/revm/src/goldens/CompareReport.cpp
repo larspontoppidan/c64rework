@@ -4,6 +4,7 @@
 
 #include "goldens/CompareReport.hpp"
 #include "snapshot/ChipIo.hpp"
+#include "util/Png.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -24,17 +25,6 @@ void IgnoreTally::LogLine(const char * module, const char * label) const {
 }
 
 namespace {
-
-// Pepto palette (same as Frodo Display.cpp default)
-constexpr uint8_t kPeptoR[16] = {
-	0x00, 0xff, 0x86, 0x4c, 0x88, 0x35, 0x20, 0xcf, 0x88, 0x40, 0xcb, 0x34, 0x68, 0x8b, 0x68, 0xa1
-};
-constexpr uint8_t kPeptoG[16] = {
-	0x00, 0xff, 0x19, 0xc1, 0x17, 0xac, 0x07, 0xf2, 0x3e, 0x2a, 0x55, 0x34, 0x68, 0xff, 0x4a, 0xa1
-};
-constexpr uint8_t kPeptoB[16] = {
-	0x00, 0xff, 0x01, 0xe3, 0xbd, 0x0a, 0xc0, 0x2d, 0x00, 0x00, 0x37, 0x34, 0x68, 0x59, 0xff, 0xa1
-};
 
 bool excluded(const RamCompareMask & mask, uint16_t addr) {
 	for (const auto & r : mask.Ranges()) {
@@ -362,36 +352,6 @@ bool WriteFailDumpPair(const std::string & dir, uint32_t frame, size_t snap_inde
 	return true;
 }
 
-namespace {
-
-void screen_to_rgb24(const ScreenSnapshot & screen, std::vector<uint8_t> & rgb_out) {
-	rgb_out.resize(ScreenSnapshot::kBytes * 3);
-	for (size_t i = 0; i < ScreenSnapshot::kBytes; ++i) {
-		const uint8_t color = screen.pixels[i] & 0x0f;
-		rgb_out[i * 3 + 0] = kPeptoR[color];
-		rgb_out[i * 3 + 1] = kPeptoG[color];
-		rgb_out[i * 3 + 2] = kPeptoB[color];
-	}
-}
-
-bool write_ppm_rgb(const std::string & path, unsigned w, unsigned h,
-                   const uint8_t * rgb, std::string & error) {
-	std::ofstream f(path, std::ios::binary);
-	if (!f) {
-		error = "cannot write " + path;
-		return false;
-	}
-	f << "P6\n" << w << " " << h << "\n255\n";
-	f.write(reinterpret_cast<const char *>(rgb), std::streamsize(w * h * 3));
-	if (!f) {
-		error = "write failed: " + path;
-		return false;
-	}
-	return true;
-}
-
-} // namespace
-
 bool WriteScreenFailImages(const std::string & dir, uint32_t frame,
                            const ScreenSnapshot & expected,
                            const ScreenSnapshot & actual, std::string & error) {
@@ -405,53 +365,39 @@ bool WriteScreenFailImages(const std::string & dir, uint32_t frame,
 	char base[128];
 	std::snprintf(base, sizeof(base), "fail_f%06u", frame);
 	const fs::path root = fs::path(dir) / base;
-	const std::string exp_path = root.string() + "_expected.ppm";
-	const std::string act_path = root.string() + "_actual.ppm";
-	const std::string diff_path = root.string() + "_diff.ppm";
+	const std::string exp_path = root.string() + "_expected.png";
+	const std::string act_path = root.string() + "_actual.png";
+	const std::string diff_path = root.string() + "_diff.png";
 
-	std::vector<uint8_t> exp_rgb;
-	std::vector<uint8_t> act_rgb;
-	screen_to_rgb24(expected, exp_rgb);
-	screen_to_rgb24(actual, act_rgb);
+	if (!WriteScreenPng(exp_path, expected, error)) return false;
+	if (!WriteScreenPng(act_path, actual, error)) return false;
 
-	std::vector<uint8_t> diff_rgb(exp_rgb.size());
+	uint8_t pal[17 * 3];
+	std::memcpy(pal, &kPeptoRgb[0][0], 16 * 3);
+	pal[16 * 3 + 0] = 0xff;
+	pal[16 * 3 + 1] = 0x00;
+	pal[16 * 3 + 2] = 0xff;
+	std::vector<uint8_t> diff_idx(ScreenSnapshot::kBytes);
 	for (size_t i = 0; i < ScreenSnapshot::kBytes; ++i) {
-		if (expected.pixels[i] == actual.pixels[i]) {
-			diff_rgb[i * 3 + 0] = exp_rgb[i * 3 + 0];
-			diff_rgb[i * 3 + 1] = exp_rgb[i * 3 + 1];
-			diff_rgb[i * 3 + 2] = exp_rgb[i * 3 + 2];
-		} else {
-			// Hot magenta on mismatch — easy to spot next to Pepto colors.
-			diff_rgb[i * 3 + 0] = 0xff;
-			diff_rgb[i * 3 + 1] = 0x00;
-			diff_rgb[i * 3 + 2] = 0xff;
-		}
+		if (expected.pixels[i] == actual.pixels[i])
+			diff_idx[i] = expected.pixels[i] & 0x0f;
+		else
+			diff_idx[i] = 16; // hot magenta — easy to spot next to Pepto colors.
 	}
-
-	if (!write_ppm_rgb(exp_path, ScreenSnapshot::kWidth, ScreenSnapshot::kHeight,
-	                   exp_rgb.data(), error)) {
-		return false;
-	}
-	if (!write_ppm_rgb(act_path, ScreenSnapshot::kWidth, ScreenSnapshot::kHeight,
-	                   act_rgb.data(), error)) {
-		return false;
-	}
-	if (!write_ppm_rgb(diff_path, ScreenSnapshot::kWidth, ScreenSnapshot::kHeight,
-	                   diff_rgb.data(), error)) {
+	if (!WritePngIndexed(diff_path, ScreenSnapshot::kWidth, ScreenSnapshot::kHeight,
+	                     diff_idx.data(), pal, 17, error)) {
 		return false;
 	}
 
-	REVM_LOG(REVM_DEBUG, "screen dump → %s_{expected,actual,diff}.ppm",
+	REVM_LOG(REVM_DEBUG, "screen dump → %s_{expected,actual,diff}.png",
 	             root.string().c_str());
 	return true;
 }
 
-bool WriteScreenPpm(const std::string & path, const ScreenSnapshot & screen,
+bool WriteScreenPng(const std::string & path, const ScreenSnapshot & screen,
                     std::string & error) {
-	std::vector<uint8_t> rgb;
-	screen_to_rgb24(screen, rgb);
-	return write_ppm_rgb(path, ScreenSnapshot::kWidth, ScreenSnapshot::kHeight,
-	                     rgb.data(), error);
+	return WritePngPepto(path, ScreenSnapshot::kWidth, ScreenSnapshot::kHeight,
+	                     screen.pixels, error);
 }
 
 } // namespace revm

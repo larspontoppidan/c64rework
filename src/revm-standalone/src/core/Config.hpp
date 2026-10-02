@@ -28,7 +28,7 @@ struct Config {
 	std::optional<double> max_seconds;
 	unsigned rand_seed = 42;
 
-	// --save-screen FRAME FILE: Pepto P6 PPM at VBLANK FRAME (same counter
+	// --save-screen FRAME FILE: indexed Pepto PNG at VBLANK FRAME (same counter
 	// as --max-frames). Unset = disabled.
 	std::optional<uint32_t> save_screen_frame;
 	std::string save_screen_path;

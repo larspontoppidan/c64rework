@@ -37,7 +37,7 @@ void print_usage(const char * program) {
 	             "  --use-play FILE  Replay recorded inputs\n"
 	             "  --headless       Hidden; requires --max-frames N or --use-play FILE\n"
 	             "  --max-frames N   Stop at frame N (test convenience)\n"
-	             "  --save-screen FRAME FILE  Pepto P6 PPM of Main at VBLANK FRAME\n"
+	             "  --save-screen FRAME FILE  Indexed Pepto PNG of Main at VBLANK FRAME\n"
 	             "  --no-audio       Disable SID audio\n"
 	             "  --resid          Use the reSID 6581 renderer\n"
 	             "  --version        Print the C64 Rework framework version\n"
@@ -183,7 +183,7 @@ void print_live_key_sheet(const revm::JoystickConfig & cfg) {
 	std::fprintf(stderr, "\n  %-18s  %s\n", "Shortcut", "Action");
 	std::fprintf(stderr, "  %-18s  %s\n", "--------", "------");
 	shortcut("F1-F8", "C64 function keys");
-	shortcut("Ctrl+F9", "Save screenshot as frameN.ppm in the current directory");
+	shortcut("Ctrl+F9", "Save screenshot as frameN.png in the current directory");
 	shortcut("F10", "Pause / resume");
 	shortcut("Ctrl+Tab", "Swap joystick ports 1 / 2");
 	shortcut("F12", "Quit cleanly (finalize recording)");

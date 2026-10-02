@@ -6,6 +6,7 @@
 
 #include "goldens/PlayRecorder.hpp"
 #include "input/LiveInput.hpp"
+#include "util/Png.hpp"
 #define REVM_LOG_MODULE "board"
 #include "util/Log.hpp"
 
@@ -23,7 +24,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
 #include <string>
 #include <thread>
 
@@ -432,7 +432,7 @@ void Board::maybe_save_screen() {
 	save_screen_done_ = true;
 
 	std::string err;
-	if (!write_display_ppm(cfg_.save_screen_path, err)) {
+	if (!write_display_png(cfg_.save_screen_path, err)) {
 		REVM_LOG(REVM_ERROR, "save-screen failed: %s", err.c_str());
 		RequestQuit(1);
 		return;
@@ -442,49 +442,22 @@ void Board::maybe_save_screen() {
 	std::fflush(stderr);
 }
 
-bool Board::write_display_ppm(const std::string & path, std::string & error) {
+bool Board::write_display_png(const std::string & path, std::string & error) {
 	const uint8_t * pixels =
 		(c64_ && c64_->TheDisplay) ? c64_->TheDisplay->BitmapBase() : nullptr;
 	if (!pixels) {
 		error = "capture failed";
 		return false;
 	}
-
-	// Pepto palette (same as Frodo Display.cpp default / full-revm PPM dumps)
-	static constexpr uint8_t kR[16] = {
-		0x00, 0xff, 0x86, 0x4c, 0x88, 0x35, 0x20, 0xcf,
-		0x88, 0x40, 0xcb, 0x34, 0x68, 0x8b, 0x68, 0xa1};
-	static constexpr uint8_t kG[16] = {
-		0x00, 0xff, 0x19, 0xc1, 0x17, 0xac, 0x07, 0xf2,
-		0x3e, 0x2a, 0x55, 0x34, 0x68, 0xff, 0x4a, 0xa1};
-	static constexpr uint8_t kB[16] = {
-		0x00, 0xff, 0x01, 0xe3, 0xbd, 0x0a, 0xc0, 0x2d,
-		0x00, 0x00, 0x37, 0x34, 0x68, 0x59, 0xff, 0xa1};
-
-	std::ofstream out(path, std::ios::binary);
-	if (!out) {
-		error = "cannot write " + path;
-		return false;
-	}
-	out << "P6\n" << DISPLAY_X << " " << DISPLAY_Y << "\n255\n";
-	const size_t count = size_t(DISPLAY_X) * DISPLAY_Y;
-	for (size_t i = 0; i < count; ++i) {
-		const uint8_t color = pixels[i] & 0x0f;
-		const uint8_t rgb[3] = {kR[color], kG[color], kB[color]};
-		out.write(reinterpret_cast<const char *>(rgb), 3);
-	}
-	if (!out) {
-		error = "write failed: " + path;
-		return false;
-	}
-	return true;
+	return WritePngPepto(path, unsigned(DISPLAY_X), unsigned(DISPLAY_Y), pixels,
+	                     error);
 }
 
 void Board::save_live_screenshot() {
 	const uint32_t frame = FrameCounter();
-	const std::string path = "frame" + std::to_string(frame) + ".ppm";
+	const std::string path = "frame" + std::to_string(frame) + ".png";
 	std::string err;
-	if (!write_display_ppm(path, err)) {
+	if (!write_display_png(path, err)) {
 		REVM_LOG(REVM_ERROR, "screenshot failed: %s", err.c_str());
 		return;
 	}
