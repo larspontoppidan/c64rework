@@ -20,6 +20,10 @@
 //    "twin_frame":…,"twin_cyc":…, <payload>}
 // Twin fields are omitted while invalid (--no-twin).
 //
+// Compare-channel values in "compare" records are tri-state and mean
+// exactly: 1 = channel ran and passed, 0 = channel ran and FAILED,
+// -1 = channel not part of that compare's mask (did not run).
+//
 // Payload: variadic key/value lists — alternating `const char*` keys and
 // values (bool, integers, Hex{u16/u32/u64}, const char* strings). No
 // external JSON library. Game-agnostic: plugins may emit their own kinds
@@ -122,7 +126,21 @@ void EmitSoftquit(int code, const char * msg);
 void EmitWatchHit(uint16_t pc, const char * label, uint64_t total);
 // Per-compare channel outcomes (-1 sentinel = channel not run).
 void EmitCompareResult(int screen_ok, int sid_ok, int kb_ok, int vic_ok = -1,
-                       int vic_state_ok = -1, int cia1_ok = -1, int cia2_ok = -1);
+                       int vic_state_ok = -1, int cia1_ok = -1,
+                       int cia2_ok = -1, int raster_line = -1);
+// Raster-line side channel: when >= 0, compare/fail-context records carry
+// Main's VIC raster line at the compare instant (Frodo raster_y, the value
+// RasterY() returns — display lines start at raster $10 on PAL).
+
+// Serialize a string for use inside a dynamically assembled JSON fragment.
+std::string QuoteString(const char * value);
+
+// Bounded ring of the last completed JSONL records, excluding fail_context
+// records to avoid recursively embedding history (as emitted, newest
+// last; capacity kRecentMax). Returned pre-serialized as a JSON array for
+// RawJson embedding in fail-context records; "[]" when empty or disabled.
+inline constexpr size_t kRecentMax = 12;
+std::string RecentJsonArray();
 void SetRunEnd(const char * result /*"ok"|"fail"|"softquit"*/,
                uint32_t frames_run);
 

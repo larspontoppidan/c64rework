@@ -9,6 +9,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <map>
 
 namespace revm::event {
@@ -64,6 +65,11 @@ struct State {
 	std::string run_end_result;
 	uint32_t run_end_frames = 0;
 	bool shutdown_done = false;
+
+	// Bounded recent-record ring for fail-context embedding (completed
+	// JSONL lines, oldest first). Filled only while a sink/aggregation is
+	// active; costs one string move per record.
+	std::deque<std::string> recent;
 };
 
 static constexpr size_t kMaxSoftquits = 32;
@@ -161,8 +167,16 @@ void aggregate(const char * kind) {
 void finish_record(const char * kind, std::string line) {
 	aggregate(kind);
 	line += '}';
+	// Context records already embed this history. Keeping them would
+	// recursively duplicate it across repeated ignored failures.
+	State & s = state();
+	if (std::strcmp(kind, "fail_context") != 0) {
+		if (s.recent.size() >= kRecentMax) s.recent.pop_front();
+		s.recent.push_back(line);
+	}
 	write_line(line, std::strcmp(kind, "softquit") == 0 ||
-	                     std::strcmp(kind, "run_end") == 0);
+	                     std::strcmp(kind, "run_end") == 0 ||
+	                     std::strcmp(kind, "fail_context") == 0);
 }
 
 int site_index(const char * site) {
@@ -312,6 +326,24 @@ std::string report_json() {
 
 bool Enabled() { return state().active; }
 
+std::string QuoteString(const char * value) {
+	std::string out;
+	append_quoted(out, value);
+	return out;
+}
+
+std::string RecentJsonArray() {
+	State & s = state();
+	if (!s.active || s.recent.empty()) return "[]";
+	std::string o = "[";
+	for (const std::string & line : s.recent) {
+		if (o.size() > 1) o += ',';
+		o += line;
+	}
+	o += ']';
+	return o;
+}
+
 void EmitV(const char * kind, const std::vector<Field> & fields) {
 	if (!Enabled()) return;
 
@@ -433,11 +465,19 @@ void EmitWatchHit(uint16_t pc, const char * label, uint64_t total) {
 }
 
 void EmitCompareResult(int screen_ok, int sid_ok, int kb_ok, int vic_ok,
-                       int vic_state_ok, int cia1_ok, int cia2_ok) {
+                       int vic_state_ok, int cia1_ok, int cia2_ok,
+                       int raster_line) {
 	if (!Enabled()) return;
-	REVM_EVENT("compare", "screen", screen_ok, "sid", sid_ok, "vic", vic_ok,
-	           "vic_state", vic_state_ok, "cia1", cia1_ok, "cia2", cia2_ok, "kb",
-	           kb_ok);
+	if (raster_line >= 0) {
+		REVM_EVENT("compare", "screen", screen_ok, "sid", sid_ok, "vic",
+		           vic_ok, "vic_state", vic_state_ok, "cia1", cia1_ok,
+		           "cia2", cia2_ok, "kb", kb_ok, "raster_line",
+		           raster_line);
+	} else {
+		REVM_EVENT("compare", "screen", screen_ok, "sid", sid_ok, "vic",
+		           vic_ok, "vic_state", vic_state_ok, "cia1", cia1_ok,
+		           "cia2", cia2_ok, "kb", kb_ok);
+	}
 	State & s = state();
 	auto note = [](Chan & c, int ok) {
 		if (ok < 0) return;

@@ -259,6 +259,13 @@ private:
 	CpuState TwinCpu();
 	uint8_t TwinPeek(uint16_t addr);
 	uint8_t PeekMain(uint16_t addr);
+	// Main's VIC raster line right now (Frodo raster_y; display lines start
+	// at $10 on PAL). 0 when no machine is live. Diagnostic/event field only
+	// — no compare or timing behavior may read it.
+	uint16_t RasterLine() const;
+	// Note the most recent Sync fence (op string is a literal) so a
+	// fail-context record can name the fence the failing compare belongs to.
+	void note_fence(const char * op, uint16_t pc);
 	uint64_t TwinWatchHits(uint16_t pc);
 	bool MainTakeTwinPhaseCia1();
 	bool MainTakeTwinPhaseCia2();
@@ -541,6 +548,27 @@ private:
 	char last_cia1_detail_[96]{};
 	char last_cia2_detail_[96]{};
 	unsigned dump_images_written_ = 0;
+	// Screen-fail context state for net_fail / fail_context records; reset
+	// at the top of every CompareNow. The bbox is canvas coordinates
+	// (inclusive), as in the screen_fail event.
+	const char * last_fence_op_ = "none";
+	uint16_t last_fence_pc_ = 0;
+	unsigned last_screen_pixels_ = 0;
+	unsigned last_screen_x0_ = 0;
+	unsigned last_screen_y0_ = 0;
+	unsigned last_screen_x1_ = 0;
+	unsigned last_screen_y1_ = 0;
+	std::string last_screen_cells_json_ = "[]";
+
+	// One structured record for a failing compare: which fence it belongs
+	// to, what the mask asked for, what actually ran, where the beam was,
+	// the bounded recent-event ring, and the kb/screen fail detail.
+	void emit_fail_context(CompareMask mask, const RitualCheck & kb_check,
+	                       const char * plane);
+	// Same record for a fence-miss SoftQuit (JoinAtPc / JoinAtPcBounded):
+	// the fence fields name the fence that missed, nothing compared, and
+	// the kb/screen fields are null.
+	void emit_fence_miss_context(CompareMask mask);
 
 	static constexpr uint32_t kTallyFrames = 50; // ~1 PAL second
 	uint32_t tally_frame_ = 0;

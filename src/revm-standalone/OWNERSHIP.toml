@@ -56,13 +56,13 @@ reason = "Standalone extracts the shared AdvanceResult enum and name helper from
 
 [[forked]]
 path = "src/core/Board.cpp"
-base_sha256 = "c74fb45495f462a676351276e3e871740c5f769455a2bfbe6e177e80f2c7f3d2"
-reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write a Pepto PPM from the VIC bitmap without the full media/snapshot stack. Optional PlayRecorder captures sticky C64 input at VSYNC."
+base_sha256 = "38c237e55ad1f7ab9fbcbc2b54478313e4e10841909263cca38284a06e558cce"
+reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write a Pepto PPM from the VIC bitmap without the full media/snapshot stack. Optional PlayRecorder captures sticky C64 input at VSYNC. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
 
 [[forked]]
 path = "src/core/Board.hpp"
-base_sha256 = "f34ca3a80098d966e3e77f2da2d34eabbc7aa7ab57cb0bb52344ffedcc4a70f5"
-reason = "Standalone Board API omits secondary/Twin, snapshots, playback-oracle callbacks, debug, coverage, analysis, unused Reset/Run/hook surfaces, the shadow Clock object, and EmulateCycleInjectCpu. --save-screen and Ctrl+F9 are Main-only PPM captures. SetPlayRecorder is the slim input recorder, not the FullSnapshot oracle."
+base_sha256 = "6bd3bdb0653673e14b2b7144f98f6abe26374a1d0009cf20d158466545b365e8"
+reason = "Standalone Board API omits secondary/Twin, snapshots, playback-oracle callbacks, debug, coverage, analysis, unused Reset/Run/hook surfaces, the shadow Clock object, and EmulateCycleInjectCpu. --save-screen and Ctrl+F9 are Main-only PPM captures. SetPlayRecorder is the slim input recorder, not the FullSnapshot oracle. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
 
 [[forked]]
 path = "src/core/Clock.hpp"
@@ -183,7 +183,7 @@ reason = "Standalone VIC removes its stale cartridge reference while preserving 
 
 [[forked]]
 path = "apps/revm/main.cpp"
-base_sha256 = "ed090926f99e2e8c8a1080c6a2f5bfb02c97576ce78b06868903571011b39e3e"
+base_sha256 = "8f3ce13087a2f9f85db3662f61288ed8af32a840f914accc214901851b88c2f4"
 reason = "Standalone entry point omits REVM CLI, oracle, Twin, and analysis startup; launch uses StandaloneRunner and one SidMode for interactive play, --record-play, and replay. Prints a live key sheet (including Ctrl+F9) on windowed launches. --save-screen FRAME FILE is retained."
 
 [[forked]]

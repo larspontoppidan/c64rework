@@ -52,9 +52,11 @@ through the event `Hex` type are JSON strings such as `"0xEC3C"`.
 | `accept` | `phase`, `kind`, optional `boundary_cyc` | IRQ/NMI detection, resolution, dispatch, silence, or repair. |
 | `skew` | `kind`, `paired`, `phi2` | Main/Twin interrupt pairing and Φ2 difference. |
 | `handler` | `kind`, `phase` | IRQ/NMI handler entry or exit. |
-| `compare` | `screen`, `sid`, `vic`, `vic_state`, `cia1`, `cia2`, `kb` | Per-channel result; `-1` means the channel was not compared. |
+| `compare` | `screen`, `sid`, `vic`, `vic_state`, `cia1`, `cia2`, `kb`, optional `raster_line` | Per-channel result: `1` ran and passed, `0` ran and failed, `-1` the channel was not in the compare's mask. |
 | `compare_fail` | `channel`, `addr`, `main`, `twin`, or `overflow` | A differing byte. At most 32 are emitted per comparison before an overflow marker. |
 | `screen_fail` | pixel count, bounding box, optional context | Visual mismatch and failure-oriented screen diagnosis. |
+| `net_fail` | `plane`, `play`, `report_frame`, `rendered_frame`, `pixels`, bbox, `cells`, `repro_command` | One first-class row per screen-plane mismatch; see "Failure context records". |
+| `fail_context` | `plane`, `op`, `pc`, `mask_used`, `compare_ran`, `raster_line`, `channels`, `kb_diffs`, `screen_bbox`, `screen_summary`, `last_events` | One record per failed compare or fence miss; see "Failure context records". |
 | `extra_vsync` | `site` | An extra VBLANK crossed at a `join`, RAM fence, or nested fence. |
 | `watch_hit` | `pc`, `label`, `total` | Running hit count for a watched Twin PC. |
 | `watch_delta` | `pc`, `what`, `expected`, `got` | Twin crossed a watched point a different number of times than expected. |
@@ -65,6 +67,11 @@ through the event `Hex` type are JSON strings such as `"0xEC3C"`.
 Fence `op` values include `join`, `bounded`, `ram_read`, `ram_write`,
 `ram_rmw`, `io_read`, `io_write`, and `io_rmw`. Results include `ok`, `miss`,
 `hit_vsync`, and `timeout`.
+
+Fence, armed-access, and `compare` records carry `raster_line`, Main's VIC
+raster line at the record's instant (PAL display lines start at `$10`). On
+`compare` records the field is omitted when not sampled; fence and
+armed-access records always carry it.
 
 The interrupt `kind` is `irq` or `nmi`. Accept phases currently include
 `detected`, `resolved`, `dispatched`, `silent`, and `repair`.
@@ -83,6 +90,38 @@ A `screen_fail` always reports `pixels` and the inclusive bounding box `x0`,
 
 The nested values are JSON objects or arrays, not encoded strings. Their fields
 may grow as diagnostics improve.
+
+### Failure context records
+
+A failed compare or fence miss emits one `fail_context` record immediately
+before its `softquit`. It names the fence the failure belongs to and what
+actually ran:
+
+- `plane`: the first channel that ran and failed (`screen`, `sid`, `vic`,
+  `vic_state`, `cia1`, `cia2`, `kb`), or `fence` for a fence miss.
+- `op`, `pc`: the most recent fence operation and its PC (for a miss, the
+  fence that missed).
+- `mask_used`: the channels the compare's mask requested, joined with `+`.
+- `compare_ran`: `false` means nothing compared at this failure (fence miss).
+- `channels`: per-channel `"ok"` / `"fail"` / `"off"` — the named form of the
+  `compare` record's `1` / `0` / `-1`.
+- `raster_line`: Main's beam position at the failure.
+- `kb_diffs`: first differing KB-watch byte, or `null`.
+- `screen_bbox` and `screen_summary`: pixel count, bounding box, and the human
+  context line for screen-plane failures; `null` when the failure has no
+  screen-plane data (fence misses, capture failures).
+- `last_events`: the last 12 records of the event stream, excluding
+  `fail_context` records to avoid recursive history, as a JSON array.
+
+A screen-plane mismatch additionally emits one `net_fail` row: `plane`,
+`play`, `report_frame`, `pixels`, the bounding box `x0`–`y1`, `cells` (same
+array as `screen_fail`), and `repro_command`. `rendered_frame` is
+`report_frame + 1`: it is the frame-observation label whose settled picture
+contains this mismatch, measured on the play-chain screen net. The repro
+conventions are also printed as human hints: fence misses reproduce with
+`--max-frames N` (the frame in the report), screen-check fails report at `N`
+but reproduce with `--max-frames N+1` (the compare runs inside frame `N`, so a
+run capped at `N` quits before it).
 
 ## Aggregate report
 

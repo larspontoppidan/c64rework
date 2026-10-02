@@ -296,9 +296,10 @@ private:
 	// Structured fence record (single bool check when events are off).
 	static inline void ev_fence(Host & host, const char * op, uint16_t pc,
 	                            const char * result, bool extra_vsync) {
+		host.note_fence(op, pc); // for fail-context records
 		REVM_EVENT("fence", "op", op, "pc", revm::event::Hex{pc}, "result",
 		           result, "extra_vsync", extra_vsync ? 1 : 0, "nested",
-		           in_handler(host) ? 1 : 0);
+		           in_handler(host) ? 1 : 0, "raster_line", host.RasterLine());
 	}
 
 	static inline void fail_nested_vsync(Host & host, const char * tag) {
@@ -698,6 +699,7 @@ public:
 		auto miss = [&](AdvanceResult r) {
 			ev_fence(host, "join", pc,
 			         r == AdvanceResult::Timeout ? "timeout" : "miss", false);
+			host.emit_fence_miss_context(mask);
 			host.SoftQuit(1,
 			              "JoinAtPc miss want=$%04X twin_pc=$%04X result=%s "
 			              "slack=%s nested=%d at %s:%u",
@@ -774,6 +776,7 @@ public:
 		auto fail = [&](AdvanceResult r, uint32_t n) {
 			ev_fence(host, "bounded", pc,
 			         r == AdvanceResult::Timeout ? "timeout" : "miss", n > 0);
+			host.emit_fence_miss_context(b.mask);
 			host.SoftQuit(1,
 			              "JoinAtPcBounded miss want=$%04X twin_pc=$%04X "
 			              "result=%s n=%u max=%u at %s:%u",

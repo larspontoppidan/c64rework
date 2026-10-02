@@ -26,11 +26,13 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <csignal>
 #include <filesystem>
 #include <map>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -126,6 +128,9 @@ void print_usage(const char * argv0) {
 		"  --ignore-asserts      Log Assert*/QuitOnAssert failures but do not hard Quit\n"
 		"  --ignore-play-hashes  Skip Twin ↔ play.json snapshot SHA checks\n"
 		"  --dump-fail DIR       Screen PPM dump dir (default revm-fail/)\n"
+		"  --dump-fail-limit N   Write at most N screen mismatch image sets\n"
+		"                        (default 1; 0 = every mismatch, e.g. under\n"
+		"                        --ignore-checks)\n"
 		"\n"
 		"Snapshot hash = sha256sum of FullSnapshot .bin (entire POD).\n"
 		"F12 or Ctrl+C quits cleanly (finalizes play / media).\n",
@@ -504,6 +509,18 @@ bool parse_args(int argc, char ** argv, Opts & o, std::string & error) {
 			const char * v = need_i("--dump-fail");
 			if (!v) return false;
 			o.compare.dump_fail_dir = v;
+		} else if (std::strcmp(a, "--dump-fail-limit") == 0) {
+			const char * v = need_i("--dump-fail-limit");
+			if (!v) return false;
+			char * end = nullptr;
+			errno = 0;
+			const unsigned long parsed = std::strtoul(v, &end, 10);
+			if (*v < '0' || *v > '9' || errno || end == v || *end ||
+			    parsed > std::numeric_limits<unsigned>::max()) {
+				error = "--dump-fail-limit requires an unsigned integer";
+				return false;
+			}
+			o.compare.dump_fail_limit = unsigned(parsed);
 		} else {
 			error = std::string("Unknown option: ") + a;
 			return false;

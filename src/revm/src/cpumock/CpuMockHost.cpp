@@ -1268,6 +1268,101 @@ void CpuMockHost::on_main_vsync(uint32_t frame, uint32_t cycle,
 	SoftQuit(1, "on_main_vsync frame drift main=%u twin=%u", frame, twin_f);
 }
 
+uint16_t CpuMockHost::RasterLine() const {
+	const C64 * machine = board_.Machine();
+	return machine && machine->TheVIC
+	           ? uint16_t(machine->TheVIC->RasterY())
+	           : uint16_t(0);
+}
+
+void CpuMockHost::note_fence(const char * op, uint16_t pc) {
+	last_fence_op_ = op; // literal at every ev_fence call site
+	last_fence_pc_ = pc;
+}
+
+void CpuMockHost::emit_fail_context(CompareMask mask,
+                                    const RitualCheck & kb_check,
+                                    const char * plane) {
+	// Which channels the mask asked for, and what actually ran: "ok" /
+	// "fail" / "off" — the same tri-state as the "compare" record's
+	// 1 / 0 / -1 channel values.
+	std::string mask_used;
+	auto add_mask = [&](bool on, const char * name) {
+		if (!on) return;
+		if (!mask_used.empty()) mask_used += '+';
+		mask_used += name;
+	};
+	add_mask(mask.screen, "screen");
+	add_mask(mask.sid, "sid");
+	add_mask(mask.vic, "vic");
+	add_mask(mask.vic_state, "vic_state");
+	add_mask(mask.cia1, "cia1");
+	add_mask(mask.cia2, "cia2");
+	add_mask(mask.kb, "kb");
+
+	const bool compare_ran = last_screen_.ran || last_sid_.ran ||
+	                         last_vic_.ran || last_vic_state_.ran ||
+	                         last_cia1_.ran || last_cia2_.ran || kb_check.ran;
+	auto fmt_channel = [](const RitualCheck & c) {
+		return c.ran ? (c.ok ? "ok" : "fail") : "off";
+	};
+	char chans[160];
+	std::snprintf(chans, sizeof chans,
+	              "{\"screen\":\"%s\",\"sid\":\"%s\",\"vic\":\"%s\","
+	              "\"vic_state\":\"%s\",\"cia1\":\"%s\",\"cia2\":\"%s\","
+	              "\"kb\":\"%s\"}",
+	              fmt_channel(last_screen_), fmt_channel(last_sid_),
+	              fmt_channel(last_vic_), fmt_channel(last_vic_state_),
+	              fmt_channel(last_cia1_), fmt_channel(last_cia2_),
+	              fmt_channel(kb_check));
+
+	// kb diff detail, pre-serialized (null when the kb compare did not run
+	// or found nothing).
+	std::string kb_diffs = "null";
+	if (kb_check.ran && !kb_check.ok && kb_check_.HasFirstDiff()) {
+		char b[192];
+		std::snprintf(b, sizeof b,
+		              ",\"addr\":\"0x%04X\","
+		              "\"main\":\"0x%02X\",\"twin\":\"0x%02X\"}",
+		              kb_check_.FirstDiffAddr(),
+		              kb_check_.FirstDiffMain(), kb_check_.FirstDiffTwin());
+		kb_diffs = "{\"name\":" + event::QuoteString(kb_check_.FirstDiffName()) + b;
+	}
+
+	char bbox[96];
+	std::snprintf(bbox, sizeof bbox,
+	              "{\"pixels\":%u,\"x0\":%u,\"y0\":%u,\"x1\":%u,\"y1\":%u}",
+	              last_screen_pixels_, last_screen_x0_, last_screen_y0_,
+	              last_screen_x1_, last_screen_y1_);
+
+	// Screen fields are null when this failure has no screen-plane data
+	// (fence misses; capture failures).
+	const bool have_screen = !last_screen_summary_.empty();
+	const std::string recent = event::RecentJsonArray();
+	REVM_EVENT("fail_context", "plane", plane, "op", last_fence_op_, "pc",
+	           revm::event::Hex{last_fence_pc_}, "mask_used", mask_used.c_str(),
+	           "compare_ran", compare_ran, "raster_line", RasterLine(),
+	           "channels", revm::event::RawJson{chans}, "kb_diffs",
+	           revm::event::RawJson{kb_diffs.c_str()}, "screen_bbox",
+	           revm::event::RawJson{have_screen ? bbox : nullptr},
+	           "screen_summary",
+	           have_screen ? revm::event::Val{last_screen_summary_.c_str()}
+	                       : revm::event::Val{revm::event::RawJson{nullptr}},
+	           "last_events", revm::event::RawJson{recent.c_str()});
+}
+
+void CpuMockHost::emit_fence_miss_context(CompareMask mask) {
+	static const RitualCheck none{};
+	last_screen_ = {};
+	last_sid_ = {};
+	last_vic_ = {};
+	last_vic_state_ = {};
+	last_cia1_ = {};
+	last_cia2_ = {};
+	last_screen_summary_.clear(); // no screen data at a fence miss
+	emit_fail_context(mask, none, "fence");
+}
+
 void CpuMockHost::compare_screen(uint32_t frame, RitualCheck & out) {
 	bool ok = true;
 	ScreenSnapshot main_screen{};
@@ -1339,7 +1434,21 @@ void CpuMockHost::compare_screen(uint32_t frame, RitualCheck & out) {
 					p.y1 = y1;
 					const screenctx::Result cr = screenctx::Analyze(p);
 					last_screen_summary_ = cr.summary;
-					REVM_LOG(REVM_ERROR, "%s", cr.summary.c_str());
+					// Fail-context state for net_fail / fail_context, plus
+					// the pixel count + rows on the human context line.
+					last_screen_pixels_ = diffs;
+					last_screen_x0_ = x0;
+					last_screen_y0_ = y0;
+					last_screen_x1_ = x1;
+					last_screen_y1_ = y1;
+					last_screen_cells_json_ = cr.cells_json;
+					{
+						char bb[64];
+						std::snprintf(bb, sizeof bb, " [pixels %u, rows %u-%u]",
+						              diffs, y0, y1);
+						last_screen_summary_ += bb;
+					}
+					REVM_LOG(REVM_ERROR, "%s", last_screen_summary_.c_str());
 					REVM_EVENT(
 						"screen_fail", "pixels", diffs, "x0", x0, "y0", y0,
 						"x1", x1, "y1", y1,
@@ -1348,6 +1457,22 @@ void CpuMockHost::compare_screen(uint32_t frame, RitualCheck & out) {
 						"sprites", revm::event::RawJson{cr.sprites_json.c_str()},
 						"background_involved", cr.background_involved,
 						"border_involved", cr.border_involved);
+					// One first-class net-fail row (rendered_frame is the
+					// frame-observation native_frame label that renders this
+					// frame's settled picture; MEASURED one past the report
+					// frame on the Paradroid play-chain net, 333/333 rows).
+					{
+						char repro[48];
+						std::snprintf(repro, sizeof repro, "--max-frames %u",
+						              frame + 1);
+						REVM_EVENT(
+							"net_fail", "plane", "screen", "play",
+							board_.GetConfig().play_path.c_str(), "report_frame",
+							frame, "rendered_frame", frame + 1, "pixels", diffs,
+							"x0", x0, "y0", y0, "x1", x1, "y1", y1, "cells",
+							revm::event::RawJson{cr.cells_json.c_str()},
+							"repro_command", repro);
+					}
 				} else {
 					REVM_EVENT("screen_fail", "pixels", diffs, "x0", x0,
 					           "y0", y0, "x1", x1, "y1", y1);
@@ -1511,6 +1636,12 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 	last_cia1_ = {};
 	last_cia2_ = {};
 	last_screen_summary_.clear();
+	last_screen_pixels_ = 0;
+	last_screen_x0_ = 0;
+	last_screen_y0_ = 0;
+	last_screen_x1_ = 0;
+	last_screen_y1_ = 0;
+	last_screen_cells_json_ = "[]";
 	last_sid_detail_[0] = 0;
 	last_vic_detail_[0] = 0;
 	last_cia1_detail_[0] = 0;
@@ -1571,10 +1702,34 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 		         last_cia2_.Format(), kb.Format());
 	}
 	event::EmitCompareResult(ch(last_screen_), ch(last_sid_), ch(kb), ch(last_vic_),
-	                         ch(last_vic_state_), ch(last_cia1_), ch(last_cia2_));
+	                         ch(last_vic_state_), ch(last_cia1_), ch(last_cia2_),
+	                         int(RasterLine()));
 
 	if (abort_check) {
 		++total_fails_;
+		// Name the aborting plane for the context record (first channel
+		// that ran and failed; the QuitOnCheck chain below reports it in
+		// the same order).
+		const char * plane = "none";
+		if (last_screen_.ran && !last_screen_.ok) plane = "screen";
+		else if (last_sid_.ran && !last_sid_.ok) plane = "sid";
+		else if (last_vic_.ran && !last_vic_.ok) plane = "vic";
+		else if (last_vic_state_.ran && !last_vic_state_.ok) plane = "vic_state";
+		else if (last_cia1_.ran && !last_cia1_.ok) plane = "cia1";
+		else if (last_cia2_.ran && !last_cia2_.ok) plane = "cia2";
+		else if (kb.ran && !kb.ok) plane = "kb";
+		emit_fail_context(mask, kb, plane);
+		static bool repro_hinted = false;
+		if (!repro_hinted && std::strcmp(plane, "screen") == 0) {
+			// MEASURED convention (Paradroid play-chain net, 333/333 rows):
+			// a screen-fail REPORT N is shown by --max-frames N+1, while
+			// --max-frames N exits 0 (the compare runs inside frame N).
+			repro_hinted = true;
+			REVM_LOG(REVM_ERROR,
+			         "hint: a screen-fail report %u reproduces with "
+			         "--max-frames %u",
+			         frame, frame + 1);
+		}
 		if (!last_screen_.ok && last_screen_.ran) {
 			if (!last_screen_summary_.empty())
 				QuitOnCheck("screen FAIL frame %u %s", frame,
@@ -2560,6 +2715,17 @@ void CpuMockHost::maybe_fail_hint() {
 	REVM_LOG(REVM_ERROR,
 	         "hint: rerun with --events - --report /tmp/s3.json for the "
 	         "structured fence/accept trail");
+	// Repro conventions (frame-bounded replay): fence misses and join
+	// compares raised during frame N are shown by --max-frames N.
+	// Screen-check fails report at frame N but reproduce with --max-frames
+	// N+1 — the compare runs inside frame N, so a run capped at N quits
+	// before it (MEASURED on the Paradroid play-chain net, 333/333 rows;
+	// the screen branch below prints that form for screen fails).
+	REVM_LOG(REVM_ERROR,
+	         "hint: this failure reports at frame %u; fence fails reproduce "
+	         "with --max-frames %u, screen-check fails with --max-frames %u",
+	         board_.FrameCounter(), board_.FrameCounter(),
+	         board_.FrameCounter() + 1);
 }
 
 void CpuMockHost::QuitOnCheck(const char * fmt, ...) {
