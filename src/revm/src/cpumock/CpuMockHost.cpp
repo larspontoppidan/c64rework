@@ -999,16 +999,22 @@ bool CpuMockHost::twin_rti_in_progress() const {
 // only; used where Main must stay parked (I/O AtPc inject walks).
 bool CpuMockHost::twin_step_only() {
 	const bool rti0 = twin_rti_in_progress();
-	const bool irq0 = twin_->InIrqSequence();
-	const bool nmi0 = twin_->InNmiSequence();
+	// Both predicates describe the same CPU state. Sample it once on each
+	// side of the cycle instead of crossing into TwinBoard for each probe.
+	// These are the O_IRQ/O_NMI entry states, not the whole steal families.
+	const int state0 = twin_hw_seq_state();
+	const bool irq0 = state0 == 0x09; // twin_->InIrqSequence();
+	const bool nmi0 = state0 == 0x11; // twin_->InNmiSequence();
 	const bool hit_vb = twin_->board().EmulateCycle();
-	if ((!irq0 && twin_->InIrqSequence()) ||
-	    (!nmi0 && twin_->InNmiSequence())) {
+	const int state1 = twin_hw_seq_state();
+	const bool irq1 = state1 == 0x09; // twin_->InIrqSequence();
+	const bool nmi1 = state1 == 0x11; // twin_->InNmiSequence();
+	if ((!irq0 && irq1) || (!nmi0 && nmi1)) {
 		const bool owned =
-			twin_->InNmiSequence() ? nmi_seq_active_ : irq_seq_active_;
+			nmi1 ? nmi_seq_active_ : irq_seq_active_;
 		REVM_LOG(REVM_VERBOSE,
 		         "seq-enter irq=%d nmi=%d owned=%d main=%u twin=%u",
-		         int(twin_->InIrqSequence()), int(twin_->InNmiSequence()),
+		         int(irq1), int(nmi1),
 		         int(owned), board_.CycleCounter(), twin_->CycleCounter());
 		REVM_LOG(REVM_VERBOSE, "seq-enter ctx=%s", step_ctx_);
 	}
@@ -1018,10 +1024,10 @@ bool CpuMockHost::twin_step_only() {
 	// handler, matching the old token semantics. NMI nests over IRQ, so
 	// a completed RTI retires the innermost active nest only.
 	if (rti0 && !twin_rti_in_progress()) {
-		if (nmi_seq_active_ && !twin_->InNmiSequence()) {
+		if (nmi_seq_active_ && !nmi1) {
 			REVM_LOG(REVM_VERBOSE, "nmi nest retired (RTI)");
 			nmi_seq_active_ = false;
-		} else if (irq_seq_active_ && !twin_->InIrqSequence()) {
+		} else if (irq_seq_active_ && !irq1) {
 			REVM_LOG(REVM_VERBOSE, "irq nest retired (RTI)");
 			irq_seq_active_ = false;
 		}

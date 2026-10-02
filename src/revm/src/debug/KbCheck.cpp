@@ -82,32 +82,54 @@ bool KbCheck::OnFrame(Board & main, TwinBoard & twin, uint32_t frame,
 	bool ok = true;
 	std::vector<uint8_t> main_bytes;
 	std::vector<uint8_t> twin_bytes;
+	const bool have_linked = linked && linked->Size() != 0;
 	// Diverging-byte records for the event stream: first 32 per compare,
 	// then one overflow marker.
 	constexpr size_t kEventFailCap = 32;
 	size_t event_shown = 0;
 	bool event_overflow = false;
 	for (const auto & s : slots_) {
-		main_bytes.resize(s.len);
-		twin_bytes.resize(s.len);
 		const KbObject dummy{};
 		const KbObject & obj = s.obj ? *s.obj : dummy;
-		for (uint16_t i = 0; i < s.len; ++i) {
-			const uint16_t a = uint16_t(s.addr + i);
-			if (!linked || !linked->Read(a, main_bytes[i]))
-				main_bytes[i] = KbWatchSample(c64, obj, a);
-			twin_bytes[i] = KbWatchSample(twin_c64, obj, a);
+		// RAM watches are contiguous and read-only. Compare their backing
+		// storage directly instead of copying every watched byte at every
+		// join. Colour RAM still needs wrapping/nybble masking, and linked
+		// Main state must still be sampled through its registered readers.
+		const bool color = obj.IsColorBank();
+		const uint8_t * main_data = c64->RAM + s.addr;
+		const uint8_t * twin_data = twin_c64->RAM + s.addr;
+		if (color) {
+			main_bytes.resize(s.len);
+			twin_bytes.resize(s.len);
+			for (uint16_t i = 0; i < s.len; ++i) {
+				const uint16_t a = uint16_t(s.addr + i);
+				if (!have_linked || !linked->Read(a, main_bytes[i]))
+					main_bytes[i] = c64->Color
+						? uint8_t(c64->Color[a & 0x03FF] & 0x0F) : 0;
+				twin_bytes[i] = twin_c64->Color
+					? uint8_t(twin_c64->Color[a & 0x03FF] & 0x0F) : 0;
+			}
+			main_data = main_bytes.data();
+			twin_data = twin_bytes.data();
+		} else if (have_linked) {
+			main_bytes.resize(s.len);
+			for (uint16_t i = 0; i < s.len; ++i) {
+				const uint16_t a = uint16_t(s.addr + i);
+				if (!linked->Read(a, main_bytes[i]))
+					main_bytes[i] = c64->RAM[a];
+			}
+			main_data = main_bytes.data();
 		}
-		if (std::memcmp(main_bytes.data(), twin_bytes.data(), s.len) == 0)
+		if (std::memcmp(main_data, twin_data, s.len) == 0)
 			continue;
 
 		ok = false;
 		for (uint16_t i = 0; i < s.len && event_overflow == false; ++i) {
-			if (main_bytes[i] == twin_bytes[i]) continue;
+			if (main_data[i] == twin_data[i]) continue;
 			if (event_shown < kEventFailCap) {
 				REVM_EVENT("compare_fail", "channel", "kb", "addr",
 				           revm::event::Hex{uint32_t(s.addr + i)}, "main",
-				           main_bytes[i], "twin", twin_bytes[i]);
+				           main_data[i], "twin", twin_data[i]);
 				++event_shown;
 			} else {
 				event_overflow = true;
@@ -121,7 +143,7 @@ bool KbCheck::OnFrame(Board & main, TwinBoard & twin, uint32_t frame,
 		}
 		if (!have_first_byte_) {
 			for (uint16_t i = 0; i < s.len; ++i) {
-				if (main_bytes[i] == twin_bytes[i])
+				if (main_data[i] == twin_data[i])
 					continue;
 				have_first_byte_ = true;
 				first_diff_name_ =
@@ -129,8 +151,8 @@ bool KbCheck::OnFrame(Board & main, TwinBoard & twin, uint32_t frame,
 						? s.obj->name.c_str()
 						: "(unnamed)";
 				first_diff_addr_ = uint16_t(s.addr + i);
-				first_diff_main_ = main_bytes[i];
-				first_diff_twin_ = twin_bytes[i];
+				first_diff_main_ = main_data[i];
+				first_diff_twin_ = twin_data[i];
 				break;
 			}
 		}
@@ -140,16 +162,16 @@ bool KbCheck::OnFrame(Board & main, TwinBoard & twin, uint32_t frame,
 		if (s.len == 1) {
 			REVM_LOG_TIMED(REVM_ERROR,
 			               "FAIL frame %u cycle %u: %s $%04X: main=$%02X twin=$%02X",
-			               frame, cycle, label, s.addr, main_bytes[0], twin_bytes[0]);
+			               frame, cycle, label, s.addr, main_data[0], twin_data[0]);
 		} else {
 			// Per-byte diffs for ranges so large tables stay readable.
 			for (uint16_t i = 0; i < s.len; ++i) {
-				if (main_bytes[i] == twin_bytes[i]) continue;
+				if (main_data[i] == twin_data[i]) continue;
 				REVM_LOG_TIMED(
 					REVM_ERROR,
 					"FAIL frame %u cycle %u: %s $%04X: main=$%02X twin=$%02X",
-					frame, cycle, label, uint16_t(s.addr + i), main_bytes[i],
-					twin_bytes[i]);
+					frame, cycle, label, uint16_t(s.addr + i), main_data[i],
+					twin_data[i]);
 			}
 		}
 	}
