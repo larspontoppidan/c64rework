@@ -25,6 +25,7 @@ Commands:
   generate-cov PLAY [PLAY...]    Record plays/PLAY_cov.bin; merge 2+ to plays/merged_cov.bin
   kb-analysis                Generate and replace kb-analysis/ on begin/snap.bin
   build TARGET               TARGET: revm, stage3, stage4, or export
+  clean                      Remove build/, bin/, and compile_commands.json
   start-stage4               Copy accepted Stage3 source into pristine Stage4/
   update-docs                Copy framework markdown into the game
   lint TARGET                TARGET: stage3 or stage4
@@ -267,9 +268,34 @@ print(f"rework: wrote {destination} ({len(entries)} entries from {len(sources)} 
 PY
 }
 
+discard_stale_cmake() {
+	local source=$1 destination=$2
+	local cache="$destination/CMakeCache.txt"
+	[[ -f "$cache" ]] || return 0
+	local cached_source cached_build current_source current_dest
+	cached_source=$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$cache")
+	cached_build=$(sed -n 's/^# For build in directory: //p' "$cache")
+	current_source="$(cd -- "$source" && pwd -P)"
+	current_dest="$(cd -- "$destination" && pwd -P)"
+	cached_source="${cached_source%/}"
+	cached_build="${cached_build%/}"
+	if [[ -n "$cached_source" && -n "$cached_build" &&
+	      "$cached_source" == "$current_source" &&
+	      "$cached_build" == "$current_dest" ]]; then
+		return 0
+	fi
+	echo "rework: discarding CMake cache from another path: $destination" >&2
+	[[ -z "$cached_build" || "$cached_build" == "$current_dest" ]] ||
+		echo "rework:   cached build dir: $cached_build" >&2
+	[[ -z "$cached_source" || "$cached_source" == "$current_source" ]] ||
+		echo "rework:   cached source dir: $cached_source" >&2
+	rm -rf -- "$destination"
+}
+
 cmake_build() {
 	local source=$1 destination=$2
 	shift 2
+	discard_stale_cmake "$source" "$destination"
 	mkdir -p -- "$destination" "$BIN"
 	cmake -S "$source" -B "$destination" \
 		-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
@@ -277,6 +303,29 @@ cmake_build() {
 		-DREWORK_RUNTIME_OUTPUT_DIRECTORY="$BIN" "$@"
 	cmake --build "$destination" --parallel "$(jobs)"
 	refresh_compile_commands
+}
+
+clean_artifacts() {
+	local path removed=0
+	for path in "$BUILD" "$BIN" "$GAME_ROOT/compile_commands.json"; do
+		if [[ -e "$path" || -L "$path" ]]; then
+			rm -rf -- "$path"
+			echo "rework: removed $path"
+			removed=1
+		fi
+	done
+	if [[ -d "$EXPORT" ]]; then
+		for path in "$EXPORT/build" "$EXPORT/bin"; do
+			if [[ -e "$path" || -L "$path" ]]; then
+				rm -rf -- "$path"
+				echo "rework: removed $path"
+				removed=1
+			fi
+		done
+	fi
+	if ((removed == 0)); then
+		echo "rework: nothing to clean"
+	fi
 }
 
 build_revm() {
@@ -664,6 +713,7 @@ case "$command" in
 			*) die "unknown build target: $target" ;;
 		esac
 		;;
+	clean) [[ $# -eq 0 ]] || die "clean takes no arguments"; clean_artifacts ;;
 	lint)
 		[[ $# -eq 1 ]] || die "lint requires a target"
 		target=$1

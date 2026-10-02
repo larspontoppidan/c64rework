@@ -10,7 +10,11 @@ facts rather than a workflow; `./rework revm --help`,
 ./rework build revm      # bin/revm and bin/revm-tool (from the game root)
 ./rework build stage3    # bin/revm-s3-<Game>
 ./rework build stage4    # bin/revm-s4-<Game>
+./rework clean           # remove build/, bin/, and compile_commands.json
 ```
+
+A CMake cache from another absolute path is discarded automatically for that
+target. Use `./rework clean` when you want a full wipe.
 
 REVM requires CMake 3.16 or newer, a C++20 compiler, SDL2, and Perl for reSID
 wave-table generation. Video export also requires `ffmpeg` on `PATH`.
@@ -54,7 +58,16 @@ and diagnostics are options rather than subcommands.
   match. Stage 4 does not support `mod_events` and warns if a play contains
   them.
 - `--dump-fail DIR` writes expected, actual, and diff PPM files for screen
-  mismatches.
+  mismatches. `--dump-fail-limit N` caps how many mismatch sets are written:
+  the default `1` matches the legacy aborting-run behavior; `0` writes every
+  mismatch, which is how per-fail evidence is collected under
+  `--ignore-checks`.
+- Failing checks report the frame they failed in, and the run prints how to
+  reproduce them: fence misses and compare aborts raised during frame `N` are
+  shown by `--max-frames N`, while screen-check fails report at `N` but
+  reproduce with `--max-frames N+1` (the compare runs inside frame `N`, so a
+  run capped at `N` quits first). Screen mismatches also emit a `net_fail`
+  event row with the reproducing command; see [`EVENTS.md`](EVENTS.md).
 
 For machine-readable diagnostics, see [`EVENTS.md`](EVENTS.md).
 

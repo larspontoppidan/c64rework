@@ -21,11 +21,12 @@ Build revm:
 
 `./rework build revm`
 
-If the build fails with CMake errors indicating the build folder had been 
-run on another host, don't think twice about cleaning it out. Simply:
+`./rework build` discards a CMake cache written at a different absolute path
+(another host, container, or a moved folder) and reconfigures that target.
+To wipe all generated build outputs:
 
 ```bash
-rm -rf build
+./rework clean
 ```
 
 If anything else fails in the preparations phase, abort the work and explain
