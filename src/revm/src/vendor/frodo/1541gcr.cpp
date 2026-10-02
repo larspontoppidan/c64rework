@@ -188,14 +188,8 @@ void GCRDisk::open_image_file(const std::string & filepath)
 	if (type != FILE_DISK_IMAGE && type != FILE_GCR_IMAGE)
 		return;
 
-	// Try opening the file for reading/writing first, then for reading only
-	bool read_only = false;
-	the_file = fopen(filepath.c_str(), "rb+");
-	if (the_file == nullptr) {
-		read_only = true;
-		the_file = fopen(filepath.c_str(), "rb");
-	}
-
+	// REVM: the host file is a seed. Never open it for write.
+	the_file = fopen(filepath.c_str(), "rb");
 	if (the_file == nullptr)
 		return;
 
@@ -203,14 +197,14 @@ void GCRDisk::open_image_file(const std::string & filepath)
 	bool ok = false;
 	if (type == FILE_GCR_IMAGE) {
 		ok = load_gcr_file();
-		read_only = true;	// No GCR write support for now
 	} else {
 		ok = load_image_file();
 	}
 
 	if (ok) {
-		// Set write protect status
-		write_protected = read_only;
+		write_protected = false;	// WP sensor open; DOS writes go to GCR RAM
+		fclose(the_file);
+		the_file = nullptr;
 	} else {
 		fclose(the_file);
 		the_file = nullptr;
@@ -391,14 +385,11 @@ bool GCRDisk::load_gcr_file()
 void GCRDisk::WriteSector()
 {
 	unsigned track = ram[0x18];
-	unsigned halftrack = (track - 1) * 2;
 	unsigned sector = ram[0x19];
 	uint16_t buf = ram[0x30] | (ram[0x31] << 8);
 
 	if (buf <= 0x0700) {
-		if (write_sector(track, sector, ram + buf)) {
-			sector2gcr(track, sector, gcr_data[halftrack] + GCR_SECTOR_SIZE * sector);
-		}
+		write_sector(track, sector, ram + buf);
 	}
 }
 
@@ -410,7 +401,8 @@ void GCRDisk::WriteSector()
 void GCRDisk::FormatTrack()
 {
 	unsigned track = ram[0x51];
-	unsigned halftrack = (track - 1) * 2;
+	if (track < 1 || track > num_tracks || track > 40)
+		return;
 
 	// Get new ID
 	uint8_t bufnum = ram[0x3d];
@@ -424,9 +416,7 @@ void GCRDisk::FormatTrack()
 
 	// Write block to all sectors on track
 	for (unsigned sector = 0; sector < num_sectors[track]; ++sector) {
-		if (write_sector(track, sector, buf)) {
-			sector2gcr(track, sector, gcr_data[halftrack] + GCR_SECTOR_SIZE * sector);
-		}
+		write_sector(track, sector, buf);
 	}
 
 	// Clear error info (all sectors no error)
@@ -462,22 +452,27 @@ int GCRDisk::read_sector(unsigned track, unsigned sector, uint8_t *buffer)
 
 
 /*
- *  Write sector (256 bytes) to image file
+ *  Write sector (256 bytes) directly to private GCR media
  *  true: success, false: error
  */
 
 bool GCRDisk::write_sector(unsigned track, unsigned sector, const uint8_t *buffer)
 {
-	if (the_file == nullptr || write_protected)
+	if (write_protected)
 		return false;
 
-	// Convert track/sector to byte offset in image file
+	// Validate track/sector before indexing the GCR track.
 	int offset = offset_from_ts(track, sector);
 	if (offset < 0)
 		return false;
 
-	fseek(the_file, offset + header_size, SEEK_SET);
-	fwrite(buffer, 1, 256, the_file);
+	const unsigned halftrack = (track - 1) * 2;
+	const size_t gcr_pos = GCR_SECTOR_SIZE * sector;
+	if (!gcr_data[halftrack] ||
+	    gcr_track_length[halftrack] < gcr_pos + GCR_SECTOR_SIZE)
+		return false;
+	error_info[sector_offset[track] + sector] = 1;
+	sector2gcr(track, sector, gcr_data[halftrack] + gcr_pos, buffer, ERR_OK);
 	return true;
 }
 
@@ -488,8 +483,8 @@ bool GCRDisk::write_sector(unsigned track, unsigned sector, const uint8_t *buffe
 
 int GCRDisk::offset_from_ts(unsigned track, unsigned sector)
 {
-	if ((track < 1) || (track > num_tracks) ||
-		(sector < 0) || (sector >= num_sectors[track]))
+	if ((track < 1) || (track > num_tracks) || (track > 40) ||
+		(sector >= num_sectors[track]))
 		return -1;
 
 	return (sector_offset[track] + sector) << 8;
@@ -536,10 +531,15 @@ void GCRDisk::gcr_conv4(const uint8_t * from, uint8_t * to)
 
 void GCRDisk::sector2gcr(unsigned track, unsigned sector, uint8_t * gcr)
 {
-	uint8_t block[256];
-	uint8_t buf[4];
+	uint8_t block[256]{};
+	const int error = read_sector(track, sector, block);
+	sector2gcr(track, sector, gcr, block, error);
+}
 
-	int error = read_sector(track, sector, block);
+void GCRDisk::sector2gcr(unsigned track, unsigned sector, uint8_t * gcr,
+                       const uint8_t * block, int error)
+{
+	uint8_t buf[4];
 
 	uint8_t id1 = disk_id1;
 	uint8_t id2 = disk_id2;
@@ -697,6 +697,54 @@ void GCRDisk::SetState(const GCRDiskState * s)
 	write_protected = s->write_protected;
 	on_sync = s->on_sync;
 	byte_ready = s->byte_ready;
+}
+
+const uint8_t * GCRDisk::TrackData(unsigned halftrack, size_t & length) const
+{
+	if (halftrack >= MAX_NUM_HALFTRACKS) {
+		length = 0;
+		return nullptr;
+	}
+	length = gcr_track_length[halftrack];
+	return gcr_data[halftrack];
+}
+
+void GCRDisk::ClearTracks()
+{
+	for (unsigned i = 0; i < MAX_NUM_HALFTRACKS; ++i) {
+		delete[] gcr_data[i];
+		gcr_data[i] = nullptr;
+		gcr_track_length[i] = 0;
+	}
+	num_tracks = 0;
+}
+
+void GCRDisk::SetDiskMeta(unsigned tracks, uint8_t id1, uint8_t id2, const uint8_t * errors)
+{
+	num_tracks = tracks;
+	disk_id1 = id1;
+	disk_id2 = id2;
+	header_size = 0;
+	if (errors) {
+		memcpy(error_info, errors, sizeof(error_info));
+	}
+}
+
+bool GCRDisk::SetTrack(unsigned halftrack, const uint8_t * data, size_t length)
+{
+	if (halftrack >= MAX_NUM_HALFTRACKS)
+		return false;
+	delete[] gcr_data[halftrack];
+	gcr_data[halftrack] = nullptr;
+	gcr_track_length[halftrack] = 0;
+	if (length == 0)
+		return true;
+	if (data == nullptr)
+		return false;
+	gcr_data[halftrack] = new uint8_t[length];
+	memcpy(gcr_data[halftrack], data, length);
+	gcr_track_length[halftrack] = length;
+	return true;
 }
 
 

@@ -157,9 +157,9 @@ std::string Sha256FullSnapshot(const FullSnapshot & snap) {
 }
 
 std::string Sha256MachineState(const Board & board) {
-	FullSnapshot snap{};
-	if (!CaptureFullSnapshot(board, snap)) return {};
-	return Sha256FullSnapshot(snap);
+	MachineSnapshot snap{};
+	if (!CaptureMachineSnapshot(board, snap)) return {};
+	return Sha256MachineSnapshot(snap);
 }
 
 } // namespace revm

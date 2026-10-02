@@ -120,7 +120,8 @@ public:
 
 	// Cycle-exact tick (Frodo SC). Returns true on VIC VBLANK.
 	// Made public for REVM Board ownership of the run loop.
-	// Order: VIC → CIA1 → CIA2 → CPU → tape → ++cycle_counter.
+	// Order: VIC → CIA1 → CIA2 → CPU → tape → ++cycle_counter
+	//        → 1541 VIA/CPU when Emul1541Proc.
 	bool EmulateCycle();
 	// Split for Stage 3: inject Main I/O in the CPU slot after that Φ2's CIA
 	// tick, before ++cycle_counter. EmulateCycle() is Before + CPU + After.

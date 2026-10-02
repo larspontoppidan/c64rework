@@ -451,7 +451,14 @@ invoke_play() {
 			require_original
 			require_kb
 			exe="$BIN/revm"
-			load_args=(--load-prg "$ORIGINAL_LOAD" --kb "$KB_JSON")
+			case "$ORIGINAL_LOAD" in
+				*.d64|*.D64)
+					load_args=(--load-d64 "$ORIGINAL_LOAD" --kb "$KB_JSON")
+					;;
+				*)
+					load_args=(--load-prg "$ORIGINAL_LOAD" --kb "$KB_JSON")
+					;;
+			esac
 			;;
 		begin)
 			require_begin

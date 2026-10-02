@@ -56,7 +56,7 @@ reason = "Standalone extracts the shared AdvanceResult enum and name helper from
 
 [[forked]]
 path = "src/core/Board.cpp"
-base_sha256 = "38c237e55ad1f7ab9fbcbc2b54478313e4e10841909263cca38284a06e558cce"
+base_sha256 = "f7c56f20375c5ed3dcd332c65cc0031f5ce05698526f3b070d6cf62dc57134f5"
 reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write a Pepto PPM from the VIC bitmap without the full media/snapshot stack. Optional PlayRecorder captures sticky C64 input at VSYNC. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
 
 [[forked]]
@@ -81,7 +81,7 @@ reason = "Standalone timed logs format only the Main clock; Twin suffixes and Sa
 
 [[forked]]
 path = "src/core/Config.hpp"
-base_sha256 = "01126b00587afd253456474d31e6e300e4d1dc673fe40533a170a545c40234a2"
+base_sha256 = "5a6ad1063740f92415cf80adf92b89c097bcd054b31ec73c0379c73aba8defd4"
 reason = "Standalone configuration is blank-Main only and uses one SidMode instead of overlapping audio flags. --save-screen FRAME FILE is retained."
 
 [[forked]]
@@ -107,18 +107,18 @@ reason = "Standalone live input API exposes only pause, quit, and joystick-swap 
 [[forked]]
 path = "src/goldens/PlayInput.cpp"
 upstream = "src/goldens/PlayLog.cpp"
-base_sha256 = "188701c19d8235486a2a6654100bf2b18fb67d4cc438798e22875e7437f43d35"
+base_sha256 = "2af1f82cf0c6f4b66d7ceb6d5aa0402466817eff88ac7fde97f5f1244dbcccf9"
 reason = "Standalone playback is one input source: the retained JSON parser plus sticky PollFrame, without PlayPlayer, GoldenInput mutation APIs, recorder paths, or oracle comparisons. Parses optional JSON no-twin, warns when an original recording is replayed on this no-twin system, and warns on non-empty mod_events which standalone does not apply."
 
 [[forked]]
 path = "src/goldens/PlayInput.hpp"
 upstream = "src/goldens/PlayLog.hpp"
-base_sha256 = "16612874d85298f782ccd9c2b8854c65dd4ac1d6c578526e614e22b110f501fe"
+base_sha256 = "2ac807914d551b9aca06b3695597342c95fdc5f49b3b55d3847ae8ac9c2448dc"
 reason = "Standalone playback contract is a single IInputSource exposing play seed, start/end timing, and sticky frame input."
 
 [[forked]]
 path = "src/goldens/PlayRecorder.cpp"
-base_sha256 = "81f7c0d966aa999efe5bcd2bff82c6c69cfd1b83166c51872e879dd1c5bc9c89"
+base_sha256 = "7d5b914ea4e1a9e8b878ae6e19535bfaf4daee88791633d401bde375700beaf6"
 reason = "Standalone PlayRecorder writes the same play JSON shape as REVM (sticky input_events, rand_seed, start/end timing, always no-twin) without FullSnapshot hashes, ROM records, F9 timestamps, or memory-mod events."
 
 [[forked]]
@@ -128,7 +128,7 @@ reason = "Standalone recorder API is Configure/Start/OnFrame/Finish only; no Pla
 
 [[forked]]
 path = "src/vendor/frodo/C64.h"
-base_sha256 = "838915c36eda9c6fd6ce51fbfdb1ab08a09ca8363f3fa3515c7212c4a0e625ac"
+base_sha256 = "cd3da7c7570558ea37de044a297ca29bbf6cafff7b894cec3419a740a44b8eae"
 reason = "Standalone C64 owns only RAM/color buffers and the CPU, VIC, SID, CIA, display, and the public EmulateCycle lifecycle; unused Reset/NMI and frame-counter freeze are omitted. StringForKeycode is kept for play JSON key names."
 
 [[forked]]
@@ -183,7 +183,7 @@ reason = "Standalone VIC removes its stale cartridge reference while preserving 
 
 [[forked]]
 path = "apps/revm/main.cpp"
-base_sha256 = "8f3ce13087a2f9f85db3662f61288ed8af32a840f914accc214901851b88c2f4"
+base_sha256 = "9f3cf3e921b3f3c697da63a08807caa48a8a7d2273c10363770c4df0bfce93fd"
 reason = "Standalone entry point omits REVM CLI, oracle, Twin, and analysis startup; launch uses StandaloneRunner and one SidMode for interactive play, --record-play, and replay. Prints a live key sheet (including Ctrl+F9) on windowed launches. --save-screen FRAME FILE is retained."
 
 [[forked]]

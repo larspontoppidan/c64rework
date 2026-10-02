@@ -16,6 +16,7 @@
 #include "input/GoldenInput.hpp"
 #include "input/JoystickConfig.hpp"
 #include "input/LiveInput.hpp"
+#include "snapshot/Snapshot.hpp"
 #include "util/Hash.hpp"
 #define REVM_LOG_MODULE "revm"
 #include "util/Log.hpp"
@@ -65,8 +66,12 @@ void print_usage(const char * argv0) {
 		"\n"
 		"Machine image (mutually exclusive):\n"
 		"  --load-prg FILE       Load PRG (DMALoad + RUN); BEGIN = boot / 0\n"
+		"  --load-d64 FILE       Mount D64 in drive 8 (1541 processor + GCR)\n"
 		"  --load-snapshot FILE  Restore FullSnapshot (BEGIN from snap)\n"
-		"  --no-load             Boot to BASIC (no PRG / snapshot)\n"
+		"  --no-load             Boot to BASIC (no PRG / snapshot / disk)\n"
+		"  --disk-auto-load      With --load-d64: LOAD\"*\",8,1 then RUN\n"
+		"  --disk-warp           Windowed: uncap 50 Hz pacing while the 1541\n"
+		"                        CPU is running to speed up loading time\n"
 		"\n"
 		"Play role (mutually exclusive):\n"
 		"  --record-play FILE    Record play JSON (inputs, rand_seed, snapshot hashes)\n"
@@ -132,7 +137,8 @@ void print_usage(const char * argv0) {
 		"                        (default 1; 0 = every mismatch, e.g. under\n"
 		"                        --ignore-checks)\n"
 		"\n"
-		"Snapshot hash = sha256sum of FullSnapshot .bin (entire POD).\n"
+		"Snapshot hash = sha256sum of the snapshot .bin (C64 POD; plus 1541/GCR\n"
+		"trailer when --load-d64 / a drive snap was used).\n"
 		"F12 or Ctrl+C quits cleanly (finalizes play / media).\n",
 		argv0);
 }
@@ -267,8 +273,11 @@ struct Opts {
 	revm::Config cfg;
 	std::string config_path;
 	std::string load_prg;
+	std::string load_d64;
 	std::string load_snapshot;
 	bool no_load = false;
+	bool disk_auto_load = false;
+	bool disk_warp = false;
 	std::string record_play;
 	std::string use_play;
 	uint32_t max_frames = 0;
@@ -292,6 +301,8 @@ void apply_headless_audio(Opts & o) {
 void log_pacing(const revm::Config & cfg) {
 	if (cfg.headless) {
 		REVM_LOG(REVM_DEBUG, "pacing: uncapped (headless)");
+	} else if (cfg.disk_warp) {
+		REVM_LOG(REVM_DEBUG, "pacing: real-time 50 Hz, warp while 1541 busy");
 	} else {
 		REVM_LOG(REVM_DEBUG, "pacing: real-time 50 Hz");
 	}
@@ -331,6 +342,14 @@ bool parse_args(int argc, char ** argv, Opts & o, std::string & error) {
 			const char * v = need_i("--load-prg");
 			if (!v) return false;
 			o.load_prg = v;
+		} else if (std::strcmp(a, "--load-d64") == 0) {
+			const char * v = need_i("--load-d64");
+			if (!v) return false;
+			o.load_d64 = v;
+		} else if (std::strcmp(a, "--disk-auto-load") == 0) {
+			o.disk_auto_load = true;
+		} else if (std::strcmp(a, "--disk-warp") == 0) {
+			o.disk_warp = true;
 		} else if (std::strcmp(a, "--load-snapshot") == 0) {
 			const char * v = need_i("--load-snapshot");
 			if (!v) return false;
@@ -554,19 +573,24 @@ bool validate(Opts & o, std::string & error) {
 		return false;
 	}
 
-	const int machine_n = int(!o.load_prg.empty()) + int(!o.load_snapshot.empty()) +
-	                      int(o.no_load);
+	const int machine_n = int(!o.load_prg.empty()) + int(!o.load_d64.empty()) +
+	                      int(!o.load_snapshot.empty()) + int(o.no_load);
 	if (machine_n > 1) {
-		error = "--load-prg, --load-snapshot, and --no-load are mutually exclusive";
+		error = "--load-prg, --load-d64, --load-snapshot, and --no-load are "
+		        "mutually exclusive";
+		return false;
+	}
+	if (o.disk_auto_load && o.load_d64.empty()) {
+		error = "--disk-auto-load requires --load-d64";
 		return false;
 	}
 	if (!o.record_play.empty() && !o.use_play.empty()) {
 		error = "--record-play and --use-play are mutually exclusive";
 		return false;
 	}
-	if (!o.record_play.empty() && o.load_prg.empty() && o.load_snapshot.empty() &&
-	    !o.no_load) {
-		error = "--record-play requires --load-prg, --load-snapshot, or --no-load";
+	if (!o.record_play.empty() && o.load_prg.empty() && o.load_d64.empty() &&
+	    o.load_snapshot.empty() && !o.no_load) {
+		error = "--record-play requires --load-prg, --load-d64, --load-snapshot, or --no-load";
 		return false;
 	}
 	if (o.cfg.add_play_snapshot_cycle && o.use_play.empty()) {
@@ -584,9 +608,10 @@ bool validate(Opts & o, std::string & error) {
 	const bool intrinsic_cpumock_start =
 		o.setup.primary == revm::BoardRole::CpuMock && o.cfg.main_blank &&
 		o.compare.no_twin;
-	if (o.load_prg.empty() && o.load_snapshot.empty() && o.use_play.empty() &&
-	    o.record_play.empty() && !o.no_load && !intrinsic_cpumock_start) {
-		error = "Need --load-prg, --load-snapshot, --no-load, --record-play, "
+	if (o.load_prg.empty() && o.load_d64.empty() && o.load_snapshot.empty() &&
+	    o.use_play.empty() && o.record_play.empty() && !o.no_load &&
+	    !intrinsic_cpumock_start) {
+		error = "Need --load-prg, --load-d64, --load-snapshot, --no-load, --record-play, "
 		        "and/or --use-play";
 		return false;
 	}
@@ -594,12 +619,26 @@ bool validate(Opts & o, std::string & error) {
 		error = "PRG not found: " + o.load_prg;
 		return false;
 	}
+	if (!o.load_d64.empty() && !fs::exists(o.load_d64)) {
+		error = "D64 not found: " + o.load_d64;
+		return false;
+	}
 	if (!o.load_snapshot.empty() && !fs::exists(o.load_snapshot)) {
 		error = "Snapshot not found: " + o.load_snapshot;
 		return false;
 	}
+	o.cfg.d64_path = o.load_d64;
+	o.cfg.disk_auto_load = o.disk_auto_load;
+	o.cfg.disk_warp = o.disk_warp;
+	if (!o.load_snapshot.empty()) {
+		o.cfg.drive_from_snapshot = revm::FullSnapshotFileHasDrive(o.load_snapshot);
+	}
 #if defined(REVM_HAS_CPUMOCK)
 	if (o.setup.primary == revm::BoardRole::CpuMock) {
+		if (!o.load_d64.empty()) {
+			error = "Stage 3 does not support --load-d64 (needs --load-snapshot)";
+			return false;
+		}
 		if (o.load_snapshot.empty() && o.record_play.empty() && !o.no_load &&
 		    !intrinsic_cpumock_start) {
 			// Stage 3 always needs BEGIN snap except when recording from PRG / BASIC.
@@ -702,9 +741,13 @@ int run_record_play(Opts & o) {
 	const bool from_snap = !o.load_snapshot.empty();
 	if (from_snap) {
 		o.cfg.prg_path.clear();
+		o.cfg.d64_path.clear();
+		o.cfg.disk_auto_load = false;
 		o.cfg.begin_snap_path = o.load_snapshot;
 	} else {
-		o.cfg.prg_path = o.load_prg; // empty with --no-load → BASIC boot
+		o.cfg.prg_path = o.load_prg;
+		o.cfg.d64_path = o.load_d64;
+		o.cfg.disk_auto_load = o.disk_auto_load;
 	}
 	apply_speed_policy(o);
 	apply_headless_audio(o);
@@ -739,10 +782,15 @@ int run_record_play(Opts & o) {
 		src.type = "snapshot";
 		src.path = o.load_snapshot;
 		src.sha256 = revm::Sha256File(src.path);
-	} else if (o.no_load || o.load_prg.empty()) {
+	} else if (o.no_load || (o.load_prg.empty() && o.load_d64.empty())) {
 		src.type = "none";
 		src.path.clear();
 		src.sha256.clear();
+	} else if (!o.load_d64.empty()) {
+		src.type = "d64";
+		src.path = o.load_d64;
+		src.sha256 = revm::Sha256File(src.path);
+		src.auto_load_d64 = o.disk_auto_load;
 	} else {
 		src.type = "prg";
 		src.path = o.load_prg;
@@ -819,14 +867,25 @@ int run_use_play(Opts & o) {
 	o.cfg.play_path = o.use_play;
 	if (!o.load_snapshot.empty()) {
 		o.cfg.prg_path.clear();
+		o.cfg.d64_path.clear();
+		o.cfg.disk_auto_load = false;
 		o.cfg.begin_snap_path = o.load_snapshot;
 	} else if (!o.load_prg.empty()) {
 		o.cfg.prg_path = o.load_prg;
+	} else if (!o.load_d64.empty()) {
+		o.cfg.d64_path = o.load_d64;
+		o.cfg.disk_auto_load = player.Log().source.type == "d64"
+			? player.Log().source.auto_load_d64
+			: o.disk_auto_load;
 	} else if (player.Log().source.type == "prg") {
 		o.cfg.prg_path = player.Log().source.path;
+	} else if (player.Log().source.type == "d64") {
+		o.cfg.d64_path = player.Log().source.path;
+		o.cfg.disk_auto_load = player.Log().source.auto_load_d64;
 	} else if (player.Log().source.type == "snapshot") {
 		o.cfg.begin_snap_path = player.Log().source.path;
 		o.load_snapshot = player.Log().source.path;
+		o.cfg.drive_from_snapshot = revm::FullSnapshotFileHasDrive(o.load_snapshot);
 	}
 	apply_speed_policy(o);
 	apply_headless_audio(o);
@@ -887,8 +946,12 @@ int run_interactive(Opts & o) {
 	o.cfg.run_mode = revm::RunMode::Play;
 	o.cfg.stage = revm::Stage::Stage1;
 	o.cfg.prg_path = o.load_prg;
+	o.cfg.d64_path = o.load_d64;
+	o.cfg.disk_auto_load = o.disk_auto_load;
 	if (!o.load_snapshot.empty()) {
 		o.cfg.prg_path.clear();
+		o.cfg.d64_path.clear();
+		o.cfg.disk_auto_load = false;
 		o.cfg.begin_snap_path = o.load_snapshot;
 	}
 	apply_speed_policy(o);

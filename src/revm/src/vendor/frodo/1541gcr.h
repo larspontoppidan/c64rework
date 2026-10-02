@@ -49,6 +49,16 @@ public:
 	void SetState(const GCRDiskState * s);
 	void NewPrefs(const Prefs * prefs);
 
+	// REVM: GCR is the live media. The host file is a cold-start seed only.
+	unsigned NumTracks() const { return num_tracks; }
+	uint8_t DiskId1() const { return disk_id1; }
+	uint8_t DiskId2() const { return disk_id2; }
+	const uint8_t * ErrorInfo() const { return error_info; }
+	const uint8_t * TrackData(unsigned halftrack, size_t & length) const;
+	void ClearTracks();
+	void SetDiskMeta(unsigned tracks, uint8_t id1, uint8_t id2, const uint8_t * errors);
+	bool SetTrack(unsigned halftrack, const uint8_t * data, size_t length);
+
 	void SetMotor(bool on) { motor_on = on; }
 	void SetBitRate(uint8_t rate);
 	void MoveHeadOut();
@@ -76,6 +86,8 @@ private:
 
 	void gcr_conv4(const uint8_t * from, uint8_t * to);
 	void sector2gcr(unsigned track, unsigned sector, uint8_t * gcr);
+	void sector2gcr(unsigned track, unsigned sector, uint8_t * gcr,
+	                const uint8_t * block, int error);
 
 	void advance_disk_change_seq(uint32_t cycle_counter);
 	void rotate_disk(uint32_t cycle_counter);
@@ -83,7 +95,7 @@ private:
 	uint8_t * ram;				// Pointer to 1541 RAM
 	MOS6502_1541 * the_cpu;		// Pointer to 1541 CPU object
 
-	FILE * the_file;			// File pointer for image file
+	FILE * the_file;			// File pointer for image file (null after private load)
 	unsigned header_size;		// Size of image file header
 	unsigned num_tracks;		// Number of tracks in image file
 

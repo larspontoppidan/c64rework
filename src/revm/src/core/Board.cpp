@@ -89,6 +89,15 @@ void supervisor_diagnostic(const char * reason, uint32_t frame,
 	std::_Exit(124);
 }
 
+bool drive_busy_for_warp(const C64 * c64) {
+	// Frodo parks the 1541 CPU when DOS hits its idle loop (Idle=true) and
+	// does not tick it again until IEC ATN. Motor-on is not a busy signal:
+	// the DOS motor timeout never runs while Idle, so the spindle would
+	// stay "on" and warp would never end.
+	return c64 && ThePrefs.Emul1541Proc && c64->TheCPU1541 &&
+	       !c64->TheCPU1541->Idle;
+}
+
 } // namespace
 
 Board::Board() = default;
@@ -272,9 +281,11 @@ bool Board::init_machine(std::string & error, BoardInitRole role) {
 	const int saved_sid = ThePrefs.SIDType;
 	const bool saved_testbench = ThePrefs.TestBench;
 	const std::string saved_load = ThePrefs.LoadProgram;
+	const std::string saved_drive0 = ThePrefs.DrivePath[0];
 
 	ThePrefs.LimitSpeed = secondary ? false : cfg_.limit_speed;
 	ThePrefs.Emul1541Proc = false;
+	ThePrefs.DrivePath[0].clear();
 	ThePrefs.ShowLEDs = secondary ? false : !cfg_.headless;
 	ThePrefs.AutoStart = false;
 	if (secondary || cfg_.no_audio) {
@@ -315,6 +326,26 @@ bool Board::init_machine(std::string & error, BoardInitRole role) {
 		if (!cfg_.prg_path.empty()) {
 			ThePrefs.LoadProgram = cfg_.prg_path;
 			ThePrefs.AutoStart = true;
+		} else {
+			if (!cfg_.begin_snap_path.empty() && !cfg_.drive_from_snapshot) {
+				cfg_.drive_from_snapshot = FullSnapshotFileHasDrive(cfg_.begin_snap_path);
+			}
+			const bool want_drive =
+				!cfg_.d64_path.empty() || cfg_.drive_from_snapshot;
+			if (want_drive) {
+				if (files.drive.empty()) {
+					error = "--load-d64 / d64 snapshot requires a 1541 ROM in "
+					        "rom_dir (dos1541ii*.bin)";
+					return false;
+				}
+				ThePrefs.Emul1541Proc = true;
+				ThePrefs.DrivePath[0] = cfg_.d64_path;
+				ThePrefs.AutoStart = cfg_.disk_auto_load && !cfg_.d64_path.empty();
+				REVM_LOG(REVM_DEBUG, "1541 GCR drive on%s%s%s",
+				         cfg_.d64_path.empty() ? " (from snapshot)" : "",
+				         ThePrefs.AutoStart ? " disk-auto-load" : "",
+				         cfg_.disk_warp ? " disk-warp" : "");
+			}
 		}
 	}
 
@@ -328,6 +359,11 @@ bool Board::init_machine(std::string & error, BoardInitRole role) {
 	c64_ = new C64();
 	if (!secondary) {
 		TheC64 = c64_;
+		if (!cfg_.d64_path.empty() &&
+		    (!c64_->TheGCRDisk || c64_->TheGCRDisk->NumTracks() == 0)) {
+			error = "Failed to mount D64 (not a disk image?): " + cfg_.d64_path;
+			return false;
+		}
 	}
 	machine_owned_ = true;
 	clock_.Reset();
@@ -341,6 +377,7 @@ bool Board::init_machine(std::string & error, BoardInitRole role) {
 		ThePrefs.SIDType = saved_sid;
 		ThePrefs.TestBench = saved_testbench;
 		ThePrefs.LoadProgram = saved_load;
+		ThePrefs.DrivePath[0] = saved_drive0;
 		if (role == BoardInitRole::SecondaryTwinQuiet)
 			SetQuietVBlank(true);
 	}
@@ -588,17 +625,18 @@ void Board::maybe_save_snapshot() {
 
 	if (!save_snapshot_done_ && !cfg_.save_snapshot_path.empty() &&
 	    cfg_.save_snapshot_cycle && CycleCounter() >= *cfg_.save_snapshot_cycle) {
-		FullSnapshot snap;
-		if (!CaptureFullSnapshot(src, snap)) {
+		MachineSnapshot snap;
+		if (!CaptureMachineSnapshot(src, snap)) {
 			REVM_LOG(REVM_ERROR, "save-snapshot capture failed");
 		} else {
 			std::string err;
-			if (!SaveFullSnapshotFile(cfg_.save_snapshot_path, snap, err)) {
+			if (!SaveMachineSnapshotFile(cfg_.save_snapshot_path, snap, err)) {
 				REVM_LOG(REVM_ERROR, "save-snapshot failed: %s", err.c_str());
 			} else {
-				REVM_LOG(REVM_DEBUG, "snapshot saved → %s (cycle=%u frame=%u pc=$%04X)%s",
-				             cfg_.save_snapshot_path.c_str(), snap.cycle, snap.frame,
-				             snap.cpu.pc, snapshot_source_ ? " [twin]" : "");
+				REVM_LOG(REVM_DEBUG, "snapshot saved → %s (cycle=%u frame=%u pc=$%04X)%s%s",
+				             cfg_.save_snapshot_path.c_str(), snap.c64.cycle, snap.c64.frame,
+				             snap.c64.cpu.pc, snapshot_source_ ? " [twin]" : "",
+				             snap.has_drive ? " [drive]" : "");
 			}
 		}
 		save_snapshot_done_ = true;
@@ -607,34 +645,34 @@ void Board::maybe_save_snapshot() {
 	if (!add_play_snapshot_done_ && cfg_.add_play_snapshot_cycle &&
 	    !cfg_.play_path.empty() &&
 	    CycleCounter() >= *cfg_.add_play_snapshot_cycle) {
-		FullSnapshot snap;
-		if (!CaptureFullSnapshot(src, snap)) {
+		MachineSnapshot snap;
+		if (!CaptureMachineSnapshot(src, snap)) {
 			REVM_LOG(REVM_ERROR, "add-play-snapshot capture failed");
 		} else {
-			const std::string hex = Sha256FullSnapshot(snap);
+			const std::string hex = Sha256MachineSnapshot(snap);
 			fs::path play_p(cfg_.play_path);
 			const std::string stem = play_p.stem().string();
 			fs::path dir = play_p.parent_path() / (stem + ".snaps");
 			std::error_code ec;
 			fs::create_directories(dir, ec);
-			const std::string fname = std::to_string(snap.cycle) + ".bin";
+			const std::string fname = std::to_string(snap.c64.cycle) + ".bin";
 			const fs::path abs = dir / fname;
 			const std::string rel =
 				(fs::path(stem + ".snaps") / fname).generic_string();
 			std::string err;
-			if (!SaveFullSnapshotFile(abs.string(), snap, err)) {
+			if (!SaveMachineSnapshotFile(abs.string(), snap, err)) {
 				REVM_LOG(REVM_ERROR, "add-play-snapshot write failed: %s",
 				             err.c_str());
-			} else if (!RegisterPlaySnapshot(cfg_.play_path, snap.cycle, snap.frame,
+			} else if (!RegisterPlaySnapshot(cfg_.play_path, snap.c64.cycle, snap.c64.frame,
 			                                 rel, hex, err)) {
 				REVM_LOG(REVM_ERROR, "add-play-snapshot register failed: %s",
 				             err.c_str());
 			} else {
 				if (play_player_) {
-					play_player_->UpdateSnapshotHash(snap.cycle, snap.frame, hex, rel);
+					play_player_->UpdateSnapshotHash(snap.c64.cycle, snap.c64.frame, hex, rel);
 				}
 				REVM_LOG(REVM_DEBUG, "play snapshot registered cycle %u frame %u → %s (%s)%s",
-				             snap.cycle, snap.frame, rel.c_str(), hex.c_str(),
+				             snap.c64.cycle, snap.c64.frame, rel.c_str(), hex.c_str(),
 				             snapshot_source_ ? " [twin]" : "");
 			}
 		}
@@ -1167,17 +1205,17 @@ bool Board::LoadBeginSnap(const std::string & path, GoldenInput * input,
 		return false;
 	}
 
-	FullSnapshot snap;
-	if (!LoadFullSnapshotFile(path, snap, error)) return false;
-	if (!RestoreFullSnapshot(*this, snap)) {
+	MachineSnapshot snap;
+	if (!LoadMachineSnapshotFile(path, snap, error)) return false;
+	if (!RestoreMachineSnapshot(*this, snap)) {
 		error = "RestoreFullSnapshot failed";
 		return false;
 	}
 	sync_clock_from_machine();
 
 	if (input) {
-		input->SeekTo(snap.frame);
-		apply_input(input->PollFrame(snap.frame));
+		input->SeekTo(snap.c64.frame);
+		apply_input(input->PollFrame(snap.c64.frame));
 	} else {
 		// Live record: CIA KeyMatrix/joysticks are host-side (not in the POD).
 		// Always apply a neutral frame so record matches golden playback.
@@ -1186,17 +1224,18 @@ bool Board::LoadBeginSnap(const std::string & path, GoldenInput * input,
 
 	cfg_.begin_snap_path = path;
 	if (!cfg_.begin_cycle_count) {
-		cfg_.begin_cycle_count = snap.cycle;
-	} else if (*cfg_.begin_cycle_count != snap.cycle) {
+		cfg_.begin_cycle_count = snap.c64.cycle;
+	} else if (*cfg_.begin_cycle_count != snap.c64.cycle) {
 		REVM_LOG(REVM_ERROR, "Warning: begin snap cycle %u != manifest begin_cycle_count %llu",
-			snap.cycle,
+			snap.c64.cycle,
 			static_cast<unsigned long long>(*cfg_.begin_cycle_count));
 	}
 
 	keep_state_on_run_ = true;
-	REVM_LOG(REVM_DEBUG, "Restored snapshot %s — cycle=%u frame=%u pc=$%04X (boot skipped)%s",
-		path.c_str(), snap.cycle, snap.frame, snap.cpu.pc,
-		snap.version < 2 ? " [v1: no VIC SC pipeline — re-dump recommended]" : "");
+	REVM_LOG(REVM_DEBUG, "Restored snapshot %s — cycle=%u frame=%u pc=$%04X (boot skipped)%s%s",
+		path.c_str(), snap.c64.cycle, snap.c64.frame, snap.c64.cpu.pc,
+		snap.c64.version < 2 ? " [v1: no VIC SC pipeline — re-dump recommended]" : "",
+		snap.has_drive ? " [drive]" : "");
 	return true;
 }
 
@@ -1248,12 +1287,16 @@ int Board::Run() {
 		bool vblank = EmulateCycle();
 
 		if (vblank && cfg_.limit_speed) {
-			frame_start += std::chrono::microseconds(FRAME_TIME_us);
-			auto now = steady::now();
-			if (frame_start > now) {
-				std::this_thread::sleep_until(frame_start);
-			} else if (now - frame_start > std::chrono::milliseconds(100)) {
-				frame_start = now;
+			if (cfg_.disk_warp && drive_busy_for_warp(c64_)) {
+				frame_start = steady::now();
+			} else {
+				frame_start += std::chrono::microseconds(FRAME_TIME_us);
+				auto now = steady::now();
+				if (frame_start > now) {
+					std::this_thread::sleep_until(frame_start);
+				} else if (now - frame_start > std::chrono::milliseconds(100)) {
+					frame_start = now;
+				}
 			}
 		}
 	}

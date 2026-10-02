@@ -1,7 +1,7 @@
 
 # Stage 1 — BEGIN and plays
 
-Ask user to record a play from the cold PRG that reaches the true beginning 
+Ask user to record a play from the cold PRG or D64 that reaches the true beginning 
 of the game. At that point user must press F9 to record a timestamp. The 
 captured cycle/frame is a draft upper of bound of BEGIN because the key was
 pressed somewhat after the true game entry. The timestamp can be seen in
@@ -11,6 +11,22 @@ stored.
 ```bash
 ./rework play-game original --record-play plays/find-begin.json
 ```
+
+`original_load` in `rework.toml` may be a `.prg` (DMALoad + RUN) or a `.d64`
+(`--load-d64`). `rework` does not add disk extras: for a `.d64`, suggest the
+user a command they can drop flags from if they need a manual BASIC boot or a
+PAL-capped load:
+
+```bash
+./rework play-game original --disk-auto-load --disk-warp \
+  --record-play plays/find-begin.json
+```
+
+`--disk-auto-load` is `LOAD"*",8,1` then `RUN`. `--disk-warp` skips 50 Hz
+pacing while the 1541 CPU is running. Disk boots take many more frames than a
+cracked single-file PRG. Replay of a D64 play restores autoload from
+`source.auto_load_d64` (windowed `show-play original` can still take
+`--disk-warp`).
 
 Inspect memory snapshot at the timestamp and locate the stable entry PC after 
 the loader/decruncher. Probe a candidate during deterministic replay 

@@ -30,6 +30,20 @@ The `revm` CLI is flat: recording, playback, headless execution, media output,
 and diagnostics are options rather than subcommands.
 
 - `--headless` runs without real-time 50 Hz pacing.
+- `--load-d64 FILE` mounts a D64 in drive 8 with 1541 processor + GCR
+  emulation. `--disk-auto-load` issues `LOAD"*",8,1` then `RUN`.
+  `--disk-warp` skips 50 Hz pacing while the 1541 CPU is running (Frodo's
+  DOS idle park is off). Cycles and play hashes are unchanged (headless is
+  already uncapped). The host
+  file is a read-only seed; snapshots in this mode append a `REVMdrv1`
+  trailer with 1541 CPU/RAM and GCR tracks so later disk loads do not
+  remount the file. PRG snapshots stay C64-POD-only (existing hashes
+  unchanged). `./rework play-game original` only supplies `--load-d64` when
+  `original_load` ends in `.d64`; pass `--disk-auto-load` and `--disk-warp` on
+  that command if you want Kernal `LOAD"*",8,1` and an uncapped drive wait.
+  D64 recordings store `source.auto_load_d64` so replay preserves whether
+  loading started automatically. Older plays without this field default to
+  autoload enabled.
 - A supervisor polls Main's VBlank generation once per second. If it sees no
   progress while the game is not paused, it sends `SIGABRT` to the emulation
   thread so a core dump can preserve the stuck stack. Detection takes between

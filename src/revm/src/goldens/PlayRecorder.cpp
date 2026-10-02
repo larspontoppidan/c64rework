@@ -16,19 +16,14 @@ namespace {
 
 bool append_board_hash(PlayLog & log, Board & board, const char * label,
                        std::string & error) {
-	FullSnapshot snap{};
-	if (!CaptureFullSnapshot(board, snap)) {
-		error = std::string("Failed to capture machine state at ") + label;
-		return false;
-	}
-	const std::string hex = Sha256FullSnapshot(snap);
+	const std::string hex = Sha256MachineState(board);
 	if (hex.empty()) {
 		error = std::string("Failed to hash machine state at ") + label;
 		return false;
 	}
-	UpsertPlaySnapshot(log, snap.cycle, snap.frame, hex, /*filename=*/{});
+	UpsertPlaySnapshot(log, board.CycleCounter(), board.FrameCounter(), hex, /*filename=*/{});
 	REVM_LOG(REVM_DEBUG, "snapshots[+%s] cycle=%u frame=%u %s",
-	             label, snap.cycle, snap.frame, hex.c_str());
+	             label, board.CycleCounter(), board.FrameCounter(), hex.c_str());
 	return true;
 }
 

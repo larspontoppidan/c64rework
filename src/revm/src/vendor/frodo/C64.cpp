@@ -667,6 +667,10 @@ bool C64::EmulateCycleAfterCpu(unsigned flags)
 
 	++cycle_counter;
 
+	if (ThePrefs.Emul1541Proc) {
+		emulate_1541_cycle();
+	}
+
 	if (flags & VIC_VBLANK) {
 		if (!freeze_frame_counter_)
 			++frame_counter;
@@ -837,9 +841,6 @@ int C64::main_loop()
 #ifdef FRODO_SC
 
 		new_frame = EmulateCycle();
-		if (ThePrefs.Emul1541Proc) {
-			emulate_1541_cycle();
-		}
 
 #else
 
@@ -1263,11 +1264,8 @@ void C64::MakeSnapshot(Snapshot * s, bool instruction_boundary)
 		if (s->cpu.instruction_complete || !instruction_boundary)
 			break;
 
-		// Advance C64 state by one cycle
+		// Advance C64 state by one cycle (includes 1541 when enabled)
 		EmulateCycle();
-		if (ThePrefs.Emul1541Proc) {
-			emulate_1541_cycle();
-		}
 	}
 #else
 	TheCPU->GetState(&(s->cpu));

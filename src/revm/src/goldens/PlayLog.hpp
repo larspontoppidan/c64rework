@@ -26,13 +26,16 @@ namespace revm {
 //   "mod_events": { "234": [{"address": 49152, "operation": "increment"}] }
 // Optional "no-twin": true when recorded under --no-twin. Absent = original.
 struct PlaySource {
-	std::string type; // "prg" | "snapshot"
+	std::string type; // "prg" | "d64" | "snapshot"
 	std::string path;
 	std::string sha256;
+	// Older D64 plays omitted this and replayed with autoload enabled.
+	bool auto_load_d64 = true;
 };
 
 // One machine-state checkpoint in a play (JSON "snapshots" array entry).
-// sha256 = SHA-256 of FullSnapshot POD (= sha256sum of .bin).
+// sha256 = SHA-256 of the machine image (= sha256sum of .bin). PRG snaps are
+// the FullSnapshot POD; d64-mode snaps are POD plus the 1541/GCR trailer.
 // filename is optional (set when a .bin was written / registered).
 struct PlaySnapshot {
 	uint64_t cycle = 0;

@@ -29,18 +29,23 @@ with minor adjustments.
 
 ## Getting started
 
-Locate a `prg` loader file of the game to rework. Multiload games in files like
-`d64` or `crt` are not supported.
+Locate a `prg` loader file, or a `.d64` disk image, of the game to rework.
+Cartridge images (`.crt`) are not supported. A `.d64` is mounted as drive 8
+with full 1541 processor + GCR emulation; `LOAD"*",8,1` is `--disk-auto-load`.
+`--disk-warp` skips 50 Hz pacing while the 1541 CPU is running so interactive disk
+boots are watchable; cycles and play hashes stay the same.
+The original disk file is never written; later disk I/O lives in GCR memory
+and in snapshots.
 
 Locate **C64 ROMs** preferably matching the filenames and SHA-256 checksums seen
-below.
+below. Disk mode also needs `dos1541ii*.bin` in the same ROM directory.
 
 ### Steps
 
 1. Copy the `game-template` folder to an external folder and name it reflecting
 the game to be reworked. Remember to include hidden files, eg.: 
 `cp -a /path/to/c64rework/game-template/. /path/to/MyGame/`
-2. Place the loader `.prg` file in the folder.
+2. Place the loader `.prg` or `.d64` file in the folder.
 3. Rename `gamename.kb.json` in the Stage2 folder to reflect the game name.
 4. Set the paths and exact framework version in `rework.toml`.
 5. Place C64 ROM dumps in the framework `roms/` directory (gitignored), see below.

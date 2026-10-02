@@ -29,6 +29,13 @@ struct Config {
 
 	std::string rom_dir;
 	std::string prg_path;
+	// --load-d64: mount drive 8 (1541 processor + GCR). Host file is a seed.
+	std::string d64_path;
+	bool disk_auto_load = false; // --disk-auto-load: LOAD"*",8,1 then RUN
+	// --disk-warp: skip 50 Hz pacing while the 1541 CPU is running.
+	bool disk_warp = false;
+	// Snapshot file carries a 1541/GCR trailer; enable the drive at Init.
+	bool drive_from_snapshot = false;
 
 	bool limit_speed = true;
 	bool audio_enabled = true;

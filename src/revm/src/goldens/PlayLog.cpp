@@ -154,6 +154,8 @@ bool SavePlayLog(const std::string & path, const PlayLog & log, std::string & er
 		{"path", log.source.path},
 		{"sha256", log.source.sha256},
 	};
+	if (log.source.type == "d64")
+		j["source"]["auto_load_d64"] = log.source.auto_load_d64;
 	j["rand_seed"] = log.rand_seed;
 	if (log.no_twin) j["no-twin"] = true;
 	nlohmann::ordered_json roms;
@@ -239,6 +241,7 @@ bool LoadPlayLog(const std::string & path, PlayLog & log, std::string & error) {
 			if (s.contains("type")) log.source.type = s["type"].get<std::string>();
 			if (s.contains("path")) log.source.path = s["path"].get<std::string>();
 			if (s.contains("sha256")) log.source.sha256 = s["sha256"].get<std::string>();
+			log.source.auto_load_d64 = s.value("auto_load_d64", true);
 		}
 		if (j.contains("rand_seed")) log.rand_seed = j["rand_seed"].get<unsigned>();
 		if (j.contains("no-twin")) log.no_twin = j["no-twin"].get<bool>();

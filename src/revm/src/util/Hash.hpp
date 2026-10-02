@@ -17,11 +17,13 @@ struct FullSnapshot;
 std::string Sha256File(const std::string & path);
 std::string Sha256Bytes(const void * data, size_t len);
 
-// SHA-256 of an in-memory FullSnapshot POD — identical to `sha256sum` of a
-// file written by SaveFullSnapshotFile (entire struct, incl. header + v2 trailer).
+// SHA-256 of an in-memory FullSnapshot POD. PRG .bin files without a drive
+// trailer match sha256sum of this blob. D64-mode snaps hash POD + trailer via
+// Sha256MachineSnapshot / Sha256MachineState.
 std::string Sha256FullSnapshot(const FullSnapshot & snap);
 
-// CaptureFullSnapshot on board, then Sha256FullSnapshot.
+// Capture the live machine (C64 POD plus 1541/GCR when the drive is on) and
+// hash the same bytes SaveMachineSnapshotFile would write.
 std::string Sha256MachineState(const Board & board);
 
 } // namespace revm

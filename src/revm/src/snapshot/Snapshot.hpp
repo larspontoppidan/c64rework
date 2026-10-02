@@ -15,6 +15,8 @@
 #include "SID.h"
 #include "CIA.h"
 #include "C64.h"
+#include "CPU1541.h"
+#include "1541gcr.h"
 
 namespace revm {
 
@@ -56,6 +58,43 @@ struct FullSnapshot {
 
 static_assert(offsetof(FullSnapshot, vic_sc) == FullSnapshot::kVersion1Size,
               "v1 FullSnapshot size must match trailer offset");
+
+// Optional 1541 + GCR trailer after the C64 POD. PRG snapshots omit this so
+// sizeof(FullSnapshot) and existing play hashes stay unchanged.
+struct DriveSnapshotHeader {
+	static constexpr char kMagic[8] = {'R','E','V','M','d','r','v','1'};
+	static constexpr uint16_t kVersion = 1;
+
+	char magic[8]{};
+	uint16_t version = kVersion;
+	uint16_t flags = 0;
+	MOS6502State cpu{};
+	uint8_t ram[DRIVE_RAM_SIZE]{};
+	GCRDiskState gcr{};
+	uint8_t num_tracks = 0;
+	uint8_t disk_id1 = 0;
+	uint8_t disk_id2 = 0;
+	uint8_t reserved = 0;
+	uint8_t error_info[NUM_SECTORS_40]{};
+	uint32_t track_len[MAX_NUM_HALFTRACKS]{};
+};
+
+struct MachineSnapshot {
+	FullSnapshot c64{};
+	bool has_drive = false;
+	DriveSnapshotHeader drive{};
+	std::vector<uint8_t> gcr_bytes;
+};
+
+bool CaptureMachineSnapshot(const Board & board, MachineSnapshot & out);
+bool RestoreMachineSnapshot(Board & board, const MachineSnapshot & in);
+bool SaveMachineSnapshotFile(const std::string & path, const MachineSnapshot & snap,
+                             std::string & error);
+bool LoadMachineSnapshotFile(const std::string & path, MachineSnapshot & snap,
+                             std::string & error);
+bool FullSnapshotFileHasDrive(const std::string & path);
+std::vector<uint8_t> EncodeMachineSnapshot(const MachineSnapshot & snap);
+std::string Sha256MachineSnapshot(const MachineSnapshot & snap);
 
 // Chip-only snapshot (for later stages when memory map is not required).
 struct ChipSnapshot {

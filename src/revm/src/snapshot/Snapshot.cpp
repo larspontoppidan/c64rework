@@ -8,13 +8,18 @@
 #include "util/Hash.hpp"
 
 #include "C64.h"
+#include "Prefs.h"
+#include "CPU1541.h"
+#include "1541gcr.h"
 #include "Display.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 namespace revm {
 
@@ -143,6 +148,208 @@ bool RestoreFullSnapshot(Board & board, const FullSnapshot & in) {
 	return true;
 }
 
+namespace {
+
+bool enable_1541_processor(C64 * c64, std::string * error) {
+	if (!c64 || !c64->TheGCRDisk || !c64->TheCPU1541) {
+		if (error) *error = "1541 objects missing";
+		return false;
+	}
+	Prefs next = ThePrefs;
+	next.Emul1541Proc = true;
+	next.DrivePath[0].clear();
+	next.AutoStart = false;
+	next.LoadProgram.clear();
+	c64->NewPrefs(&next);
+	ThePrefs = next;
+	return true;
+}
+
+void capture_drive(const C64 * c64, MachineSnapshot & out) {
+	out.has_drive = true;
+	std::memset(&out.drive, 0, sizeof(out.drive));
+	std::memcpy(out.drive.magic, DriveSnapshotHeader::kMagic, 8);
+	out.drive.version = DriveSnapshotHeader::kVersion;
+	c64->TheCPU1541->GetState(&out.drive.cpu);
+	std::memcpy(out.drive.ram, c64->RAM1541, DRIVE_RAM_SIZE);
+	c64->TheGCRDisk->GetState(&out.drive.gcr);
+	out.drive.num_tracks = static_cast<uint8_t>(c64->TheGCRDisk->NumTracks());
+	out.drive.disk_id1 = c64->TheGCRDisk->DiskId1();
+	out.drive.disk_id2 = c64->TheGCRDisk->DiskId2();
+	std::memcpy(out.drive.error_info, c64->TheGCRDisk->ErrorInfo(), NUM_SECTORS_40);
+	out.gcr_bytes.clear();
+	for (unsigned ht = 0; ht < MAX_NUM_HALFTRACKS; ++ht) {
+		size_t len = 0;
+		const uint8_t * data = c64->TheGCRDisk->TrackData(ht, len);
+		out.drive.track_len[ht] = static_cast<uint32_t>(len);
+		if (len && data) {
+			out.gcr_bytes.insert(out.gcr_bytes.end(), data, data + len);
+		}
+	}
+}
+
+bool restore_drive(C64 * c64, const MachineSnapshot & in, std::string * error) {
+	if (!enable_1541_processor(c64, error)) return false;
+	GCRDisk * gcr = c64->TheGCRDisk;
+	gcr->ClearTracks();
+	gcr->SetDiskMeta(in.drive.num_tracks, in.drive.disk_id1, in.drive.disk_id2,
+	                 in.drive.error_info);
+	size_t off = 0;
+	for (unsigned ht = 0; ht < MAX_NUM_HALFTRACKS; ++ht) {
+		const uint32_t len = in.drive.track_len[ht];
+		if (len == 0) {
+			if (!gcr->SetTrack(ht, nullptr, 0)) return false;
+			continue;
+		}
+		if (off + len > in.gcr_bytes.size()) {
+			if (error) *error = "drive trailer GCR truncated";
+			return false;
+		}
+		if (!gcr->SetTrack(ht, in.gcr_bytes.data() + off, len)) {
+			if (error) *error = "drive trailer GCR track rejected";
+			return false;
+		}
+		off += len;
+	}
+	gcr->SetState(&in.drive.gcr);
+	std::memcpy(c64->RAM1541, in.drive.ram, DRIVE_RAM_SIZE);
+	c64->TheCPU1541->SetState(&in.drive.cpu);
+	return true;
+}
+
+} // namespace
+
+bool CaptureMachineSnapshot(const Board & board, MachineSnapshot & out) {
+	out = MachineSnapshot{};
+	if (!CaptureFullSnapshot(board, out.c64)) return false;
+	const C64 * c64 = board.Machine();
+	if (ThePrefs.Emul1541Proc && c64 && c64->TheGCRDisk && c64->TheCPU1541) {
+		capture_drive(c64, out);
+	}
+	return true;
+}
+
+bool RestoreMachineSnapshot(Board & board, const MachineSnapshot & in) {
+	C64 * c64 = board.Machine();
+	if (!c64) return false;
+	if (in.has_drive) {
+		std::string err;
+		if (!restore_drive(c64, in, &err)) return false;
+	}
+	return RestoreFullSnapshot(board, in.c64);
+}
+
+std::vector<uint8_t> EncodeMachineSnapshot(const MachineSnapshot & snap) {
+	std::vector<uint8_t> out(sizeof(FullSnapshot));
+	std::memcpy(out.data(), &snap.c64, sizeof(FullSnapshot));
+	if (!snap.has_drive) return out;
+	const size_t hdr = sizeof(DriveSnapshotHeader);
+	out.resize(sizeof(FullSnapshot) + hdr + snap.gcr_bytes.size());
+	std::memcpy(out.data() + sizeof(FullSnapshot), &snap.drive, hdr);
+	if (!snap.gcr_bytes.empty()) {
+		std::memcpy(out.data() + sizeof(FullSnapshot) + hdr, snap.gcr_bytes.data(),
+		            snap.gcr_bytes.size());
+	}
+	return out;
+}
+
+std::string Sha256MachineSnapshot(const MachineSnapshot & snap) {
+	const auto bytes = EncodeMachineSnapshot(snap);
+	return Sha256Bytes(bytes.data(), bytes.size());
+}
+
+bool SaveMachineSnapshotFile(const std::string & path, const MachineSnapshot & snap,
+                             std::string & error) {
+	const auto bytes = EncodeMachineSnapshot(snap);
+	std::ofstream f(path, std::ios::binary);
+	if (!f) {
+		error = "Cannot open for write: " + path;
+		return false;
+	}
+	f.write(reinterpret_cast<const char *>(bytes.data()),
+	        static_cast<std::streamsize>(bytes.size()));
+	if (!f) {
+		error = "Write failed: " + path;
+		return false;
+	}
+	return true;
+}
+
+bool LoadMachineSnapshotFile(const std::string & path, MachineSnapshot & snap,
+                             std::string & error) {
+	std::ifstream f(path, std::ios::binary | std::ios::ate);
+	if (!f) {
+		error = "Cannot open for read: " + path;
+		return false;
+	}
+	const auto sz = static_cast<size_t>(f.tellg());
+	f.seekg(0);
+	snap = MachineSnapshot{};
+	if (sz == FullSnapshot::kVersion1Size) {
+		f.read(reinterpret_cast<char *>(&snap.c64), FullSnapshot::kVersion1Size);
+		if (!f) {
+			error = "Read failed: " + path;
+			return false;
+		}
+		snap.c64.version = 1;
+		return true;
+	}
+	if (sz < sizeof(FullSnapshot)) {
+		error = "Unexpected FullSnapshot size " + std::to_string(sz);
+		return false;
+	}
+	f.read(reinterpret_cast<char *>(&snap.c64), sizeof(FullSnapshot));
+	if (!f) {
+		error = "Read failed: " + path;
+		return false;
+	}
+	if (sz == sizeof(FullSnapshot)) return true;
+	const size_t hdr = sizeof(DriveSnapshotHeader);
+	if (sz < sizeof(FullSnapshot) + hdr) {
+		error = "Truncated drive trailer in " + path;
+		return false;
+	}
+	f.read(reinterpret_cast<char *>(&snap.drive), hdr);
+	if (!f) {
+		error = "Read failed: " + path;
+		return false;
+	}
+	if (std::memcmp(snap.drive.magic, DriveSnapshotHeader::kMagic, 8) != 0) {
+		error = "Not a REVM drive trailer: " + path;
+		return false;
+	}
+	if (snap.drive.version != DriveSnapshotHeader::kVersion) {
+		error = "Unsupported drive trailer version in " + path;
+		return false;
+	}
+	uint64_t expect = 0;
+	for (unsigned ht = 0; ht < MAX_NUM_HALFTRACKS; ++ht)
+		expect += snap.drive.track_len[ht];
+	const size_t rest = sz - sizeof(FullSnapshot) - hdr;
+	if (rest != expect) {
+		error = "Drive GCR size mismatch in " + path;
+		return false;
+	}
+	snap.gcr_bytes.resize(rest);
+	if (rest) {
+		f.read(reinterpret_cast<char *>(snap.gcr_bytes.data()),
+		       static_cast<std::streamsize>(rest));
+		if (!f) {
+			error = "Read failed: " + path;
+			return false;
+		}
+	}
+	snap.has_drive = true;
+	return true;
+}
+
+bool FullSnapshotFileHasDrive(const std::string & path) {
+	std::error_code ec;
+	const auto sz = std::filesystem::file_size(path, ec);
+	if (ec) return false;
+	return sz > sizeof(FullSnapshot);
+}
+
 bool CaptureChipSnapshot(const Board & board, ChipSnapshot & out) {
 	const C64 * c64 = board.Machine();
 	if (!c64) return false;
@@ -222,7 +429,7 @@ bool LoadFullSnapshotFile(const std::string & path, FullSnapshot & snap, std::st
 	const auto sz = static_cast<size_t>(f.tellg());
 	f.seekg(0);
 	std::memset(&snap, 0, sizeof(snap));
-	if (sz == sizeof(FullSnapshot)) {
+	if (sz >= sizeof(FullSnapshot)) {
 		f.read(reinterpret_cast<char *>(&snap), sizeof(snap));
 		if (!f) {
 			error = "Read failed: " + path;
@@ -242,7 +449,7 @@ bool LoadFullSnapshotFile(const std::string & path, FullSnapshot & snap, std::st
 	}
 	error = "Unexpected FullSnapshot size " + std::to_string(sz) + " (want " +
 	        std::to_string(sizeof(FullSnapshot)) + " or " +
-	        std::to_string(FullSnapshot::kVersion1Size) + ")";
+	        std::to_string(FullSnapshot::kVersion1Size) + " or POD+drive trailer)";
 	return false;
 }
 
