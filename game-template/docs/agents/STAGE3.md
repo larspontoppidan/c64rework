@@ -64,15 +64,22 @@ baseline before translating further.
    ./rework test-play stage3 <play> --max-frames <N>
    ```
 
-2. Work the frontier. Stage 3 advances through small slices. A slice is the
+2. Work the frontier. Stage 3 advances through slices. A slice is the
 next untranslated or incorrect piece of original execution responsible for
-the earliest failure. It may be one routine, one branch, an interrupt path,
-or one timing-critical access. Small is good when the acceptance evidence is clear.
+the earliest failure. If a Stage3/REVIEW.md exists, one unit of work consist
+of three pieces, which together we call the "fat slice". It consists of:
 
-3. Translating a slice. Use one function for each original routine and begin
-it with the corresponding `JoinAtPc`. Keep the listing's execution order visible.
-Every relevant original instruction must have an equivalent; leave a loud `SoftQuit`
-at a genuine frontier instead of silently skipping work or installing a no-op stub.
+- A. The slice mandated by the review. 
+- B. A push to solve debt mentioned in the review. Try to get as much done as
+possible.
+- C. A slice of the workers own choosing. Once A and B are done the worker
+usually knows what is the next obvious frontier to deal with. Encourage the 
+worker to do work a healthy slice on that as well.
+
+3. Work hints: Use one function for each original routine and begin it with
+the corresponding `JoinAtPc`. Follow the principles laid out in the 
+STAGE3-MANUAL.md. Prefer to leave a loud `SoftQuit` at a genuine frontier 
+instead of silently skipping work or installing a no-op stub.
 
 Use named memory and I/O bags. Give functions and variables names that express
 their understood role. Machine-like control flow is acceptable; unexplained
