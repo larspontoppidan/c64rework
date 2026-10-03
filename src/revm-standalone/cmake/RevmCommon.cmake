@@ -52,6 +52,7 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 find_package(Threads REQUIRED)
+find_package(PNG 1.6 REQUIRED)
 
 set(FRODO_DIR "${_REVM_ROOT}/src/vendor/frodo")
 set(REVM_DIR "${_REVM_ROOT}/src")
@@ -175,7 +176,7 @@ set(REVM_SOURCES
 )
 add_library(revm_standalone_runtime STATIC ${REVM_SOURCES})
 target_include_directories(revm_standalone_runtime PUBLIC ${REVM_DIR} ${REVM_DIR}/vendor)
-target_link_libraries(revm_standalone_runtime PUBLIC frodo_sc)
+target_link_libraries(revm_standalone_runtime PUBLIC frodo_sc PNG::PNG)
 
 add_executable(revm "${_REVM_ROOT}/apps/revm/main.cpp")
 target_compile_definitions(revm PRIVATE C64REWORK_VERSION="${C64REWORK_VERSION}")

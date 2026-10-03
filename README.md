@@ -10,6 +10,9 @@ replacing the machine code with legible and structured code. While the 6510 CPU
 is fully eliminated, the other chips of the C64 are provided in emulated form
 using code from the Frodo v4 emulator. The binary targets SDL2 standalone.
 
+Builds require a C++20 compiler, CMake, SDL2, libpng ≥ 1.6, pkg-config and
+perl. Screenshots use losslessly compressed 8-bit indexed PNGs.
+
 The repository provides the following:
 
 - Comprehensive documentation of four rework stages. Some stages require brief

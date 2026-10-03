@@ -190,7 +190,7 @@ reason = "Standalone entry point omits REVM CLI, oracle, Twin, and analysis star
 
 [[forked]]
 path = "cmake/RevmCommon.cmake"
-base_sha256 = "17d6240ccfaabb906a1a8f99e7c49a6ea9a124ad19ea15d044c9a5c80dc78b8e"
+base_sha256 = "b0e2e7954c96b4178fa03f0b6ee5936c4a5d423f29db3385a7ba105513213730"
 reason = "Standalone build always produces one executable and one cpu-mock game object set; reSID remains a runtime SidMode, not a second build graph. The runtime compiles GameHost plus StandaloneRunner instead of CpuMockHost, including the slim PlayRecorder. reSID is vendored at export src/resid/ (not a git submodule); CMake requires those sources and perl to generate wave tables."
 
 [[forked]]

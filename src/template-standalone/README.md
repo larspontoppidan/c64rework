@@ -9,7 +9,7 @@ Layout:
 - `src/revm/` — slim REVM runtime and Frodo V4 C64 chip emulation.
 - `src/resid/` — vendored reSID sound chip emulation (not a git submodule).
 
-Build requires CMake ≥ 3.16, a C++20 compiler, SDL2, pkg-config, and perl
+Build requires CMake ≥ 3.16, a C++20 compiler, SDL2, libpng ≥ 1.6, pkg-config, and perl
 (wave-table generation). Then:
 
 ```bash
