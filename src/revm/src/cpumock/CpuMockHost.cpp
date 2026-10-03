@@ -3111,6 +3111,8 @@ bool CpuMockHost::start_blank_main(GoldenInput * golden_input) {
 		cpu.p &= uint8_t(~0x04u);
 	c64->TheCPU->SetState(&cpu);
 	c64->SetCounters(start.cycle, start.frame);
+	// BEGIN relocates the clock without simulating the omitted loader time.
+	c64->TheSID->RebaseRendererClock();
 	board_.SyncClockFromMachine();
 	apply_declared_cia_live(c64, start);
 

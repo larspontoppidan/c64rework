@@ -476,6 +476,8 @@ bool GameHost::apply_blank_start(revm::PlayInput * playback) {
 		cpu.p &= uint8_t(~0x04u);
 	c64->TheCPU->SetState(&cpu);
 	c64->SetCounters(start.cycle, start.frame);
+	// BEGIN relocates the clock without simulating the omitted loader time.
+	c64->TheSID->RebaseRendererClock();
 	// Match CpuMockHost::start_blank_main: leave SID as the phase-walked chip.
 	// Standalone Board has no shadow Clock; C64 counters are the timeline.
 	apply_declared_cia_live(c64, start);

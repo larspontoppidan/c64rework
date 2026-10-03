@@ -37,7 +37,7 @@ Commands:
   selftest                   Run all tool self-tests
   stage4-diag                Inventory Stage4 constructs for export
   export [--replace]         Generate standalone in StandaloneExport/
-  check-export               Version file then post-lower leftover gate
+  check-export               Run checks and verifications for exported game
 
 TARGET for play commands must be original, begin, stage3, or stage4.
 PLAY refers to ./plays/PLAY.json unless an existing path is supplied.

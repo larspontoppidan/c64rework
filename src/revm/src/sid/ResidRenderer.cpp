@@ -48,6 +48,13 @@ void ResidRenderer::sync_cycle_base()
 	have_cycle_ = true;
 }
 
+void ResidRenderer::RebaseCycleClock()
+{
+	// A new timeline origin is not elapsed emulation time. Preserve reSID's
+	// registers, oscillators, filters and pending PCM; only move the baseline.
+	sync_cycle_base();
+}
+
 void ResidRenderer::Reset()
 {
 	engine_.SetChipModel(ThePrefs.SIDType == SIDTYPE_RESID_8580);

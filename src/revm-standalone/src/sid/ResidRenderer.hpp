@@ -29,6 +29,7 @@ public:
 	void NewPrefs(const Prefs * prefs) override;
 	void Pause() override;
 	void Resume() override;
+	void RebaseCycleClock() override;
 
 private:
 	void sync_cycle_base();

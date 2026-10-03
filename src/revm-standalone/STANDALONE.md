@@ -27,3 +27,9 @@ operations remain on hardware bags.
 so exported games keep their terminal trace. `revm::StandaloneRunner` constructs
 a `GameHost` and calls the exported `gamehost::InstallGame(GameHost&)` once per
 run.
+
+Blank startup walks only to the declared PAL phase, then relocates the machine
+counters to the game's BEGIN timestamp. Both standalone and Stage 4 rebase
+the SID renderer clock after that untimed relocation. reSID retains its chip
+state and PCM buffers; it must not synthesize audio for the omitted loader
+interval. The VBlank watchdog remains active during gameplay.

@@ -41,6 +41,9 @@ public:
 	void NewPrefs(const Prefs * prefs);
 	void PauseSound();
 	void ResumeSound();
+	// After an untimed machine-counter relocation, retain audio state while
+	// rebasing the renderer clock. The skipped coordinate gap is not SID time.
+	void RebaseRendererClock();
 	void GetState(MOS6581State * s) const;
 	void SetState(const MOS6581State * s);
 	void EmulateLine();
@@ -120,6 +123,7 @@ public:
 	virtual void NewPrefs(const Prefs * prefs) = 0;
 	virtual void Pause() = 0;
 	virtual void Resume() = 0;
+	virtual void RebaseCycleClock() {}
 };
 
 
