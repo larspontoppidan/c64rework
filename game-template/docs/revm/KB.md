@@ -180,8 +180,9 @@ Omitted `bank` defaults to DRAM. If the object's range overlays I/O chips
 | `yes` | Shown in `--watch` stderr / `--watch-window`; Stage 3 kb-check with `--kb` |
 | `verbose` | Shown only with `--watch-verbose` / `--kb-check-verbose` |
 
-`--watch-window` opens a second SDL window listing current values (fit/truncate,
-redraw on change). Default font is Spleen **12x24** (better on HiDPI); use
+`--watch-window` opens a second SDL window listing current values (redraw on
+change). Rows that do not fit are reached with the mouse wheel (3 rows per
+notch); the footer then shows the visible row range. Default font is Spleen **12x24** (better on HiDPI); use
 `--watch-font 8x16` for the denser face. With `--watch-window`, values are
 **not** printed to the terminal (use `--watch` alone for stderr logging).
 Click a watched `variable` row to select its first byte, then press the configured

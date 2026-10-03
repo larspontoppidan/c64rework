@@ -63,6 +63,14 @@ void KbWatchWindow::on_event(const SDL_Event & event) {
 		           event.window.event == SDL_WINDOWEVENT_RESIZED) {
 			size_dirty_ = true;
 		}
+	} else if (event.type == SDL_MOUSEWHEEL && event.wheel.windowID == window_id_) {
+		int notches = event.wheel.y;
+		if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) notches = -notches;
+		// Wheel up (positive) scrolls toward the first row; paint() clamps the
+		// far end against the current view count and window height.
+		const long next = long(scroll_offset_) - long(notches) * kWheelRows;
+		scroll_offset_ = size_t(std::max(0L, next));
+		paint_dirty_ = true;
 	} else if (event.type == SDL_MOUSEBUTTONDOWN &&
 	           event.button.windowID == window_id_ &&
 	           event.button.button == SDL_BUTTON_LEFT) {
@@ -128,6 +136,7 @@ bool KbWatchWindow::Open(size_t slot_count, WatchFont font, std::string & error)
 	highlight_until_frame_ = 0;
 	selected_address_.reset();
 	displayed_addresses_.clear();
+	scroll_offset_ = 0;
 	pending_modifications_.clear();
 	increment_was_down_ = false;
 	decrement_was_down_ = false;
@@ -159,6 +168,7 @@ void KbWatchWindow::Close() {
 	paint_dirty_ = false;
 	selected_address_.reset();
 	displayed_addresses_.clear();
+	scroll_offset_ = 0;
 	pending_modifications_.clear();
 	increment_was_down_ = false;
 	decrement_was_down_ = false;
@@ -278,14 +288,22 @@ void KbWatchWindow::paint(const KbWatch & watch, uint32_t frame) {
 	const auto & views = watch.Views();
 	const int usable = height_ - y - kPad - row_h_;
 	const int max_rows = std::max(0, usable / row_h_);
-	const size_t show = std::min(views.size(), size_t(max_rows > 0 ? max_rows : 0));
-	const bool truncated = views.size() > show;
+	// Clamp the wheel offset so the last page is full: at the far end every
+	// remaining row fits and no "more" line is needed.
+	const size_t page = size_t(max_rows);
+	const size_t max_offset = views.size() > page ? views.size() - page : 0;
+	scroll_offset_ = std::min(scroll_offset_, max_offset);
+	const size_t remaining = views.size() - scroll_offset_;
+	const size_t show = std::min(remaining, page);
+	const bool truncated = remaining > show;
 	const size_t row_budget = truncated && show > 0 ? show - 1 : show;
+	// displayed_addresses_[row] maps a clicked window row to its view, so it
+	// holds exactly the rows drawn below, starting at scroll_offset_.
 	displayed_addresses_.clear();
 	displayed_addresses_.reserve(row_budget);
 
 	for (size_t i = 0; i < row_budget; ++i) {
-		const auto & v = views[i];
+		const auto & v = views[scroll_offset_ + i];
 		displayed_addresses_.push_back(v.modifiable
 		                                 ? std::optional<uint16_t>(v.addr)
 		                                 : std::nullopt);
@@ -331,13 +349,20 @@ void KbWatchWindow::paint(const KbWatch & watch, uint32_t frame) {
 
 	if (truncated) {
 		char more[40];
-		std::snprintf(more, sizeof(more), "... +%zu more", views.size() - row_budget);
+		std::snprintf(more, sizeof(more), "... +%zu more",
+		              remaining - row_budget);
 		draw_string(kPad, y, more, kDim);
 		y += row_h_;
 	}
 
-	char foot[48];
-	std::snprintf(foot, sizeof(foot), "frame=%u  slots=%zu", frame, views.size());
+	char foot[80];
+	if (scroll_offset_ > 0 || truncated) {
+		std::snprintf(foot, sizeof(foot), "frame=%u  slots=%zu  rows %zu-%zu (wheel)",
+		              frame, views.size(), row_budget ? scroll_offset_ + 1 : 0,
+		              scroll_offset_ + row_budget);
+	} else {
+		std::snprintf(foot, sizeof(foot), "frame=%u  slots=%zu", frame, views.size());
+	}
 	draw_string(kPad, height_ - kPad - glyph_h_, foot, kDim);
 
 	SDL_UpdateTexture(texture_, nullptr, pixels_.data(), width_ * int(sizeof(uint32_t)));

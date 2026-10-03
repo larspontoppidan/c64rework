@@ -26,7 +26,8 @@ enum class WatchFont {
 	Spleen12x24,
 };
 
-// Second SDL window listing KbWatch slots. No scroll: fit or truncate.
+// Second SDL window listing KbWatch slots. Rows that do not fit are reached
+// with the mouse wheel (3 rows per notch); the footer shows the visible range.
 // Redraws only when KbWatch is dirty (or on resize / highlight expiry).
 // Fonts: embedded Spleen 8x16 / 12x24 (BSD-2-Clause; see LICENSE.spleen).
 class KbWatchWindow {
@@ -78,12 +79,14 @@ private:
 	uint32_t highlight_until_frame_ = 0;
 	std::optional<uint16_t> selected_address_;
 	std::vector<std::optional<uint16_t>> displayed_addresses_;
+	size_t scroll_offset_ = 0; // index of the first displayed view row
 	std::vector<MemoryModification> pending_modifications_;
 	bool increment_was_down_ = false;
 	bool decrement_was_down_ = false;
 
 	static constexpr int kPad = 10;
 	static constexpr int kMaxRowsFit = 40;
+	static constexpr int kWheelRows = 3;
 	static constexpr uint32_t kFlashFrames = 25;
 };
 
