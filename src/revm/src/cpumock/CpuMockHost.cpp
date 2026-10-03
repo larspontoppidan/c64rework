@@ -685,11 +685,26 @@ void CpuMockHost::enter_interrupt(bool take_nmi) {
 			}
 			if (paired && skew < 0) {
 				// Late edge: Main waited -skew Φ2 past the parked
-				// boundary. Bring Twin level again — nothing may leave
-				// Main ahead, or every later align/inject degrades by
-				// that amount.
-				for (int32_t k = 0; k < -skew; ++k)
+				// boundary. Bring Twin level again, but only while it
+				// is still INSIDE the accept sequence. Resolution
+				// already advanced Twin a few Φ2 past the boundary
+				// (state 0x0d, ~2 Φ2 short of the vector-target opcode
+				// fetch); the -skew count is measured from the
+				// boundary and ignores that. Stepping a full -skew
+				// would carry Twin through the fetch into the handler
+				// body, and the thunk's entry JoinAtPc(vector) could
+				// then never meet it (fail_nested_left_nest). Twin
+				// parks exactly where every skew>=0 accept leaves it:
+				// at the fetch. Any residue (Main up to a few Φ2
+				// ahead) is closed by the handler-entry join's
+				// align_after_arrival, which steps Twin-only across
+				// the fetch it already owns; Main never takes values
+				// from Twin and no compare is relaxed.
+				for (int32_t k = 0; k < -skew; ++k) {
+					if (!twin_in_irq_family() && !twin_in_nmi_family())
+						break;
 					(void)twin_step_only();
+				}
 			}
 		}
 		if (paired && since != kNoSince && !edge_fresh(since)) {
