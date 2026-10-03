@@ -7,6 +7,7 @@
 #include "goldens/PlayLog.hpp"
 #include "input/InputState.hpp"
 
+#include <mutex>
 #include <string>
 
 namespace revm {
@@ -29,6 +30,13 @@ public:
 	void AddTimestamp(uint32_t frame, uint64_t cycle);
 
 	bool Finish(std::string & error);
+
+	// Supervisor-thread salvage before a watchdog hard abort: writes the
+	// inputs recorded so far to the output path, with end_frame = the last
+	// recorded VSYNC and NO end snapshot hash (the hung emulation thread's
+	// machine state cannot be hashed). Gives up if the recorder lock is not
+	// free within a short grace. Returns true when the file was written.
+	bool SaveTruncated(std::string & error, uint32_t * end_frame = nullptr);
 	bool Started() const { return board_ != nullptr; }
 
 	const PlayLog & Log() const { return log_; }
@@ -41,6 +49,10 @@ private:
 	bool start_hashed_ = false;
 	uint32_t last_frame_ = 0;
 	Board * board_ = nullptr;
+	bool finished_ = false;
+	// Guards log_/last_frame_/have_end_ between the emulation thread and
+	// SaveTruncated() on the supervisor thread.
+	std::timed_mutex mutex_;
 };
 
 } // namespace revm

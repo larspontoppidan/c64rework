@@ -7,6 +7,7 @@
 #include "snapshot/Snapshot.hpp"
 #include "util/Hash.hpp"
 
+#include <chrono>
 #include <cstdio>
 #define REVM_LOG_MODULE "play-rec"
 #include "util/Log.hpp"
@@ -39,6 +40,7 @@ void PlayRecorder::Configure(const std::string & out_path, PlaySource source) {
 	start_hashed_ = false;
 	last_frame_ = 0;
 	board_ = nullptr;
+	finished_ = false;
 }
 
 void PlayRecorder::SetNoTwin(bool no_twin) {
@@ -79,6 +81,7 @@ void PlayRecorder::CaptureStartHash() {
 
 void PlayRecorder::OnFrame(uint32_t frame, const InputFrame & input,
                            const std::vector<MemoryModification> & modifications) {
+	std::lock_guard lock(mutex_);
 	if (!(input == last_input_)) {
 		log_.events[frame] = input;
 		last_input_ = input;
@@ -91,12 +94,15 @@ void PlayRecorder::OnFrame(uint32_t frame, const InputFrame & input,
 }
 
 void PlayRecorder::AddTimestamp(uint32_t frame, uint64_t cycle) {
+	std::lock_guard lock(mutex_);
 	log_.timestamps.push_back(PlayTimestamp{frame, cycle});
 	REVM_LOG(REVM_DEBUG, "timestamp at frame %u cycle %llu",
 		frame, static_cast<unsigned long long>(cycle));
 }
 
 bool PlayRecorder::Finish(std::string & error) {
+	std::lock_guard lock(mutex_);
+	finished_ = true;
 	if (have_end_) {
 		log_.end_frame = last_frame_;
 	} else {
@@ -110,6 +116,24 @@ bool PlayRecorder::Finish(std::string & error) {
 	         "Play recorded to %s  (%zu input events, %zu mod frames, %zu timestamps, %zu snapshots, end_frame=%u)",
 	         out_path_.c_str(), log_.events.size(), log_.mod_events.size(),
 	         log_.timestamps.size(), log_.snapshots.size(), log_.end_frame);
+	return true;
+}
+
+bool PlayRecorder::SaveTruncated(std::string & error, uint32_t * end_frame) {
+	std::unique_lock lock(mutex_, std::defer_lock);
+	if (!lock.try_lock_for(std::chrono::milliseconds(250))) {
+		error = "play recorder is busy on the emulation thread";
+		return false;
+	}
+	if (!board_ || finished_ || out_path_.empty()) {
+		error = "no play recording in progress";
+		return false;
+	}
+	PlayLog truncated = log_;
+	truncated.end_frame = have_end_ ? last_frame_ : truncated.start_frame;
+	if (!SavePlayLog(out_path_, truncated, error)) return false;
+	finished_ = true;
+	if (end_frame) *end_frame = truncated.end_frame;
 	return true;
 }
 

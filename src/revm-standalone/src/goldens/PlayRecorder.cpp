@@ -8,6 +8,7 @@
 #include "C64.h"
 #include "nlohmann/json.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <vector>
@@ -64,6 +65,7 @@ void PlayRecorder::Configure(const std::string & out_path, PlaySource source) {
 	have_end_ = false;
 	last_frame_ = 0;
 	board_ = nullptr;
+	finished_ = false;
 }
 
 void PlayRecorder::Start(Board & board) {
@@ -82,6 +84,7 @@ void PlayRecorder::Start(Board & board) {
 }
 
 void PlayRecorder::OnFrame(uint32_t frame, const InputFrame & input) {
+	std::lock_guard lock(mutex_);
 	if (!(input == last_input_)) {
 		events_[frame] = input;
 		last_input_ = input;
@@ -91,6 +94,28 @@ void PlayRecorder::OnFrame(uint32_t frame, const InputFrame & input) {
 }
 
 bool PlayRecorder::Finish(std::string & error) {
+	std::lock_guard lock(mutex_);
+	finished_ = true;
+	return write_locked(error);
+}
+
+bool PlayRecorder::SaveTruncated(std::string & error, uint32_t * end_frame) {
+	std::unique_lock lock(mutex_, std::defer_lock);
+	if (!lock.try_lock_for(std::chrono::milliseconds(250))) {
+		error = "play recorder is busy on the emulation thread";
+		return false;
+	}
+	if (!board_ || finished_ || out_path_.empty()) {
+		error = "no play recording in progress";
+		return false;
+	}
+	if (!write_locked(error)) return false;
+	finished_ = true;
+	if (end_frame) *end_frame = end_frame_;
+	return true;
+}
+
+bool PlayRecorder::write_locked(std::string & error) {
 	if (have_end_) {
 		end_frame_ = last_frame_;
 	} else {

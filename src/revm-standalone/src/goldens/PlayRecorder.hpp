@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <map>
+#include <mutex>
 #include <string>
 
 namespace revm {
@@ -33,6 +34,11 @@ public:
 	void OnFrame(uint32_t frame, const InputFrame & input);
 
 	bool Finish(std::string & error);
+
+	// Supervisor-thread salvage before a watchdog hard abort: writes the
+	// inputs recorded so far with end_frame = the last recorded VSYNC. Gives
+	// up if the recorder lock is not free within a short grace.
+	bool SaveTruncated(std::string & error, uint32_t * end_frame = nullptr);
 	bool Started() const { return board_ != nullptr; }
 
 private:
@@ -47,6 +53,12 @@ private:
 	bool have_end_ = false;
 	uint32_t last_frame_ = 0;
 	Board * board_ = nullptr;
+	bool finished_ = false;
+	// Guards the recorded state between the emulation thread and
+	// SaveTruncated() on the supervisor thread.
+	std::timed_mutex mutex_;
+
+	bool write_locked(std::string & error);
 };
 
 } // namespace revm

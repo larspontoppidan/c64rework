@@ -58,8 +58,8 @@ reason = "Standalone extracts the shared AdvanceResult enum and name helper from
 
 [[forked]]
 path = "src/core/Board.cpp"
-base_sha256 = "5965f3becae0e7ce1376dd39a93ea12156fde482e7311adcd2dba73050314ed2"
-reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write an indexed Pepto PNG from the VIC bitmap without the full media/snapshot stack. Optional PlayRecorder captures sticky C64 input at VSYNC. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
+base_sha256 = "c9dff35b457b469a9fd48d38a948a70fad2ebf7cb7f6f9d21b92c6e4d68ec8b0"
+reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write an indexed Pepto PNG from the VIC bitmap without the full media/snapshot stack. Optional PlayRecorder captures sticky C64 input at VSYNC; the supervisor salvages it (SaveTruncated) before a watchdog hard abort, as upstream does. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
 
 [[forked]]
 path = "src/core/Board.hpp"
@@ -120,13 +120,13 @@ reason = "Standalone playback contract is a single IInputSource exposing play se
 
 [[forked]]
 path = "src/goldens/PlayRecorder.cpp"
-base_sha256 = "7d5b914ea4e1a9e8b878ae6e19535bfaf4daee88791633d401bde375700beaf6"
+base_sha256 = "27ed3416aae597219498eb7b9d0f94fe707f6133832d54ae9ccbd5bc24bec8aa"
 reason = "Standalone PlayRecorder writes the same play JSON shape as REVM (sticky input_events, rand_seed, start/end timing, always no-twin) without FullSnapshot hashes, ROM records, F9 timestamps, or memory-mod events."
 
 [[forked]]
 path = "src/goldens/PlayRecorder.hpp"
-base_sha256 = "25ed1495dab85071ec438dc2f3a93de67b91b1c35d2aabd8781600acf48f7434"
-reason = "Standalone recorder API is Configure/Start/OnFrame/Finish only; no PlayLog, snapshot hashing, timestamps, or mod_events."
+base_sha256 = "68b607f4a7d72e2714a39d3752abf35b0686e82a8219acf69fcaf5a713184095"
+reason = "Standalone recorder API is Configure/Start/OnFrame/Finish plus the upstream SaveTruncated watchdog salvage only; no PlayLog, snapshot hashing, timestamps, or mod_events."
 
 [[forked]]
 path = "src/vendor/frodo/C64.h"

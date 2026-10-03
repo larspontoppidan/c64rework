@@ -51,11 +51,38 @@ void supervisor_diagnostic(const char * reason, uint32_t frame,
 	}
 }
 
+// A recording in progress would otherwise be lost with the process: save
+// what was captured so far (no end hash) so the hang can be replayed.
+void supervisor_salvage_play(PlayRecorder * recorder) {
+	if (!recorder || !recorder->Started()) return;
+	std::string error;
+	char message[1024];
+	int length;
+	uint32_t end_frame = 0;
+	if (recorder->SaveTruncated(error, &end_frame)) {
+		length = std::snprintf(message, sizeof message,
+			"revm: supervisor: play recording saved TRUNCATED up to "
+			"end_frame=%u\n", end_frame);
+	} else {
+		length = std::snprintf(message, sizeof message,
+			"revm: supervisor: play recording could not be saved: %s\n",
+			error.c_str());
+	}
+	if (length > 0) {
+		const size_t count = std::min<size_t>(static_cast<size_t>(length),
+		                                      sizeof message - 1);
+		const ssize_t written = ::write(STDERR_FILENO, message, count);
+		(void)written;
+	}
+}
+
 [[noreturn]] void supervisor_hard_abort(pthread_t supervised_thread,
                                         const char * reason,
                                         uint32_t frame, uint32_t cycle,
-                                        uint64_t generation) {
+                                        uint64_t generation,
+                                        PlayRecorder * recorder) {
 	supervisor_diagnostic(reason, frame, cycle, generation);
+	supervisor_salvage_play(recorder);
 	static constexpr char message[] =
 		"revm: supervisor: sending SIGABRT to the emulation thread for a "
 		"core/stack trace\n";
@@ -285,7 +312,8 @@ void Board::StartWallClockLimit() {
 					"--max-seconds soft quit was ignored for two seconds",
 					supervisor_last_vblank_frame_.load(std::memory_order_acquire),
 					supervisor_last_vblank_cycle_.load(std::memory_order_acquire),
-					vblank_generation_.load(std::memory_order_acquire));
+					vblank_generation_.load(std::memory_order_acquire),
+					play_recorder_);
 			}
 
 			if (now < next_poll) continue;
@@ -305,7 +333,7 @@ void Board::StartWallClockLimit() {
 					supervised_thread_, "no Main VBlank for one second",
 					supervisor_last_vblank_frame_.load(std::memory_order_acquire),
 					supervisor_last_vblank_cycle_.load(std::memory_order_acquire),
-					generation);
+					generation, play_recorder_);
 			}
 			observed_generation = generation;
 		}
