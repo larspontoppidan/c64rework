@@ -3,7 +3,8 @@
 ## Where to read
 
 Find REVM_ROOT, the framework root, in `./rework.toml` under `revm_root`.
-The manifest also states the exact C64 Rework version this game is pinned to.
+The manifest also states the exact C64 Rework version this game is pinned to
+(`c64rework_version`).
 
 1. The user's current instruction.
 2. `C64REWORK.md` — architecture and intent. Never modify it.
@@ -36,7 +37,7 @@ itself is being developed.
 
 `rework.toml` names the game, the original PRG, the game KB, the framework
 root (`revm_root`, absolute or relative to the game root), and the exact
-framework version. C64 ROM dumps default to `<revm_root>/roms/`; set `rom_dir`
+framework version (`c64rework_version`). C64 ROM dumps default to `<revm_root>/roms/`; set `rom_dir`
 to override. Run `./rework doctor` if a path or version looks wrong.
 
 Typical layout:

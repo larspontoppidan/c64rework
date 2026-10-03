@@ -69,11 +69,11 @@ except ModuleNotFoundError:
 with open(sys.argv[1], "rb") as stream:
     data = tomllib.load(stream)
 unknown = sorted(set(data) - {
-    "game", "revm_root", "minimum_c64rework_version", "kb_json", "original_load", "rom_dir"
+    "game", "revm_root", "c64rework_version", "kb_json", "original_load", "rom_dir"
 })
 if unknown:
     raise SystemExit(f"rework: unsupported rework.toml key(s): {', '.join(unknown)}")
-for key in ("game", "revm_root", "minimum_c64rework_version", "kb_json", "original_load"):
+for key in ("game", "revm_root", "c64rework_version", "kb_json", "original_load"):
     value = data.get(key)
     if not isinstance(value, str) or not value.strip() or "\n" in value:
         raise SystemExit(f"rework: rework.toml requires a non-empty one-line string '{key}'")
@@ -89,7 +89,7 @@ else:
     print(rom.strip())
 
 pattern = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
-required = data["minimum_c64rework_version"]
+required = data["c64rework_version"]
 try:
     with open(sys.argv[2], encoding="ascii") as stream:
         actual = stream.read().strip()
@@ -97,7 +97,7 @@ except OSError:
     raise SystemExit(f"rework: framework version unavailable: {sys.argv[2]}")
 if not pattern.fullmatch(required):
     raise SystemExit(
-        f"rework: invalid minimum_c64rework_version '{required}'; expected MAJOR.MINOR.PATCH"
+        f"rework: invalid c64rework_version '{required}'; expected MAJOR.MINOR.PATCH"
     )
 if not pattern.fullmatch(actual):
     raise SystemExit(f"rework: invalid framework VERSION '{actual}' in {sys.argv[2]}")
@@ -112,7 +112,7 @@ PY
 [[ ${#config[@]} -eq 7 ]] || exit 2
 GAME="${config[0]}"
 framework_setting="${config[1]}"
-MINIMUM_C64REWORK_VERSION="${config[2]}"
+C64REWORK_VERSION="${config[2]}"
 kb_setting="${config[3]}"
 original_setting="${config[4]}"
 rom_setting="${config[5]}"
@@ -669,7 +669,7 @@ check_export() {
 
 doctor() {
 	printf 'game:      %s\ngame root: %s\nframework: %s\nversion:   %s (rework.toml %s)\nkb:        %s\nkb-analysis: %s\noriginal:  %s\nrom dir:   %s\n' \
-		"$GAME" "$GAME_ROOT" "$REVM_ROOT" "$FRAMEWORK_VERSION" "$MINIMUM_C64REWORK_VERSION" "$KB_JSON" "$KB_ANALYSIS" "$ORIGINAL_LOAD" "$ROM_DIR"
+		"$GAME" "$GAME_ROOT" "$REVM_ROOT" "$FRAMEWORK_VERSION" "$C64REWORK_VERSION" "$KB_JSON" "$KB_ANALYSIS" "$ORIGINAL_LOAD" "$ROM_DIR"
 	printf 'begin:     %s\ncoverage:  %s\nbuild:     %s\nbin:       %s\nfail:      %s\nexport:    %s\nvenv:      %s\nlauncher:  %s\n' \
 		"$BEGIN_SNAP" "$COVERAGE_MERGED" "$BUILD" "$BIN" "$FAIL" "$EXPORT" "$VENV" "$launcher"
 	local failures=0
