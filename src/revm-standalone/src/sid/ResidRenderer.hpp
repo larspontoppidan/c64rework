@@ -47,6 +47,7 @@ private:
 	uint32_t last_cycle_ = 0;
 	bool have_cycle_ = false;
 	bool ready_ = false;
+	bool high_quality_ = false;
 
 	// Standing speaker latency in PAL frames (1.0 ≈ 20 ms). Raise if --resid
 	// underruns; 3.0 was the original conservative fill.

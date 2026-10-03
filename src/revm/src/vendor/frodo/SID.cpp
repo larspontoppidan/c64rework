@@ -180,7 +180,7 @@ void MOS6581::ResumeSound()
 
 void MOS6581::set_wave_tables(int sid_type)
 {
-	if (sid_type == SIDTYPE_DIGITAL_8580) {
+	if (sid_type == SIDTYPE_DIGITAL_8580 || sid_type == SIDTYPE_RESID_8580) {
 		TriSawTable     = TriSawTable_8580;
 		TriRectTable    = TriRectTable_8580;
 		SawRectTable    = SawRectTable_8580;
@@ -217,7 +217,8 @@ void MOS6581::update_osc3()
 	uint8_t v3_ctrl = regs[0x12];	// Voice 3 control register
 	if (v3_ctrl & 8) {				// Test bit
 		fake_v3_count = 0;
-		if (ThePrefs.SIDType == SIDTYPE_DIGITAL_8580) {
+		if (ThePrefs.SIDType == SIDTYPE_DIGITAL_8580 ||
+		    ThePrefs.SIDType == SIDTYPE_RESID_8580) {
 			--now;	// For SID type detection
 		}
 	} else {
@@ -265,7 +266,8 @@ uint8_t MOS6581::read_osc3()
 			}
 		case WAVE_TRISAW: {
 			uint8_t r =TriSawTable[count >> 12] >> 8;
-			if (ThePrefs.SIDType == SIDTYPE_DIGITAL_6581) {
+			if (ThePrefs.SIDType == SIDTYPE_DIGITAL_6581 ||
+			    ThePrefs.SIDType == SIDTYPE_RESID_6581) {
 				fake_v3_count &= 0x7fffff | ((uint32_t) r << 16);	// Counter MSB may get cleared
 			}
 			return r;
@@ -286,7 +288,8 @@ uint8_t MOS6581::read_osc3()
 			} else {
 				r = 0x00;
 			}
-			if (ThePrefs.SIDType == SIDTYPE_DIGITAL_6581) {
+			if (ThePrefs.SIDType == SIDTYPE_DIGITAL_6581 ||
+			    ThePrefs.SIDType == SIDTYPE_RESID_6581) {
 				fake_v3_count &= 0x7fffff | ((uint32_t) r << 16);	// Counter MSB may get cleared
 			}
 			return r;
@@ -299,7 +302,8 @@ uint8_t MOS6581::read_osc3()
 			} else {
 				r = 0x00;
 			}
-			if (ThePrefs.SIDType == SIDTYPE_DIGITAL_6581) {
+			if (ThePrefs.SIDType == SIDTYPE_DIGITAL_6581 ||
+			    ThePrefs.SIDType == SIDTYPE_RESID_6581) {
 				fake_v3_count &= 0x7fffff | ((uint32_t) r << 16);	// Counter MSB may get cleared
 			}
 			return r;
@@ -393,6 +397,9 @@ void MOS6581::GetState(MOS6581State * s) const
 
 void MOS6581::SetState(const MOS6581State * s)
 {
+	// Secondary construction uses SIDTYPE_NONE; restored boards must use the
+	// selected model's waveform tables even when they have no audio renderer.
+	set_wave_tables(ThePrefs.SIDType);
 	regs[0] = s->freq_lo_1;
 	regs[1] = s->freq_hi_1;
 	regs[2] = s->pw_lo_1;
@@ -1280,6 +1287,7 @@ static int renderer_kind(int sid_type)
 		case SIDTYPE_DIGITAL_8580:
 			return 1;
 		case SIDTYPE_RESID_6581:
+		case SIDTYPE_RESID_8580:
 			return 2;
 		case SIDTYPE_SIDCARD:
 			return 3;
@@ -1303,7 +1311,7 @@ void MOS6581::open_close_renderer(int old_type, int new_type)
 	// Create new renderer
 	if (new_type == SIDTYPE_DIGITAL_6581 || new_type == SIDTYPE_DIGITAL_8580) {
 		the_renderer = new DigitalRenderer(this);
-	} else if (new_type == SIDTYPE_RESID_6581) {
+	} else if (new_type == SIDTYPE_RESID_6581 || new_type == SIDTYPE_RESID_8580) {
 		the_renderer = new ResidRenderer(this);
 #ifdef __linux__
 	} else if (new_type == SIDTYPE_SIDCARD) {

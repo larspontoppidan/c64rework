@@ -58,7 +58,7 @@ reason = "Standalone extracts the shared AdvanceResult enum and name helper from
 
 [[forked]]
 path = "src/core/Board.cpp"
-base_sha256 = "78a80b8e080b2992f555cbb9bcd290248b637059a53be7265ddf9ad8ce46b95a"
+base_sha256 = "5965f3becae0e7ce1376dd39a93ea12156fde482e7311adcd2dba73050314ed2"
 reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write an indexed Pepto PNG from the VIC bitmap without the full media/snapshot stack. Optional PlayRecorder captures sticky C64 input at VSYNC. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
 
 [[forked]]
@@ -83,7 +83,7 @@ reason = "Standalone timed logs format only the Main clock; Twin suffixes and Sa
 
 [[forked]]
 path = "src/core/Config.hpp"
-base_sha256 = "2ee002312dff9d279d0438dd1f77f4e57c050306ad400058d3545c975cc3dcb5"
+base_sha256 = "00485eccfde2ba62448e761483656d3b7aed46be174d6534eac08e5c7ec4fef8"
 reason = "Standalone configuration is blank-Main only and uses one SidMode instead of overlapping audio flags. --save-screen FRAME FILE is retained."
 
 [[forked]]
@@ -170,12 +170,12 @@ reason = "Standalone SDL display and input handling omit media drops, cartridge 
 
 [[forked]]
 path = "src/vendor/frodo/Prefs.h"
-base_sha256 = "d4d7088abd865d82685b3dff4ba2a2230347678dbc958d4419a8440618f8e6e1"
+base_sha256 = "3e9ea51cea1f7ad6deb5680398db5e828b54ca23a17dad8b960a014cdc13daad"
 reason = "Standalone preferences retain only fields consumed by the remaining chip, audio, display, and input implementation."
 
 [[forked]]
 path = "src/vendor/frodo/Prefs.cpp"
-base_sha256 = "011bd504506197e6783bd3c574109817c806a6f895396db55e57d26697f7629e"
+base_sha256 = "ad00ac9c9a98a4f65817ed85b92f5a44c8ce7e7efba0a305c1a2497c4a9409b5"
 reason = "Standalone preferences provide retained defaults without editor, persistence, ROM-set, media, or expansion configuration."
 
 [[forked]]
@@ -185,7 +185,7 @@ reason = "Standalone VIC removes its stale cartridge reference while preserving 
 
 [[forked]]
 path = "apps/revm/main.cpp"
-base_sha256 = "9aa8fe605ccdc0614e35d3e954a90cd31f3a0ec69aba36c8377ee51e0528187d"
+base_sha256 = "fad5a6cd4a51f9b02788dfd2ef46e5515bbdc5bb7a38a0fbc347a86dff5703a8"
 reason = "Standalone entry point omits REVM CLI, oracle, Twin, and analysis startup; launch uses StandaloneRunner and one SidMode for interactive play, --record-play, and replay. Prints a live key sheet (including Ctrl+F9) on windowed launches. --save-screen FRAME FILE is retained."
 
 [[forked]]

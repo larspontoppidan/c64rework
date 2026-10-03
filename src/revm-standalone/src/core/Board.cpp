@@ -124,13 +124,16 @@ bool Board::init_machine(std::string & error) {
 
 	ThePrefs.LimitSpeed = cfg_.limit_speed;
 	ThePrefs.TestBench = cfg_.headless;
+	ThePrefs.ResidHQ = cfg_.sid_resid_hq;
 	switch (cfg_.sid) {
 	case SidMode::Resid:
-		ThePrefs.SIDType = SIDTYPE_RESID_6581;
-		REVM_LOG(REVM_DEBUG, "SID: reSID 6581 (--resid)");
+		ThePrefs.SIDType = cfg_.sid_8580 ? SIDTYPE_RESID_8580 : SIDTYPE_RESID_6581;
+		REVM_LOG(REVM_DEBUG, "SID: reSID %s (%s)",
+		         cfg_.sid_8580 ? "8580" : "6581",
+		         cfg_.sid_resid_hq ? "FastMem resampling" : "interpolate");
 		break;
 	case SidMode::Digital:
-		ThePrefs.SIDType = SIDTYPE_DIGITAL_6581;
+		ThePrefs.SIDType = cfg_.sid_8580 ? SIDTYPE_DIGITAL_8580 : SIDTYPE_DIGITAL_6581;
 		break;
 	case SidMode::None:
 		ThePrefs.SIDType = SIDTYPE_NONE;

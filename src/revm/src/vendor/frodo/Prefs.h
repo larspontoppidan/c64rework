@@ -32,7 +32,8 @@ enum {
 	SIDTYPE_DIGITAL_6581,	// Digital SID emulation (6581)
 	SIDTYPE_DIGITAL_8580,	// Digital SID emulation (8580)
 	SIDTYPE_SIDCARD,		// SID card
-	SIDTYPE_RESID_6581		// reSID analog model (6581)
+	SIDTYPE_RESID_6581,
+	SIDTYPE_RESID_8580
 };
 
 
@@ -96,6 +97,7 @@ public:
 	std::string DrivePath[4];	// Path for drive 8..11
 	std::string TapePath;		// Path for drive 1
 
+	bool ResidHQ = false; // reSID FastMem resampling
 	int SIDType;				// SID emulation type
 	int REUType;				// Type of RAM expansion
 	int DisplayType;			// Display type (windowed or full-screen)

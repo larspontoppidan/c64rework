@@ -11,7 +11,8 @@ enum {
 	SIDTYPE_DIGITAL_6581,
 	SIDTYPE_DIGITAL_8580,
 	SIDTYPE_SIDCARD,
-	SIDTYPE_RESID_6581
+	SIDTYPE_RESID_6581,
+	SIDTYPE_RESID_8580
 };
 
 // Display types.
@@ -35,6 +36,7 @@ public:
 
 	ButtonMapping SelectedButtonMapping() const { return {}; }
 
+	bool ResidHQ = false; // reSID FastMem resampling
 	int SIDType;
 	int DisplayType;
 	int Palette;

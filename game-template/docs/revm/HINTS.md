@@ -51,9 +51,13 @@ and diagnostics are options rather than subcommands.
 - `--max-seconds N` uses the same supervisor as a wall-clock guard. It requests
   a clean quit with exit code 124, then aborts if shutdown does not complete
   within two seconds.
-- `--resid` selects reSID 6581 emulation. `--save-video` always requires
-  `--resid` (Frodo SID is not used for MP4 audio). Headless `--save-audio`
-  also requires `--resid`; Frodo SID only emits the sample tap through SDL
+- `--resid` selects reSID with interpolated sampling. `--resid-hq` selects
+  reSID with FastMem resampling, using more memory for higher audio quality.
+  HQ wins if both flags are given, regardless of order. `--sid-model 6581|8580`
+  selects the chip model for both Frodo and reSID (default: 6581).
+  `--no-audio` overrides both reSID flags. `--save-video` always requires
+  `--resid` or `--resid-hq` (Frodo SID is not used for MP4 audio). Headless
+  `--save-audio` also requires one of those flags; Frodo SID only emits the sample tap through SDL
   speakers. `--save-video` writes 2× nearest-neighbor H.264 and muxes reSID
   PCM as 192 kbit/s AAC. `--no-audio` cannot be combined with either media
   flag. `--save-screen FRAME FILE` writes an indexed Pepto PNG of Main at that

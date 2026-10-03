@@ -39,7 +39,9 @@ void print_usage(const char * program) {
 	             "  --max-frames N   Stop at frame N (test convenience)\n"
 	             "  --save-screen FRAME FILE  Indexed Pepto PNG of Main at VBLANK FRAME\n"
 	             "  --no-audio       Disable SID audio\n"
-	             "  --resid          Use the reSID 6581 renderer\n"
+	             "  --resid          Use reSID with interpolated sampling\n"
+	             "  --resid-hq       Use reSID with FastMem resampling (HQ wins)\n"
+	             "  --sid-model 6581|8580  SID model for Frodo/reSID (default 6581)\n"
 	             "  --version        Print the C64 Rework framework version\n"
 	             "  -h, --help       Show this help\n",
 	             program);
@@ -111,6 +113,18 @@ bool parse_options(int argc, char ** argv, Options & options, std::string & erro
 		} else if (std::strcmp(argument, "--no-audio") == 0) {
 			options.no_audio = true;
 			options.config.sid = revm::SidMode::None;
+		} else if (std::strcmp(argument, "--resid-hq") == 0) {
+			options.config.sid_resid_hq = true;
+			if (!options.no_audio)
+				options.config.sid = revm::SidMode::Resid;
+		} else if (std::strcmp(argument, "--sid-model") == 0) {
+			const char * value = value_after(argument);
+			if (!value) return false;
+			if (std::strcmp(value, "6581") != 0 && std::strcmp(value, "8580") != 0) {
+				error = "--sid-model requires 6581 or 8580";
+				return false;
+			}
+			options.config.sid_8580 = std::strcmp(value, "8580") == 0;
 		} else if (std::strcmp(argument, "--resid") == 0) {
 			if (!options.no_audio)
 				options.config.sid = revm::SidMode::Resid;

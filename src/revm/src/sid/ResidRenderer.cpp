@@ -33,7 +33,7 @@ ResidRenderer::~ResidRenderer()
 
 void ResidRenderer::apply_sampling()
 {
-	if (!engine_.SetSampling(kPacedClockHz, double(sample_rate_))) {
+	if (!engine_.SetSampling(kPacedClockHz, double(sample_rate_), high_quality_)) {
 		std::fprintf(stderr, "WARNING: reSID set_sampling_parameters failed\n");
 	}
 	if (the_sid_) {
@@ -50,7 +50,8 @@ void ResidRenderer::sync_cycle_base()
 
 void ResidRenderer::Reset()
 {
-	engine_.SetChip6581();
+	engine_.SetChipModel(ThePrefs.SIDType == SIDTYPE_RESID_8580);
+	high_quality_ = ThePrefs.ResidHQ;
 	engine_.Reset();
 	apply_sampling();
 	{
@@ -66,9 +67,14 @@ void ResidRenderer::Reset()
 	sync_cycle_base();
 }
 
-void ResidRenderer::NewPrefs(const Prefs *)
+void ResidRenderer::NewPrefs(const Prefs * prefs)
 {
-	// Chip model is fixed to 6581 for --resid in this slice.
+	flush_cycles();
+	engine_.SetChipModel(prefs->SIDType == SIDTYPE_RESID_8580);
+	if (high_quality_ != prefs->ResidHQ) {
+		high_quality_ = prefs->ResidHQ;
+		apply_sampling();
+	}
 }
 
 void ResidRenderer::Pause()

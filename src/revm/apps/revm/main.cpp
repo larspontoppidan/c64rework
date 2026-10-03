@@ -82,9 +82,9 @@ void print_usage(const char * argv0) {
 		"  --add-play-snapshot CYCLE   Requires --use-play; write bin + register in play\n"
 		"\n"
 		"Media (Main board):\n"
-		"  --save-audio FILE     WAV from SID (headless requires --resid)\n"
+		"  --save-audio FILE     WAV from SID (headless requires --resid[-hq])\n"
 		"  --save-video FILE     MP4 via ffmpeg: 2× nearest-neighbor RGB,\n"
-		"                        H.264 + reSID AAC. Requires --resid.\n"
+		"                        H.264 + reSID AAC. Requires --resid[-hq].\n"
 		"  --save-screen FRAME FILE  Indexed Pepto PNG of Main at VBLANK FRAME\n"
 		"                        (same frame counter as --max-frames)\n"
 		"  --frame-observations FILE  Per-frame indexed pixels + public SID bytes\n"
@@ -100,7 +100,10 @@ void print_usage(const char * argv0) {
 		"  --main-blank          Stage 4.5: do not restore BEGIN into CpuMock Main\n"
 		"                        (fresh chips, zero RAM/color; Twin still restores)\n"
 		"  --no-audio            Disable SID\n"
-		"  --resid               Use reSID 6581 (Main board; --no-audio wins)\n"
+		"  --resid               Use reSID with interpolated sampling\n"
+		"  --resid-hq            Use reSID with FastMem resampling (HQ wins)\n"
+		"  --sid-model 6581|8580  SID model for Frodo/reSID (default 6581)\n"
+		"                        --no-audio overrides both reSID options\n"
 		"  --max-frames N        Quit after N frames\n"
 		"  --max-cycles N        Quit once cycle counter reaches N\n"
 		"  --max-seconds N       Quit after N wall-clock seconds (then hard\n"
@@ -426,6 +429,17 @@ bool parse_args(int argc, char ** argv, Opts & o, std::string & error) {
 			o.cfg.sid_resid = false;
 		} else if (std::strcmp(a, "--resid") == 0) {
 			o.cfg.sid_resid = true;
+		} else if (std::strcmp(a, "--resid-hq") == 0) {
+			o.cfg.sid_resid = true;
+			o.cfg.sid_resid_hq = true;
+		} else if (std::strcmp(a, "--sid-model") == 0) {
+			const char * v = need_i("--sid-model");
+			if (!v) return false;
+			if (std::strcmp(v, "6581") != 0 && std::strcmp(v, "8580") != 0) {
+				error = "--sid-model requires 6581 or 8580";
+				return false;
+			}
+			o.cfg.sid_8580 = std::strcmp(v, "8580") == 0;
 		} else if (std::strcmp(a, "--max-frames") == 0) {
 			const char * v = need_i("--max-frames");
 			if (!v) return false;
@@ -565,11 +579,11 @@ bool validate(Opts & o, std::string & error) {
 		return false;
 	}
 	if (!o.cfg.save_video_path.empty() && !o.cfg.sid_resid) {
-		error = "--save-video requires --resid";
+		error = "--save-video requires --resid or --resid-hq";
 		return false;
 	}
 	if (!o.cfg.save_audio_path.empty() && o.cfg.headless && !o.cfg.sid_resid) {
-		error = "--save-audio under --headless requires --resid";
+		error = "--save-audio under --headless requires --resid or --resid-hq";
 		return false;
 	}
 

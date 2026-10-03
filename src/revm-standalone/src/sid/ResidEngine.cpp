@@ -8,18 +8,12 @@
 
 #include "sid.h"
 
-namespace {
-
-constexpr reSID::sampling_method kMethod = reSID::SAMPLE_INTERPOLATE;
-
-} // namespace
-
 struct ResidEngine::Impl {
 	reSID::SID sid;
 };
 
 ResidEngine::ResidEngine() : impl_(std::make_unique<Impl>()) {
-	SetChip6581();
+	SetChipModel(false);
 }
 
 ResidEngine::~ResidEngine() = default;
@@ -28,12 +22,14 @@ void ResidEngine::Reset() {
 	impl_->sid.reset();
 }
 
-void ResidEngine::SetChip6581() {
-	impl_->sid.set_chip_model(reSID::MOS6581);
+void ResidEngine::SetChipModel(bool is8580) {
+	impl_->sid.set_chip_model(is8580 ? reSID::MOS8580 : reSID::MOS6581);
 }
 
-bool ResidEngine::SetSampling(double clock_hz, double sample_hz) {
-	return impl_->sid.set_sampling_parameters(clock_hz, kMethod, sample_hz);
+bool ResidEngine::SetSampling(double clock_hz, double sample_hz, bool high_quality) {
+	const auto method = high_quality ? reSID::SAMPLE_RESAMPLE_FASTMEM
+	                                 : reSID::SAMPLE_INTERPOLATE;
+	return impl_->sid.set_sampling_parameters(clock_hz, method, sample_hz);
 }
 
 void ResidEngine::Write(uint8_t reg, uint8_t value) {

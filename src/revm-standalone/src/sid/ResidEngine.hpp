@@ -19,8 +19,8 @@ public:
 	ResidEngine & operator=(const ResidEngine &) = delete;
 
 	void Reset();
-	void SetChip6581();
-	bool SetSampling(double clock_hz, double sample_hz);
+	void SetChipModel(bool is8580);
+	bool SetSampling(double clock_hz, double sample_hz, bool high_quality = false);
 
 	void Write(uint8_t reg, uint8_t value);
 

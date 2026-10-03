@@ -279,6 +279,7 @@ bool Board::init_machine(std::string & error, BoardInitRole role) {
 	const bool saved_leds = ThePrefs.ShowLEDs;
 	const bool saved_autostart = ThePrefs.AutoStart;
 	const int saved_sid = ThePrefs.SIDType;
+	const bool saved_resid_hq = ThePrefs.ResidHQ;
 	const bool saved_testbench = ThePrefs.TestBench;
 	const std::string saved_load = ThePrefs.LoadProgram;
 	const std::string saved_drive0 = ThePrefs.DrivePath[0];
@@ -291,15 +292,19 @@ bool Board::init_machine(std::string & error, BoardInitRole role) {
 	if (secondary || cfg_.no_audio) {
 		ThePrefs.SIDType = SIDTYPE_NONE;
 	} else if (cfg_.sid_resid) {
-		ThePrefs.SIDType = SIDTYPE_RESID_6581;
+		ThePrefs.SIDType = cfg_.sid_8580 ? SIDTYPE_RESID_8580 : SIDTYPE_RESID_6581;
 		if (!secondary) {
-			REVM_LOG(REVM_DEBUG, "SID: reSID 6581 (--resid)");
+			REVM_LOG(REVM_DEBUG, "SID: reSID %s (%s)",
+			         cfg_.sid_8580 ? "8580" : "6581",
+			         cfg_.sid_resid_hq ? "FastMem resampling" : "interpolate");
 		}
 	} else if (cfg_.audio_enabled) {
-		ThePrefs.SIDType = SIDTYPE_DIGITAL_6581;
+		ThePrefs.SIDType = cfg_.sid_8580 ? SIDTYPE_DIGITAL_8580 : SIDTYPE_DIGITAL_6581;
+		REVM_LOG(REVM_DEBUG, "SID: Frodo %s", cfg_.sid_8580 ? "8580" : "6581");
 	} else {
 		ThePrefs.SIDType = SIDTYPE_NONE;
 	}
+	ThePrefs.ResidHQ = cfg_.sid_resid_hq;
 	ThePrefs.TestBench = secondary || cfg_.headless;
 	ThePrefs.LoadProgram.clear();
 
@@ -375,6 +380,7 @@ bool Board::init_machine(std::string & error, BoardInitRole role) {
 		ThePrefs.ShowLEDs = saved_leds;
 		ThePrefs.AutoStart = saved_autostart;
 		ThePrefs.SIDType = saved_sid;
+		ThePrefs.ResidHQ = saved_resid_hq;
 		ThePrefs.TestBench = saved_testbench;
 		ThePrefs.LoadProgram = saved_load;
 		ThePrefs.DrivePath[0] = saved_drive0;

@@ -23,6 +23,8 @@ struct Config {
 	bool limit_speed = true;
 	bool headless = false;
 	SidMode sid = SidMode::Digital;
+	bool sid_resid_hq = false;
+	bool sid_8580 = false; // --sid-model; default 6581
 
 	std::optional<uint64_t> max_cycles;
 	std::optional<double> max_seconds;

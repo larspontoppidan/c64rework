@@ -39,8 +39,10 @@ struct Config {
 
 	bool limit_speed = true;
 	bool audio_enabled = true;
-	bool no_audio = false;   // --no-audio: force SIDTYPE_NONE (wins over --resid)
-	bool sid_resid = false;  // --resid: use reSID 6581 renderer on Main
+	bool no_audio = false;   // --no-audio: force SIDTYPE_NONE (wins over reSID flags)
+	bool sid_resid = false;  // --resid / --resid-hq: use reSID on Main
+	bool sid_resid_hq = false; // FastMem resampling; otherwise interpolate
+	bool sid_8580 = false; // --sid-model; default 6581
 	bool headless = false;
 	// --main-blank: CpuMock Main starts from fresh chips and zero memory instead
 	// of restoring BEGIN. Twin still restores BEGIN as the oracle.

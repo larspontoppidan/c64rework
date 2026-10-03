@@ -89,7 +89,7 @@ void Prefs::Check()
 		TestMaxFrames = 0;
 	}
 
-	if (SIDType < SIDTYPE_NONE || SIDType > SIDTYPE_RESID_6581) {
+	if (SIDType < SIDTYPE_NONE || SIDType > SIDTYPE_RESID_8580) {
 		SIDType = SIDTYPE_NONE;
 	}
 
@@ -257,6 +257,8 @@ void Prefs::ParseItem(std::string item)
 			SIDType = SIDTYPE_SIDCARD;
 		} else if (value == "RESID" || value == "RESID_6581") {
 			SIDType = SIDTYPE_RESID_6581;
+		} else if (value == "RESID_8580") {
+			SIDType = SIDTYPE_RESID_8580;
 		} else {
 			SIDType = SIDTYPE_NONE;
 		}
@@ -359,6 +361,7 @@ bool Prefs::Save(fs::path prefs_path)
 		case SIDTYPE_DIGITAL_8580: file << "8580\n"; break;
 		case SIDTYPE_SIDCARD:      file << "SIDCARD\n"; break;
 		case SIDTYPE_RESID_6581:   file << "RESID\n"; break;
+		case SIDTYPE_RESID_8580:   file << "RESID_8580\n"; break;
 	}
 	file << "REUType = ";
 	switch (REUType) {
