@@ -28,16 +28,21 @@ public:
 	const std::string & Path() const { return play_path_; }
 	const std::vector<MemoryModification> & ModificationsAt(uint32_t frame) const;
 
-	void SetOpts(const PlaybackCompareOpts & opts) { opts_ = opts; }
-	void SetCompareOpts(const PlaybackCompareOpts & opts) { opts_ = opts; }
+	void SetOpts(const PlaybackCompareOpts & opts) { opts_ = opts; next_due_cycle_ = 0; }
+	void SetCompareOpts(const PlaybackCompareOpts & opts) { opts_ = opts; next_due_cycle_ = 0; }
 	const PlaybackCompareOpts & CompareOpts() const { return opts_; }
 
 	// Verify hashes whose cycle matches current (once each). board = Main or Twin.
 	// Returns true if a failure should abort (unless --ignore-play-hashes).
 	bool CheckHashes(Board & board);
 	// Fast per-cycle gate: advances past checkpoints preceding `cycle` and says
-	// whether CheckHashes has work at this exact cycle.
-	bool HashCheckDue(uint64_t cycle);
+	// whether CheckHashes has work at this exact cycle. Called on every
+	// emulated cycle, so the common "nothing due yet" answer is one inline
+	// compare against the cached cycle of the next pending checkpoint.
+	bool HashCheckDue(uint64_t cycle) {
+		if (cycle < next_due_cycle_) return false;
+		return hash_check_due_slow(cycle);
+	}
 
 	// Board VSYNC hook — Twin↔play hashes; Main↔Twin compares are on CpuMockHost.
 	bool OnFrame(uint32_t frame, uint32_t cycle, Board & main);
@@ -53,6 +58,7 @@ public:
 		UpsertPlaySnapshot(log_, cycle, frame, hex, filename);
 		hashes_checked_.erase(cycle); // allow re-check against new expected
 		next_snapshot_ = 0;
+		next_due_cycle_ = 0;
 	}
 
 private:
@@ -62,6 +68,10 @@ private:
 	PlaybackCompareOpts opts_{};
 	std::set<uint64_t> hashes_checked_;
 	size_t next_snapshot_ = 0;
+	// Cycle of the next unchecked checkpoint (UINT64_MAX when none or hashes
+	// are ignored); 0 forces hash_check_due_slow to recompute it.
+	uint64_t next_due_cycle_ = 0;
+	bool hash_check_due_slow(uint64_t cycle);
 	uint64_t comparisons_ = 0;
 	uint64_t failures_ = 0;
 };

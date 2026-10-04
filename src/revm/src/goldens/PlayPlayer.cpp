@@ -28,20 +28,25 @@ bool PlayPlayer::Load(const std::string & play_path, std::string & error) {
 	input_.LoadEvents(log_.events);
 	hashes_checked_.clear();
 	next_snapshot_ = 0;
+	next_due_cycle_ = 0;
 	comparisons_ = 0;
 	failures_ = 0;
 	return true;
 }
 
-bool PlayPlayer::HashCheckDue(uint64_t cycle) {
-	if (opts_.ignore_play_hashes) return false;
+bool PlayPlayer::hash_check_due_slow(uint64_t cycle) {
+	if (opts_.ignore_play_hashes) {
+		next_due_cycle_ = UINT64_MAX;
+		return false;
+	}
 	while (next_snapshot_ < log_.snapshots.size() &&
 	       (log_.snapshots[next_snapshot_].cycle < cycle ||
 	        hashes_checked_.count(log_.snapshots[next_snapshot_].cycle))) {
 		++next_snapshot_;
 	}
-	return next_snapshot_ < log_.snapshots.size() &&
-	       log_.snapshots[next_snapshot_].cycle == cycle;
+	next_due_cycle_ = next_snapshot_ < log_.snapshots.size()
+		? log_.snapshots[next_snapshot_].cycle : UINT64_MAX;
+	return next_due_cycle_ == cycle;
 }
 
 bool PlayPlayer::OnFrame(uint32_t /*frame*/, uint32_t /*cycle*/, Board & /*main*/) {
@@ -85,6 +90,7 @@ bool PlayPlayer::CheckHashes(Board & board) {
 	       hashes_checked_.count(log_.snapshots[next_snapshot_].cycle)) {
 		++next_snapshot_;
 	}
+	next_due_cycle_ = 0; // recompute on the next HashCheckDue
 	return abort;
 }
 
