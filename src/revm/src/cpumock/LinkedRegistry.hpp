@@ -40,32 +40,38 @@ public:
 		const uint32_t end = uint32_t(addr) + uint32_t(size) - 1u;
 		if (end > 0xFFFFu || !read || !write)
 			throw std::logic_error("linked registration is outside C64 RAM");
-		for (const Entry & e : entries_) {
-			const uint32_t e_end = uint32_t(e.addr) + e.size - 1u;
-			if (uint32_t(addr) <= e_end && uint32_t(e.addr) <= end)
+		if (owner_.empty()) owner_.assign(0x10000, -1);
+		for (uint32_t a = addr; a <= end; ++a)
+			if (owner_[a] >= 0)
 				throw std::logic_error("duplicate/overlapping linked address");
-		}
+		for (uint32_t a = addr; a <= end; ++a)
+			owner_[a] = int32_t(entries_.size());
+		++version_;
 		entries_.push_back(Entry{addr, uint16_t(size), std::move(name),
 		                         std::move(read), std::move(write)});
 	}
 
 	bool Read(uint16_t addr, uint8_t &value) const {
-		for (const Entry & e : entries_) {
-			if (addr < e.addr || uint32_t(addr) >= uint32_t(e.addr) + e.size)
-				continue;
-			value = e.read(size_t(addr - e.addr));
-			return true;
-		}
-		return false;
+		const int32_t idx = OwnerIndex(addr);
+		if (idx < 0) return false;
+		const Entry & e = entries_[size_t(idx)];
+		value = e.read(size_t(addr - e.addr));
+		return true;
 	}
+
+	// Index into Entries() of the entry owning addr, or -1. O(1).
+	int32_t OwnerIndex(uint16_t addr) const {
+		return owner_.empty() ? -1 : owner_[addr];
+	}
+	// Bumped on every Register/Clear; lets callers cache derived layouts.
+	uint64_t Version() const { return version_; }
 
 	// Recorded play modifications are inputs, so a detached Main must receive
 	// them in its local owner while Board's existing mirror updates Twin RAM.
 	bool Apply(const ::revm::MemoryModification &modification) const {
-		for (const Entry & e : entries_) {
-			if (modification.address < e.addr ||
-			    uint32_t(modification.address) >= uint32_t(e.addr) + e.size)
-				continue;
+		const int32_t idx = OwnerIndex(modification.address);
+		if (idx >= 0) {
+			const Entry & e = entries_[size_t(idx)];
 			const size_t offset = size_t(modification.address - e.addr);
 			const uint8_t old_value = e.read(offset);
 			const uint8_t new_value =
@@ -78,7 +84,11 @@ public:
 		return false;
 	}
 
-	void Clear() { entries_.clear(); }
+	void Clear() {
+		entries_.clear();
+		owner_.clear();
+		++version_;
+	}
 	const std::vector<Entry> &Entries() const { return entries_; }
 	size_t Size() const { return entries_.size(); }
 	size_t ByteCount() const {
@@ -89,6 +99,8 @@ public:
 
 private:
 	std::vector<Entry> entries_;
+	std::vector<int32_t> owner_; // addr -> entries_ index, -1 = none
+	uint64_t version_ = 0;
 };
 
 } // namespace revm::cpumock

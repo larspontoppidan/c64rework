@@ -24,6 +24,8 @@ namespace revm {
 
 void KbCheck::Reset() {
 	slots_.clear();
+	linked_runs_.clear();
+	runs_registry_ = nullptr;
 	slot_bytes_ = 0;
 	tally_ = {};
 	have_first_fail_ = false;
@@ -71,6 +73,28 @@ std::string KbCheck::FormatBytes(const uint8_t * p, size_t n) {
 	return out;
 }
 
+void KbCheck::RebuildLinkedRuns(const cpumock::LinkedRegistry & linked) {
+	linked_runs_.assign(slots_.size(), {});
+	for (size_t si = 0; si < slots_.size(); ++si) {
+		const Slot & s = slots_[si];
+		std::vector<LinkedRun> & runs = linked_runs_[si];
+		for (uint32_t i = 0; i < s.len; ++i) {
+			const uint16_t a = uint16_t(s.addr + i);
+			const int32_t idx = linked.OwnerIndex(a);
+			if (idx < 0) continue;
+			if (!runs.empty() && runs.back().entry == idx &&
+			    uint32_t(runs.back().start) + runs.back().len == i &&
+			    uint16_t(s.addr + i - 1) + 1 == a) {
+				++runs.back().len;
+				continue;
+			}
+			runs.push_back(LinkedRun{uint16_t(i), 1, idx});
+		}
+	}
+	runs_registry_ = &linked;
+	runs_version_ = linked.Version();
+}
+
 bool KbCheck::OnFrame(Board & main, TwinBoard & twin, uint32_t frame,
                       uint32_t cycle, bool log_mismatches,
                       const cpumock::LinkedRegistry * linked) {
@@ -83,6 +107,10 @@ bool KbCheck::OnFrame(Board & main, TwinBoard & twin, uint32_t frame,
 	std::vector<uint8_t> main_bytes;
 	std::vector<uint8_t> twin_bytes;
 	const bool have_linked = linked && linked->Size() != 0;
+	if (have_linked && (runs_registry_ != linked ||
+	                    runs_version_ != linked->Version() ||
+	                    linked_runs_.size() != slots_.size()))
+		RebuildLinkedRuns(*linked);
 	// Diverging-byte records for the event stream: first 32 per compare,
 	// then one overflow marker.
 	constexpr size_t kEventFailCap = 32;
@@ -98,27 +126,35 @@ bool KbCheck::OnFrame(Board & main, TwinBoard & twin, uint32_t frame,
 		const bool color = obj.IsColorBank();
 		const uint8_t * main_data = c64->RAM + s.addr;
 		const uint8_t * twin_data = twin_c64->RAM + s.addr;
+		const std::vector<LinkedRun> * runs =
+			(have_linked && !linked_runs_[size_t(&s - slots_.data())].empty())
+				? &linked_runs_[size_t(&s - slots_.data())] : nullptr;
 		if (color) {
 			main_bytes.resize(s.len);
 			twin_bytes.resize(s.len);
 			for (uint16_t i = 0; i < s.len; ++i) {
 				const uint16_t a = uint16_t(s.addr + i);
-				if (!have_linked || !linked->Read(a, main_bytes[i]))
-					main_bytes[i] = c64->Color
-						? uint8_t(c64->Color[a & 0x03FF] & 0x0F) : 0;
+				main_bytes[i] = c64->Color
+					? uint8_t(c64->Color[a & 0x03FF] & 0x0F) : 0;
 				twin_bytes[i] = twin_c64->Color
 					? uint8_t(twin_c64->Color[a & 0x03FF] & 0x0F) : 0;
 			}
 			main_data = main_bytes.data();
 			twin_data = twin_bytes.data();
-		} else if (have_linked) {
+		} else if (runs) {
 			main_bytes.resize(s.len);
-			for (uint16_t i = 0; i < s.len; ++i) {
-				const uint16_t a = uint16_t(s.addr + i);
-				if (!linked->Read(a, main_bytes[i]))
-					main_bytes[i] = c64->RAM[a];
-			}
+			std::memcpy(main_bytes.data(), main_data, s.len);
 			main_data = main_bytes.data();
+		}
+		if (runs) {
+			for (const LinkedRun & r : *runs) {
+				const auto & e = linked->Entries()[size_t(r.entry)];
+				for (uint16_t k = 0; k < r.len; ++k) {
+					const uint16_t a = uint16_t(s.addr + r.start + k);
+					main_bytes[size_t(r.start) + k] =
+						e.read(size_t(a - e.addr));
+				}
+			}
 		}
 		if (std::memcmp(main_data, twin_data, s.len) == 0)
 			continue;

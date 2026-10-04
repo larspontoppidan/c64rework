@@ -62,7 +62,18 @@ private:
 		uint16_t len = 1;
 	};
 
+	// Bytes of a slot owned by one Linked entry (cached per registry version).
+	struct LinkedRun {
+		uint16_t start = 0; // index within the slot
+		uint16_t len = 0;
+		int32_t entry = 0;  // index into LinkedRegistry::Entries()
+	};
+	void RebuildLinkedRuns(const cpumock::LinkedRegistry & linked);
+
 	std::vector<Slot> slots_;
+	std::vector<std::vector<LinkedRun>> linked_runs_; // parallel to slots_
+	const cpumock::LinkedRegistry * runs_registry_ = nullptr;
+	uint64_t runs_version_ = 0;
 	size_t slot_bytes_ = 0;
 	IgnoreTally tally_{};
 	bool have_first_fail_ = false;
