@@ -2307,7 +2307,11 @@ CpuMockHost::AdvanceResult CpuMockHost::TwinFinishInstruction() {
 	ThrowIfQuitRequested();
 	step_ctx_ = "finish";
 	if (NoTwin()) return AdvanceResult::Ok;
-	if (twin_->AtOpcodeFetch() || twin_in_irq_family() ||
+	// Instruction boundary: use AtPc, not AtOpcodeFetch. AtOpcodeFetch is
+	// false while BA is low (sprite DMA), yet Twin can be parked on the next
+	// opcode fetch stalled by BA; stepping then would raise BA and execute
+	// that fetch, over-stepping one instruction (TwinBoard.hpp AtPc trap).
+	if (twin_->AtPc(twin_->Pc()) || twin_in_irq_family() ||
 	    twin_in_nmi_family() || twin_->FetchWouldTakeHw())
 		return AdvanceResult::Ok;
 	// JSR/JMP/RTS would enter the join fence.
@@ -2321,7 +2325,8 @@ CpuMockHost::AdvanceResult CpuMockHost::TwinFinishInstruction() {
 	for (uint64_t i = 0; i < kMax; ++i) {
 		if (twin_emulate_cycle())
 			return AdvanceResult::HitVSync;
-		if (twin_->AtOpcodeFetch() || twin_in_irq_family() ||
+		// AtPc(Pc()) == InstructionComplete(): includes a BA-stalled fetch.
+		if (twin_->AtPc(twin_->Pc()) || twin_in_irq_family() ||
 		    twin_in_nmi_family() || twin_->FetchWouldTakeHw())
 			return AdvanceResult::Ok;
 	}
