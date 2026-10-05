@@ -74,7 +74,9 @@ The generated tree must apply deterministic rules:
    wall-clock sleeps. IRQ/NMI returns are not timing no-ops.
 4. Replace `LinkedByte<address>`, `LinkedWord<address>`, and
    `LinkedArray<address, size>` with address-free standalone state types.
-   Preserve every initializer and provenance comment. Remove registrations.
+   Preserve every initializer and provenance comment. A `{uninitialized}`
+   initializer (no starting value; Stage 4 tracks its first write) lowers to
+   plain zero-initialised storage, `{}`, with no tracking. Remove registrations.
    Lower their member RMW operations to ordinary wrapping C++ with explicit
    carry handling; do not introduce opcode-mimicking free helpers.
    `address()` has no standalone meaning and is an export error.

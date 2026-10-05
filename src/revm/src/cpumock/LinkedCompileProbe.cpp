@@ -36,6 +36,15 @@ void linked_compile_probe(revm::cpumock::CpuMockHost &host) {
 	LinkedByte<0x003F> b = 1;
 	LinkedWord<0x0040> w = 0x1234;
 	LinkedArray<0x0050, 4> a{};
+	LinkedByte<0x0060> ub{revm::uninitialized};
+	LinkedWord<0x0061> uw{revm::cpumock::uninitialized};
+	LinkedArray<0x0070, 8> ua{revm::uninitialized};
+	ub.Register(host.Links(), "ub");
+	uw.Register(host.Links(), "uw");
+	ua.Register(host.Links(), "ua");
+	ub.write(1);
+	uw.write(2);
+	ua[3].write(4);
 	b.Register(host.Links(), "b");
 	w.Register(host.Links(), "w");
 	a.Register(host.Links(), "a");

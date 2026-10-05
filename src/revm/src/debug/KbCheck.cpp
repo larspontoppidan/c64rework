@@ -149,6 +149,20 @@ bool KbCheck::OnFrame(Board & main, TwinBoard & twin, uint32_t frame,
 		if (runs) {
 			for (const LinkedRun & r : *runs) {
 				const auto & e = linked->Entries()[size_t(r.entry)];
+				if (e.track && e.track->tracking) [[unlikely]] {
+					// `uninitialized` owner with bytes the game has not
+					// written yet: those take Twin's value (compare equal,
+					// i.e. skipped); written bytes take Main's value.
+					for (uint16_t k = 0; k < r.len; ++k) {
+						const uint16_t a = uint16_t(s.addr + r.start + k);
+						const size_t off = size_t(a - e.addr);
+						main_bytes[size_t(r.start) + k] =
+							e.track->written(*e.track, off)
+								? e.read(off)
+								: twin_data[size_t(r.start) + k];
+					}
+					continue;
+				}
 				for (uint16_t k = 0; k < r.len; ++k) {
 					const uint16_t a = uint16_t(s.addr + r.start + k);
 					main_bytes[size_t(r.start) + k] =

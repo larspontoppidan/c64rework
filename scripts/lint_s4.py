@@ -325,6 +325,7 @@ void Game::ok() {
         ("address", "constexpr auto kTable = 0xA1F4;", {"S4-006"}),
         ("Sync PC exempt", "Sync::JoinAtPc(host_, 0xA000);", set()),
         ("Linked provenance exempt", "LinkedWord<0xA1F4> table{0};", set()),
+        ("uninitialized tag", "LinkedArray<0x0400, 256> roster{revm::uninitialized};", set()),
         ("comment exempt", "// mem.foo; goto old; 0xA000", set()),
         ("inline suppression", "goto old; // s4lint:allow S4-005 -- legacy", set()),
         ("free helper", "asl(acc, carry);", {"S4-007"}),

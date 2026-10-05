@@ -1794,6 +1794,22 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 	}
 }
 
+// `uninitialized` Linked objects the game never finished writing: either
+// dead state (delete it) or a declared-initial-value candidate.
+void CpuMockHost::report_linked_pending() const {
+	if (board_.ExitCode() != 0) return; // a failed run is not a clean census
+	for (const auto & p : linked_registry_.PendingTracked()) {
+		const char * name = p.name.empty() ? "(unnamed)" : p.name.c_str();
+		REVM_LOG(REVM_INFO,
+		         "linked: uninitialized %s ($%04X, %u bytes) never fully "
+		         "written (%u unwritten)",
+		         name, p.addr, unsigned(p.size), p.unwritten);
+		REVM_EVENT("linked_uninit", "name", name, "addr",
+		           revm::event::Hex{p.addr}, "size", unsigned(p.size),
+		           "unwritten", p.unwritten);
+	}
+}
+
 void CpuMockHost::print_compare_tallies() const {
 	if (NoTwin() && total_compares_ == 0)
 		return;
@@ -3153,6 +3169,16 @@ bool CpuMockHost::start_blank_main(GoldenInput * golden_input) {
 
 void CpuMockHost::wire_defaults() {
 	linked_registry_.Clear();
+	linked_registry_.SetFailHook([this](const std::string & message) {
+		SoftQuit(1, "%s [cycle %u; last fence %s at pc $%04X]",
+		         message.c_str(), board_.CycleCounter(), last_fence_op_,
+		         last_fence_pc_);
+	});
+	linked_registry_.SetInitHook([this](const LinkedRegistry::Entry & e) {
+		REVM_EVENT("linked_init", "name",
+		           e.name.empty() ? "(unnamed)" : e.name.c_str(), "addr",
+		           revm::event::Hex{e.addr}); // envelope carries the frame
+	});
 	board_.SetMemoryModificationHandler(
 		[this](const MemoryModification &modification) {
 			return linked_registry_.Apply(modification);
@@ -3407,6 +3433,7 @@ int CpuMockHost::RunPreparedPlayback() {
 	if (embedded_.own_clock_source)
 		log::ClearClockSource();
 
+	report_linked_pending();
 	print_compare_tallies();
 	if (prepared_live_) {
 		event::SetRunEnd(board_.ExitCode() != 0
@@ -3545,6 +3572,7 @@ int CpuMockHost::RunPlay(const std::string & prg_path, IInputSource * input,
 	}
 	twin_.reset();
 	log::ClearClockSource();
+	report_linked_pending();
 	print_compare_tallies();
 	event::SetRunEnd(board_.ExitCode() != 0
 	                     ? (event::HasFail() ? "softquit" : "fail")

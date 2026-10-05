@@ -269,6 +269,15 @@ if(REVM_BUILD_TOOL)
     "${_REVM_ROOT}/apps/revm-tool/main.cpp")
   target_compile_definitions(revm-tool PRIVATE C64REWORK_VERSION="${C64REWORK_VERSION}")
   target_link_libraries(revm-tool PRIVATE revm_lib)
+  if(NOT REVM_CPU_MOCK_PLUGIN_DIR)
+    # `revm-tool selftest` exercises Linked.hpp (uninitialized tracking),
+    # whose inline Sync fences reference CpuMockHost. Plugin builds already
+    # carry these sources in revm_lib.
+    target_sources(revm-tool PRIVATE
+      ${REVM_DIR}/cpumock/CpuMockHost.cpp
+      ${REVM_DIR}/cpumock/ScreenContext.cpp
+      ${REVM_DIR}/twin/TwinBoard.cpp)
+  endif()
 endif()
 
 if(REVM_BUILD_APP)

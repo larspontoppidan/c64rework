@@ -442,6 +442,7 @@ private:
 	void compare_vic_state(uint32_t frame, RitualCheck & out);
 	void compare_cia(int which, uint32_t frame, RitualCheck & out);
 	void print_compare_tallies() const;
+	void report_linked_pending() const;
 	void finish_media();
 	void tally_tick(uint32_t frame);
 	void pace_after_vsync();

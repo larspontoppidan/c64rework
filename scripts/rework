@@ -623,6 +623,12 @@ run_selftests() {
 	run_script "$SCRIPTS/audit_standalone_runtime.py" --selftest
 	audit_runtime
 	run_script "$SCRIPTS/lower_standalone_game.py" selftest
+	# The C++ analysis/Linked self-tests need a built revm-tool.
+	if [[ -x "$BIN/revm-tool" ]]; then
+		"$BIN/revm-tool" selftest --rom-dir "$ROM_DIR"
+	else
+		echo "rework: skipping revm-tool selftest (run './rework build revm' first)"
+	fi
 }
 
 generate_export() {

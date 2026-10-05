@@ -173,6 +173,56 @@ Memory values that have a preceding `Sync::AtPc` must be converted to a Linked
 type for the sync scaffolding to keep working. Values that are checked
 by kb also need to be converted to Linked for the kb check to keep working.
 
+### Initial values: declare, or say `uninitialized`
+
+A Linked value either has a genuine starting value or none:
+
+```cpp
+LinkedByte<0x0090> mode{0x40};                    // set by boot / a constant
+LinkedArray<0x0400, 256> roster{revm::uninitialized};  // game fills it first
+```
+
+Give a declared initial value only when the value is real: boot code cleared
+or set it, it is a constant table, or the original program reads it before it
+has written it and the value it sees is part of the game's behaviour.
+
+Use `revm::uninitialized` (also `revm::cpumock::uninitialized`; accepted by
+`LinkedByte`, `LinkedWord` and `LinkedArray`) when the game itself initialises
+the state before anything reads it: a level builder that clears a table, a
+work buffer written before use, a slot table the game fills when it spawns.
+
+Do **not** seed such state from the BEGIN image. The KB compare starts at the
+first join, long before the game writes its tables, so a mismatch against
+Twin's RAM tempts you to copy whatever the packer or BASIC left there
+(a roster page full of BASIC screen text, say). That is cargo: it encodes
+leftovers the game never depends on, it hides a missing or late write, and it
+blocks an honest `--main-blank` because the seed data has to come from
+somewhere. `uninitialized` states the truth instead:
+
+- every byte is tracked until the game has written it (per byte for arrays,
+  per object for scalars; once all bytes are written tracking switches off
+  and the value costs nothing);
+- `read()`, an RMW (`inc`, `asl`, ...) or a recorded `mod_event` on an unwritten
+  byte stops the run (`SoftQuit`, works in Twin and `--no-twin`) naming the
+  object, index, address, frame and the last Sync fence: that is a real bug
+  in the translation, or state that does have a starting value;
+- the KB compare takes Twin's value for unwritten bytes (they are skipped),
+  and Main's own value for written ones, so Twin still verifies everything
+  the game has produced;
+- `--events` emits `linked_init` (name, addr, frame) when an object becomes
+  fully written, and the end of the run logs `linked: uninitialized NAME ...
+  never fully written` for tracked objects that never completed (dead state,
+  or state the game only partly fills: consider a declared value or deleting
+  it). Partly-written objects are fine as long as unwritten bytes are never read.
+
+A write that only some paths perform is not an excuse to seed: if the game
+reads a byte it has not written on some path, that read *is* a starting-value
+dependency and the object needs a declared value (from a provenance you can
+name: the original's boot code, not the BEGIN dump).
+
+Standalone export lowers an `uninitialized` value to plain zero-initialised
+storage (`uint8_t x{}`, `std::array<uint8_t, N> x{}`) with no tracking.
+
 A `LinkedWord` operation has one logical fence at its base address. It does
 not represent two 6510 byte accesses. When the original timing depends on the
 individual low/high accesses, represent them as linked bytes or array elements.

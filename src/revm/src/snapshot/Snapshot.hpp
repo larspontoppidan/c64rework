@@ -147,6 +147,7 @@ bool SaveChipSnapshotFile(const std::string & path, const ChipSnapshot & snap, s
 bool LoadChipSnapshotFile(const std::string & path, ChipSnapshot & snap, std::string & error);
 
 // Headless --no-audio vs windowed+SID boot hashes of FullSnapshot after PrepareRun.
-int RunBootSnapshotSelfTest(std::string & report);
+// Boots two boards from the ROMs in rom_dir; skipped (passes) when empty.
+int RunBootSnapshotSelfTest(std::string & report, const std::string & rom_dir);
 
 } // namespace revm

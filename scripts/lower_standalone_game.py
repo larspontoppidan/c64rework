@@ -209,6 +209,7 @@ class Counts:
     linked_bytes: int = 0
     linked_words: int = 0
     linked_arrays: int = 0
+    linked_uninitialized: int = 0
     linked_reads: int = 0
     linked_writes: int = 0
     linked_increments: int = 0
@@ -1802,6 +1803,42 @@ def lower_game_facade(source: bytes, label: Path, counts: Counts,
     return source
 
 
+def is_uninitialized_tag(node) -> bool:
+    """`uninitialized`, `revm::uninitialized`, `revm::cpumock::uninitialized`."""
+    if node is None or node.type not in {"identifier", "qualified_identifier"}:
+        return False
+    return node.text.decode("utf-8").split("::")[-1].strip() == "uninitialized"
+
+
+def uninitialized_initializer_edits(type_node) -> list[Edit]:
+    """A Linked value declared `{uninitialized}` has no starting value in
+    Stage 4 (the framework tracks and polices its first write); the standalone
+    product has no tracking, so it lowers to plain zero-initialised storage:
+    `LinkedArray<A, N> x{uninitialized}` -> `std::array<uint8_t, N> x{}`."""
+    decl = type_node.parent
+    if decl is None or decl.type not in {"field_declaration", "declaration"}:
+        return []
+    edits: list[Edit] = []
+    holders = [child for child in decl.named_children
+               if child.type == "init_declarator"] or [decl]
+    for holder in holders:
+        for init in holder.named_children:
+            if init is type_node:
+                continue
+            if (init.type == "initializer_list" and
+                    len(init.named_children) == 1 and
+                    is_uninitialized_tag(init.named_children[0])):
+                edits.append(Edit(init.start_byte, init.end_byte, b"{}",
+                                  "lower-uninitialized"))
+            elif (init.type in {"identifier", "qualified_identifier"} and
+                  init.prev_sibling is not None and
+                  init.prev_sibling.type == "=" and
+                  is_uninitialized_tag(init)):
+                edits.append(Edit(init.start_byte, init.end_byte, b"{}",
+                                  "lower-uninitialized"))
+    return edits
+
+
 def lower_linked_types(source: bytes, label: Path, counts: Counts) -> bytes:
     root = parse(source, label).root_node
     edits: list[Edit] = []
@@ -1829,6 +1866,9 @@ def lower_linked_types(source: bytes, label: Path, counts: Counts) -> bytes:
             saw_array = True
         edits.append(Edit(node.start_byte, node.end_byte, replacement,
                           f"lower-{kind}"))
+        tag_edits = uninitialized_initializer_edits(node)
+        edits.extend(tag_edits)
+        counts.linked_uninitialized += len(tag_edits)
     source = apply_edits(source, edits, label)
 
     root = parse(source, label).root_node
@@ -1844,7 +1884,8 @@ def lower_linked_types(source: bytes, label: Path, counts: Counts) -> bytes:
                 counts.linked_includes += 1
         elif node.type == "using_declaration" and node.named_children:
             imported = node.named_children[-1].text.decode("utf-8").split("::")[-1]
-            if imported in {"LinkedByte", "LinkedWord", "LinkedArray"}:
+            if imported in {"LinkedByte", "LinkedWord", "LinkedArray",
+                            "Uninitialized", "uninitialized"}:
                 edits.append(Edit(node.start_byte, node.end_byte, b"",
                                   "remove-linked-using"))
                 counts.linked_usings += 1
@@ -1996,7 +2037,8 @@ def analyze_file(source: bytes, label: Path,
                 findings.append(_finding(
                     "revm_namespace", "Sync", node, label, "lowerable",
                     "remove-sync-using"))
-            elif imported in {"LinkedByte", "LinkedWord", "LinkedArray"}:
+            elif imported in {"LinkedByte", "LinkedWord", "LinkedArray",
+                              "Uninitialized", "uninitialized"}:
                 findings.append(_finding(
                     "revm_namespace", imported, node, label, "lowerable",
                     "remove-linked-using"))
@@ -2084,6 +2126,7 @@ def analyze_file(source: bytes, label: Path,
             removed = parts[-1] in {
                 "CompareMask", "FenceSlack", "Sync",
                 "LinkedByte", "LinkedWord", "LinkedArray",
+                "Uninitialized", "uninitialized",
             }
             findings.append(_finding(
                 "revm_namespace", head, node, label,
@@ -2393,9 +2436,12 @@ void fixture() {
 #include "cpumock/Linked.hpp"
 using revm::cpumock::LinkedArray;
 using revm::cpumock::LinkedByte;
+using revm::cpumock::uninitialized;
 struct S {
   LinkedByte<0x20> value{7};
   LinkedArray<0x30, 2> data{{1, 2}};
+  LinkedArray<0x40, 4> roster{revm::uninitialized};
+  LinkedByte<0x21> flag{uninitialized};
   void Register(Host &host) { value.Register(host.Links(), "value"); }
 };
 void f(S &s, Io &io) {
@@ -2412,6 +2458,9 @@ void f(S &s, Io &io) {
         return 1
     if (b"uint8_t value{7}" not in linked or
         b"std::array<uint8_t, 2> data{{1, 2}}" not in linked or
+        b"std::array<uint8_t, 4> roster{};" not in linked or
+        b"uint8_t flag{};" not in linked or
+        b"uninitialized" in linked or
         b"s.value = uint8_t(s.value + 1)" not in linked or
         b"const auto next = ++s.data[0]" not in linked or
         b"gamehost::rol" in linked or
@@ -2421,7 +2470,8 @@ void f(S &s, Io &io) {
         print("lower-standalone-game selftest: bad linked lowering", file=sys.stderr)
         print(linked.decode("utf-8"), file=sys.stderr)
         return 1
-    if (linked_counts.linked_bytes != 1 or linked_counts.linked_arrays != 1 or
+    if (linked_counts.linked_bytes != 2 or linked_counts.linked_arrays != 2 or
+        linked_counts.linked_uninitialized != 2 or
         linked_counts.linked_reads != 1 or linked_counts.linked_writes != 1 or
         linked_counts.linked_increments != 1 or
         linked_counts.linked_shifts != 1 or
@@ -2429,6 +2479,18 @@ void f(S &s, Io &io) {
         print(f"lower-standalone-game selftest: bad linked counts {linked_counts}",
               file=sys.stderr)
         return 1
+    with tempfile.TemporaryDirectory() as directory:
+        # Whole-tree path (preflight + lowering + leftover gate) must accept
+        # `revm::uninitialized` initializers and lower them to `{}`.
+        path = Path(directory) / "linked.cpp"
+        path.write_bytes(linked_fixture)
+        lower_tree(path)
+        tree_out = path.read_bytes()
+        if (b"uninitialized" in tree_out or
+                b"std::array<uint8_t, 4> roster{};" not in tree_out):
+            print("lower-standalone-game selftest: tree uninitialized FAIL",
+                  file=sys.stderr)
+            return 1
     template_fixture = b'''\
 #include "cpumock/Linked.hpp"
 struct Tables {
@@ -2828,7 +2890,7 @@ def main() -> int:
         f"compare_mask_usings={counts.compare_mask_usings} "
         f"fence_slack_usings={counts.fence_slack_usings}"
         f" linked_bytes={counts.linked_bytes} linked_words={counts.linked_words} "
-        f"linked_arrays={counts.linked_arrays} linked_reads={counts.linked_reads} "
+        f"linked_arrays={counts.linked_arrays} linked_uninitialized={counts.linked_uninitialized} linked_reads={counts.linked_reads} "
         f"linked_writes={counts.linked_writes} "
         f"linked_inc={counts.linked_increments} linked_dec={counts.linked_decrements} "
         f"linked_shifts={counts.linked_shifts} "

@@ -463,9 +463,10 @@ bool LoadChipSnapshotFile(const std::string & path, ChipSnapshot & snap, std::st
 
 namespace {
 
-bool boot_and_hash(bool headless, bool audio, std::string & hex, FullSnapshot & snap,
-                   std::string & error) {
+bool boot_and_hash(const std::string & rom_dir, bool headless, bool audio,
+                   std::string & hex, FullSnapshot & snap, std::string & error) {
 	Config cfg;
+	cfg.rom_dir = rom_dir;
 	cfg.headless = headless;
 	cfg.limit_speed = false;
 	cfg.audio_enabled = audio;
@@ -488,7 +489,11 @@ bool boot_and_hash(bool headless, bool audio, std::string & hex, FullSnapshot & 
 
 } // namespace
 
-int RunBootSnapshotSelfTest(std::string & report) {
+int RunBootSnapshotSelfTest(std::string & report, const std::string & rom_dir) {
+	if (rom_dir.empty()) {
+		report = "  SKIP  boot-snapshot self-tests (no --rom-dir given)\n";
+		return 0;
+	}
 	std::ostringstream r;
 	int fails = 0;
 	auto check = [&](bool ok, const char * name) {
@@ -509,11 +514,11 @@ int RunBootSnapshotSelfTest(std::string & report) {
 	FullSnapshot headless_snap{};
 	FullSnapshot windowed_snap{};
 	const int fails_before = fails;
-	check(boot_and_hash(true, false, headless_hex, headless_snap, err),
+	check(boot_and_hash(rom_dir, true, false, headless_hex, headless_snap, err),
 	      "headless --no-audio boot");
 	if (fails > fails_before) r << "    " << err << "\n";
 	const int fails_mid = fails;
-	check(boot_and_hash(false, true, windowed_hex, windowed_snap, err),
+	check(boot_and_hash(rom_dir, false, true, windowed_hex, windowed_snap, err),
 	      "windowed + SID boot");
 	if (fails > fails_mid) r << "    " << err << "\n";
 

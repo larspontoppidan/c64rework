@@ -16,6 +16,7 @@
 #include "debug/KnowledgeBase.hpp"
 #include "debug/KbWatchSample.hpp"
 #include "debug/Coverage.hpp"
+#include "cpumock/Linked.hpp"
 #include "cpumock/LinkedRegistry.hpp"
 #include "snapshot/Snapshot.hpp"
 #include "roms/Roms.hpp"
@@ -1973,7 +1974,15 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 	return rc;
 }
 
-int cmd_selftest() {
+}
+#ifndef REVM_HAS_CPUMOCK
+// revm-tool carries CpuMockHost only so the Linked self-test links (Linked.hpp
+// fences reference it); there is no game plugin to install here.
+void revm::cpumock::InstallGame(revm::cpumock::CpuMockHost &) {}
+#endif
+namespace {
+
+int cmd_selftest(const std::string & rom_dir) {
 	std::string report;
 	int rc = 0;
 	{
@@ -2008,6 +2017,79 @@ int cmd_selftest() {
 			std::fputs("All linked-registry self-tests passed.\n", stdout);
 		} else {
 			std::fputs("Linked-registry self-test failed.\n", stderr);
+			rc = 1;
+		}
+	}
+	{
+		// `uninitialized` Linked state: read/rmw/mod_event before write fail,
+		// partial array init, tracking ends at the last write, declared
+		// initial values are unchanged.
+		using namespace revm::cpumock;
+		struct Failed { std::string msg; };
+		LinkedRegistry links;
+		links.SetFailHook(
+			[](const std::string & m) { throw Failed{m}; });
+		int inits = 0;
+		links.SetInitHook([&](const LinkedRegistry::Entry &) { ++inits; });
+		auto throws = [](auto && fn) {
+			try { fn(); } catch (const Failed &) { return true; }
+			return false;
+		};
+		LinkedByte<0x0040> ub{revm::uninitialized};
+		LinkedWord<0x0050> uw{uninitialized};
+		LinkedArray<0x0060, 4> ua{uninitialized};
+		LinkedByte<0x0070> ib{5};
+		LinkedArray<0x0080, 2> ia{{{1, 2}}};
+		ub.Register(links, "ub");
+		uw.Register(links, "uw");
+		ua.Register(links, "ua");
+		ib.Register(links, "ib");
+		ia.Register(links, "ia");
+		const ::revm::MemoryModification inc40{0x0040, ::revm::MemoryModOperation::Increment};
+		bool ok = true;
+		auto expect = [&](bool c, const char * what) {
+			if (!c) { std::fprintf(stderr, "uninitialized self-test: %s\n", what); ok = false; }
+		};
+		expect(throws([&] { (void)ub.read(); }), "byte read-before-write");
+		expect(throws([&] { ub.inc(); }), "byte rmw-before-write");
+		expect(throws([&] { links.Apply(inc40); }), "mod_event on unwritten byte");
+		expect(throws([&] { (void)uw.read(); }), "word read-before-write");
+		expect(throws([&] { uw.inc(); }), "word rmw-before-write");
+		expect(throws([&] { (void)ua[2].read(); }), "array read-before-write");
+		expect(throws([&] { ua[2].inc(); }), "array rmw-before-write");
+		expect(links.PendingTracked().size() == 3, "three pending objects");
+		ub.write(7);
+		expect(inits == 1 && ub.read() == 7, "byte write completes init");
+		expect(ub.inc() == 8 && links.Apply(inc40) && ub.read() == 9,
+		       "byte usable after write (rmw, mod_event)");
+		ua[1].write(0x11);
+		ua[3].write(0x33);
+		expect(ua[1].read() == 0x11 && ua[3].read() == 0x33, "partial array reads");
+		expect(throws([&] { (void)ua[0].read(); }) &&
+		       throws([&] { ua[2].inc(); }), "unwritten array byte still fails");
+		expect(inits == 1, "array not complete yet");
+		const LinkedRegistry::Entry & uae = links.Entries()[2];
+		expect(uae.track && uae.track->tracking && uae.track->unwritten == 2 &&
+		       uae.track->written(*uae.track, 1) && !uae.track->written(*uae.track, 0),
+		       "partial written-bitset");
+		ua[0].write(1);
+		ua[2].write(2);
+		expect(inits == 2 && !uae.track->tracking && uae.track->unwritten == 0,
+		       "array tracking off after last write");
+		expect(ua[0].read() == 1 && ua[2].inc() == 3, "array ordinary afterwards");
+		uw.write(0x1234);
+		expect(inits == 3 && uw.read() == 0x1234 && uw.inc() == 0x1235,
+		       "word write completes init");
+		expect(links.PendingTracked().empty(), "nothing pending");
+		const LinkedRegistry::Entry & ibe = links.Entries()[3];
+		expect(ibe.track && !ibe.track->tracking, "declared value: not tracked");
+		expect(ib.read() == 5 && ib.inc() == 6 && ia[1].read() == 2 &&
+		       ia[0].inc() == 2 && inits == 3,
+		       "declared initial values unchanged, no init events");
+		if (ok) {
+			std::fputs("All uninitialized-linked self-tests passed.\n", stdout);
+		} else {
+			std::fputs("Uninitialized-linked self-test failed.\n", stderr);
 			rc = 1;
 		}
 	}
@@ -2217,7 +2299,7 @@ int cmd_selftest() {
 	}
 	{
 		std::string sreport;
-		const int src = revm::RunBootSnapshotSelfTest(sreport);
+		const int src = revm::RunBootSnapshotSelfTest(sreport, rom_dir);
 		std::fputs(sreport.c_str(), src == 0 ? stdout : stderr);
 		if (src != 0) rc = src;
 	}
@@ -2242,7 +2324,12 @@ int main(int argc, char ** argv) {
 	if (std::strcmp(cmd, "sort-kb") == 0) return cmd_sort_kb(argc - 2, argv + 2);
 	if (std::strcmp(cmd, "merge-cov") == 0 || std::strcmp(cmd, "merge-coverage") == 0)
 		return cmd_merge_cov(argc - 2, argv + 2);
-	if (std::strcmp(cmd, "selftest") == 0) return cmd_selftest();
+	if (std::strcmp(cmd, "selftest") == 0) {
+		std::string rom_dir;
+		for (int i = 2; i + 1 < argc; ++i)
+			if (std::strcmp(argv[i], "--rom-dir") == 0) rom_dir = argv[i + 1];
+		return cmd_selftest(rom_dir);
+	}
 	if (std::strcmp(cmd, "-h") == 0 || std::strcmp(cmd, "--help") == 0 ||
 	    std::strcmp(cmd, "help") == 0) {
 		usage(argv[0]);
