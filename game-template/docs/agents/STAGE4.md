@@ -100,9 +100,13 @@ configure every required chip register and install every required asset.
 
 `--no-twin` play recordings (`play/no-twinN.json`) differ from Twin/original
 ones (`play/originalN.json`). (see `AGENTS.md` and `STAGE3-MANUAL.md` §11). 
-Both types of recordings must exist as Stage 3 concluded. And in Stage 4 both
-types must continue to play successfully and exactly like in Stage 3. This
-ALSO applies to Stage 4.5 with `--main-blank`.
+Both types of recordings must exist as Stage 3 concluded. In Stage 4 the
+original plays must continue to play exactly like in Stage 3. This ALSO
+applies to Stage 4.5 with `--main-blank`. No-twin plays must keep running
+without failures and feel the same, but need not replay frame-identically:
+Stage 4 may change no-twin timing (for example a shorter boot). Before
+standalone export, record no-twin plays without `mod_events` on Stage 4.5
+(`--main-blank --no-twin`); they are the export's evidence.
 
 Note that stage 4 will fail recordings with `mod_events` if the modified 
 addresses are not registered Linked values.
@@ -286,5 +290,6 @@ Stage 4 as a whole, including Stage 4.5, is complete when:
 
 - Every original play passes with `--main-blank`
 - Every no-twin play passes with `--main-blank --no-twin`
+- At least one no-twin play without `mod_events` is recorded on Stage 4.5
 - No lint findings except for valid and documented exceptions
 - Review based on STAGE4-REVIEW.md accepts the quality of the code.

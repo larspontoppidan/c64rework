@@ -87,20 +87,25 @@ Stage 3, 4 and 4.5 all support two modes of operation: original and `no-twin`.
 The original mode perfectly matches the original gameplay, while no-twin 
 diverges slightly as there is no timing oracle to align with. The game play
 should still feel the same to the human player, but the exact timing and things
-like RNG may be different. The no-twin behaviour must be identical between 
-stage 3, 4, 4.5 and standalone export, however.
+like RNG may be different. No-twin is never canonical: Twin carries the exact
+verification through Stage 3, 4 and 4.5, and Stage 4 may change no-twin timing
+(for example a shorter boot). The one strict no-twin requirement is that the
+standalone export behaves exactly like Stage 4.5 with `--main-blank --no-twin`.
 
 For this reason two types of recordings will be made: original and no-twin,
 reflected in the name: `plays/originalN.json` and `plays/no-twinN.json`. There
 is a field in the json storing the type: `"no-twin": <bool>`. Replaying a
 play on the other kind of system warns that playback will not be faithful.
+A no-twin play belongs to the stage it was recorded on; on another stage it may
+drift.
 
 Recorded plays may contain `mod_events`: deliberate increments or decrements of
 KB variables used to reach otherwise costly states (for example, skipping 
 through levels). 
 
 The Standalone Export game will support only no-twin plays without `mod_events`,
-thus it is important to have recorded such plays in the rework process.
+recorded on Stage 4.5 (`--main-blank --no-twin`), thus it is important to
+record such plays before export.
 
 ## Repository rules
 

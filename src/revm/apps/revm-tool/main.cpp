@@ -59,6 +59,8 @@ void usage(const char * argv0) {
 		"  --disasm-bytes N     Bytes to disassemble (default 128)\n"
 		"\n"
 		"SNAP show mode adds options:\n"
+		"  --check-begin        Exit 1 unless the snapshot is a clean BEGIN: no interrupt\n"
+		"                       in progress, pending or asserted (CPU, CIA1/2 ICR, VIC)\n"
 		"  --disasm             Disassemble at PC = snapshot PC, also IRQ vector + entry hints\n"
 		"                       (+ stack RTS peeks; mid-instruction warning)\n"
 		"  --dump-ram FILE      Write 64K raw DRAM image (under-ROM RAM)\n"
@@ -291,6 +293,66 @@ void print_snap_summary(const revm::FullSnapshot & snap) {
 	}
 	std::fprintf(stdout, "\n");
 	print_stack_analysis(snap);
+}
+
+// Interrupt state at a snapshot. BEGIN must be a clean starting point: no
+// interrupt in progress, pending or asserted, so a Stage 4.5 Main can start
+// from declared chip state alone. Returns false on a hard violation; a flag
+// latched in a chip whose mask is off is only a warning.
+bool print_interrupt_state(const revm::FullSnapshot & snap) {
+	const MOS6510State & cpu = snap.cpu;
+	const bool i_flag = (cpu.p & 0x04) != 0;
+	std::fprintf(stdout,
+		"  interrupts: I=%d  cpu irq_pending=%d irq_delay=%u irq_off_delay=%u "
+		"nmi_pending=%d nmi_delay=%u  lines vic=%d cia=%d nmi=%d\n",
+		i_flag ? 1 : 0, cpu.irq_pending ? 1 : 0, cpu.irq_delay, cpu.irq_off_delay,
+		cpu.nmi_pending ? 1 : 0, cpu.nmi_delay,
+		cpu.int_line[INT_VICIRQ] ? 1 : 0, cpu.int_line[INT_CIAIRQ] ? 1 : 0,
+		cpu.int_line[INT_NMI] ? 1 : 0);
+	std::fprintf(stdout,
+		"              CIA1 ICR flags=$%02X mask=$%02X  CIA2 ICR flags=$%02X mask=$%02X  "
+		"VIC $D019=$%02X $D01A=$%02X\n",
+		snap.cia1.int_flags, snap.cia1.int_mask, snap.cia2.int_flags, snap.cia2.int_mask,
+		snap.vic.irq_flag, snap.vic.irq_mask);
+
+	std::vector<std::string> errors;
+	std::vector<std::string> warnings;
+	if (!cpu.instruction_complete) errors.push_back("CPU is mid-instruction");
+	if (cpu.irq_pending || cpu.irq_delay || cpu.irq_off_delay)
+		errors.push_back("CPU is recognising an IRQ");
+	if (cpu.nmi_pending || cpu.nmi_delay || cpu.int_line[INT_NMI])
+		errors.push_back("CPU has an NMI pending");
+	// An enabled IRQ source with its flag latched asserts the IRQ line. With
+	// I clear it is taken at once: not a clean BEGIN. With I set it waits for
+	// CLI; harmless only if the game acknowledges the source first (Twin
+	// reports a silent Main line if it does not), so it is a warning.
+	auto irq_source = [&](const std::string & what) {
+		if (i_flag)
+			warnings.push_back(what + ", held off by the I flag: the game must acknowledge it before CLI");
+		else
+			errors.push_back(what + " and the I flag is clear: it will be taken immediately");
+	};
+	const uint8_t cia1_latched = snap.cia1.int_flags & 0x1F;
+	if ((cia1_latched & snap.cia1.int_mask) || (snap.cia1.irq_delay & 0x03))
+		irq_source("CIA1 has an enabled interrupt latched");
+	else if (cia1_latched)
+		warnings.push_back("CIA1 has a masked interrupt flag latched (readable via $DC0D)");
+	const uint8_t cia2_latched = snap.cia2.int_flags & 0x1F;
+	if ((cia2_latched & snap.cia2.int_mask) || (snap.cia2.irq_delay & 0x03))
+		errors.push_back("CIA2 has an enabled interrupt latched (NMI)");
+	else if (cia2_latched)
+		warnings.push_back("CIA2 has a masked interrupt flag latched (readable via $DD0D)");
+	const uint8_t vic_latched = snap.vic.irq_flag & 0x0F;
+	if (vic_latched & snap.vic.irq_mask)
+		irq_source("VIC has an enabled interrupt latched");
+	else if (vic_latched)
+		warnings.push_back("VIC has a masked interrupt flag latched (readable via $D019)");
+
+	for (const auto & w : warnings) std::fprintf(stdout, "  BEGIN warning: %s\n", w.c_str());
+	for (const auto & e : errors) std::fprintf(stdout, "  BEGIN error: %s\n", e.c_str());
+	if (errors.empty())
+		std::fprintf(stdout, "  BEGIN interrupt check: clean\n");
+	return errors.empty();
 }
 
 void dump_ram_file(const uint8_t ram[0x10000], const std::string & path) {
@@ -1727,6 +1789,8 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 	bool list_no_cov_rng = false;
 	bool watch_diff_all = false;
 	bool do_disasm = false;
+	bool check_begin = false;
+	bool begin_clean = true;
 	bool have_disasm_addr = false;
 	uint16_t disasm_addr = 0;
 	unsigned disasm_bytes = 128;
@@ -1751,6 +1815,8 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 			if (disasm_bytes == 0) disasm_bytes = 128;
 		} else if (std::strcmp(a, "--disasm") == 0) {
 			do_disasm = true;
+		} else if (std::strcmp(a, "--check-begin") == 0) {
+			check_begin = true;
 		} else if (std::strcmp(a, "--dump-ram") == 0 && i + 1 < argc) {
 			dump_ram = argv[++i];
 		} else if (std::strcmp(a, "--dump-cpuview") == 0 && i + 1 < argc) {
@@ -1843,6 +1909,10 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 			std::fprintf(stderr, "ram mode: --disasm is SNAP-only (use --disasm-addr)\n");
 			return 2;
 		}
+		if (check_begin) {
+			std::fprintf(stderr, "ram mode: --check-begin is SNAP-only\n");
+			return 2;
+		}
 		if (!dump_ram.empty() || !dump_cpuview.empty()) {
 			std::fprintf(stderr, "ram mode: --dump-ram / --dump-cpuview are SNAP-only\n");
 			return 2;
@@ -1886,6 +1956,7 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 		std::memcpy(ram, snap.ram, 0x10000);
 		std::fprintf(stdout, "Snapshot: %s (FullSnapshot)\n", target.c_str());
 		print_snap_summary(snap);
+		begin_clean = print_interrupt_state(snap);
 	} else {
 		if (!load_ram64k(target, ram, error)) {
 			std::fprintf(stderr, "%s\n", error.c_str());
@@ -1971,6 +2042,7 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 		if (wrc != 0) rc = wrc;
 	}
 
+	if (check_begin && !begin_clean && rc == 0) rc = 1;
 	return rc;
 }
 

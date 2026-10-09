@@ -47,7 +47,20 @@ DRAFT_CYCLE=12345678
 
 The first-fetch cycle printed for the correct entry PC may be the exact BEGIN
 cycle. Be careful and run further analysis to be sure ENTRY_PC and BEGIN is
-correct. When done record the PC, cycle, and frame in `Stage1/NOTES.md`. Freeze it:
+correct.
+
+BEGIN must be a clean starting point: no interrupt in progress or about to be
+taken. A fetch of the entry PC that an IRQ hijacks does not count: if the
+loader left interrupts enabled and an IRQ is pending, the KERNAL handler runs
+first and the entry PC is fetched again after its RTI. That later fetch is
+BEGIN. If interrupts are disabled at entry, an enabled source latched in a CIA
+or the VIC is allowed only when the game acknowledges it before its first CLI;
+otherwise move BEGIN forward past the point where the game silences the
+sources it inherited. `revm-tool snap --check-begin` enforces this (exit 1)
+and prints the interrupt state; warnings are acceptable but note them in
+`Stage1/NOTES.md`.
+
+When done record the PC, cycle, and frame in `Stage1/NOTES.md`. Freeze it:
 
 ```bash
 BEGIN_CYCLE=12345000
@@ -56,7 +69,7 @@ BEGIN_CYCLE=12345000
   --save-snapshot "$BEGIN_CYCLE" begin/snap.bin \
   --max-cycles $((BEGIN_CYCLE + 64))
 
-./rework revm-tool snap begin/snap.bin \
+./rework revm-tool snap begin/snap.bin --check-begin \
   --dump-ram begin/ram64k.bin \
   --dump-cpuview begin/cpuview.bin \
   --disasm --disasm-addr 8000

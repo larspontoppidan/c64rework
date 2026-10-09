@@ -33,12 +33,7 @@ with minor adjustments.
 ## Getting started
 
 Locate a `prg` loader file, or a `.d64` disk image, of the game to rework.
-Cartridge images (`.crt`) are not supported. A `.d64` is mounted as drive 8
-with full 1541 processor + GCR emulation; `LOAD"*",8,1` is `--disk-auto-load`.
-`--disk-warp` skips 50 Hz pacing while the 1541 CPU is running so interactive disk
-boots are watchable; cycles and play hashes stay the same.
-The original disk file is never written; later disk I/O lives in GCR memory
-and in snapshots.
+Cartridge images (`.crt`) are not supported.
 
 Locate **C64 ROMs** preferably matching the filenames and SHA-256 checksums seen
 below. Disk mode also needs `dos1541ii*.bin` in the same ROM directory.
