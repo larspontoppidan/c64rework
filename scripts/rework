@@ -34,6 +34,8 @@ Commands:
   test-play TARGET PLAY [options...]  Headless replay of a recording
   show-play TARGET PLAY [options...]  On-screen replay of a recording
   play-game TARGET [options...]       Live interactive play
+  fuzz-play TARGET [PLAY...] [options...]  Replay shifted/jittered variants
+                             of recordings under Twin (probes, not gates)
   selftest                   Run all tool self-tests
   stage4-diag                Inventory Stage4 constructs for export
   export [--replace]         Generate standalone in StandaloneExport/
@@ -742,6 +744,10 @@ case "$command" in
 	play-game)
 		[[ $# -ge 1 ]] || die "play-game requires a target"
 		invoke_play live "$@"
+		;;
+	fuzz-play)
+		[[ $# -ge 1 ]] || die "fuzz-play requires a target (try './rework fuzz-play --help')"
+		run_script "$SCRIPTS/fuzz_play.py" --game-root "$GAME_ROOT" "$@"
 		;;
 	export) generate_export "$@" ;;
 	stage4-diag) [[ $# -eq 0 ]] || die "stage4-diag takes no arguments"; stage4_diag ;;

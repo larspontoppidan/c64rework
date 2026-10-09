@@ -124,6 +124,31 @@ a pass.
 already defaulted). Windowed replay for a human: `./rework show-play stage3
 <play>`.
 
+Once the recorded plays pass, fuzz them. A recording only exercises the IRQ
+accept boundaries its own input timeline produces. `./rework fuzz-play`
+replays variants of the recordings with all input events shifted by +1..+N
+frames and with each event jittered independently, so later accepts land on
+other instruction boundaries:
+
+   ```bash
+   ./rework fuzz-play stage3                # every plays/original*.json
+   ./rework fuzz-play stage3 original2 --shifts 4 --jitters 10
+   ./rework fuzz-play --help
+   ```
+
+It prints a pass/fail count and each failing variant's first failure, and
+keeps the variants, logs and `results.json` under `fail/fuzz-play/`. A
+variant is a probe, not a gate: a failure is a real translation defect that
+no recording happens to hit (a plain store racing an IRQ-reachable join, a
+wait testing the wrong edge, a window closed before its fence) or a framework
+case (§15 of the manual). Reproduce a failure with
+`./rework test-play stage3 fail/fuzz-play/<variant>.json --ignore-play-hashes`,
+and fix it like any frontier. After a fix, rerun just the cases that failed
+with `./rework fuzz-play stage3 --failed`, or named cases with
+`--only original1_s2,original3_j1`; both replay the saved variant files. Record
+the pass count in `Stage3/NOTES.md`. Never add a variant to the required play
+table.
+
 5. Record the checkpoint
 
 Overwrite `Stage3/NOTES.md`. It is current state, not a diary. Record:
