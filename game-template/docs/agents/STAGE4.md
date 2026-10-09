@@ -156,6 +156,11 @@ struct GameState {
 };
 ```
 
+Registration is its own method. The standalone exporter deletes every
+`Register` method, so a function that calls `host.Links()` must be named
+`Register…` and do nothing but register: no other initialisation in it, no
+registration in a constructor, and no host pointer kept by a state type.
+
 Access is deliberately explicit and symmetric with the I/O bags:
 
 ```cpp
@@ -277,6 +282,12 @@ implicit or overloaded value access, `goto`, and raw machine-address literals.
 tree is expected to fail; fix findings in coherent slices and keep the exact
 counts in `Stage4/NOTES.md`. Use a nearby
 `// s4lint:allow S4-xxx -- reason` only for a real translation exception.
+
+Run `./rework stage4-diag` alongside lint. It is the standalone exporter's
+preflight over `Stage4/` and stops at the first construct the export cannot
+lower; it is cheaper to fix those during Stage 4 than to discover them at
+export time. Its C++ parser does not accept an attribute between `enum class`
+and the name (`enum class [[nodiscard]] Flow`); write `enum class Flow`.
 
 The rule fixtures are part of the tool and must remain green:
 

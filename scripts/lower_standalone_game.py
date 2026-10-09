@@ -1265,16 +1265,23 @@ def locate(node, label: Path) -> str:
     return f"{label}:{row + 1}:{column + 1}"
 
 
+def code_children(node):
+    """Named children without comments: tree-sitter counts a comment as a
+    named child, so a comment inside an argument list would otherwise shift
+    every positional argument after it."""
+    return [child for child in node.named_children if child.type != "comment"]
+
+
 def call_args(call):
     arguments = call.child_by_field_name("arguments")
     if arguments is None:
         return None
-    return list(arguments.named_children)
+    return code_children(arguments)
 
 
 def trailing_args_source(source: bytes, call, skip: int) -> bytes:
     arguments = call.child_by_field_name("arguments")
-    named = list(arguments.named_children)
+    named = code_children(arguments)
     if len(named) <= skip:
         return b""
     return source[named[skip].start_byte:named[-1].end_byte]
@@ -1299,7 +1306,7 @@ def designated_fields(node) -> dict[str, object] | None:
     if node.type != "initializer_list":
         return None
     fields: dict[str, object] = {}
-    for child in node.named_children:
+    for child in code_children(node):
         if child.type != "initializer_pair":
             return None
         designator = next((part for part in child.named_children
@@ -2661,6 +2668,18 @@ struct G {
             print(f"lower-standalone-game selftest: {name} accepted",
                   file=sys.stderr)
             return 1
+    commented = lower_source(
+        b"void f() {\n"
+        b"  Sync::ReturnIrq(host_, /* rti */ 0xF200, 12);\n"
+        b"  Sync::JoinAtPcBounded(host_, 0x03C0, // wait\n"
+        b"      {.max_frames = 8, /* main */ .no_twin_frames = 2});\n"
+        b"}\n",
+        Path("commented-args.cpp"),
+    )[0].decode("utf-8")
+    if "host_.ReturnIrq(12)" not in commented or "host_.AdvanceFrames(2)" not in commented:
+        print("lower-standalone-game selftest: comments shifted Sync arguments:\n"
+              + commented, file=sys.stderr)
+        return 1
     missing_frames = (
         b"void f() { Sync::JoinAtPcBounded(host_, 0x03C0, {.max_frames = 8}); }\n"
     )
