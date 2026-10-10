@@ -68,6 +68,9 @@ Things to remember checking and pointing out:
 - All strings in the assets should be legible strings or chars, not hexadecimals.
 This will most likely require a petscii to ascii conversion system. This can be done
 compile-time in C++.
+- Check that packed or encoded data (compressed streams, run lists, records in
+the game's character codes) is shipped decoded as explicit assets. A named byte
+array a reader cannot read is still a blob.
 - Check that blobs of data are not just referred to in an anonymous way. A typical
 example of this is the sprite installation in Stage 4.5. Make sure each sprite has a
 sensible name.

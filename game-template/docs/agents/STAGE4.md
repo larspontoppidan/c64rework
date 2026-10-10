@@ -48,7 +48,20 @@ Remove progressively:
 - game state stored in `Mem`, `Mem16`, or `MemTable`;
 - data or assets borrowed from the BEGIN memory image;
 - generic `mem.*` access and `io.*.raw[]` in game code;
-- machine-address arithmetic leaking into rules, graphics, or sound code.
+- machine-address arithmetic leaking into rules, graphics, or sound code;
+- packed or encoded data. Compressed streams, run lists and records in the
+  game's character codes become explicit assets in decoded, true form: text
+  as legible strings, layouts as named records. Keep the decoder only when its
+  output depends on game state. A named byte array a reader cannot read is
+  still a blob;
+- C64 memory-map mechanisms once nothing depends on them, such as the 6510
+  port at `$0000/$0001`. Its banking only decides where Main's own accesses
+  land; when game state and assets no longer live in RAM, model nothing of it.
+
+`Stage4/` is what the standalone export copies, file for file. Keep it to the
+game's sources, headers and asset headers. Probe recordings, stress variants,
+generator scripts and other tools belong elsewhere in the game root (for
+example `tools/` or `plays/`), not in `Stage4/`.
 
 Use named chip registers from `IoMap`. If a real hardware-facing RAM surface
 is missing, add a small named bag for that surface; do not turn the game-state
