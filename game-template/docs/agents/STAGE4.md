@@ -54,6 +54,13 @@ Remove progressively:
   as legible strings, layouts as named records. Keep the decoder only when its
   output depends on game state. A named byte array a reader cannot read is
   still a blob;
+- chip mirrors. By the end of Stage 4 there is no memory space and there are
+  no mirrors, only chips: a store the original made to a mirrored address
+  (a SID address from `$D420`, a VIC address from `$D040`) is a write to
+  the chip register it reaches, through its named `IoMap` register. `raw[]`
+  fails on an index past the register file, and a mirror is never a reason
+  for `raw[]` or for an `s4lint:allow S4-003`. Twin's armed-write check
+  already treats SID mirror addresses as the same register;
 - C64 memory-map mechanisms once nothing depends on them, such as the 6510
   port at `$0000/$0001`. Its banking only decides where Main's own accesses
   land; when game state and assets no longer live in RAM, model nothing of it.

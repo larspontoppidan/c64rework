@@ -205,22 +205,47 @@ private:
 
 // 8-bit I/O space at Addr (VIC/CIA/SID/color RAM). Same accessors as the
 // compile-time byte bag. Indexed access is a runtime-address ByteAt.
+// The canonical register file each I/O address belongs to. There are no
+// mirrors: an index that leaves the file is an error (src/revm Mem.hpp).
+constexpr uint16_t io_file_end(uint16_t addr) {
+	if (addr >= 0xD000 && addr <= 0xD02E) return 0xD02E; // VIC
+	if (addr >= 0xD400 && addr <= 0xD41C) return 0xD41C; // SID
+	if (addr >= 0xD800 && addr <= 0xDBFF) return 0xDBFF; // colour RAM
+	if (addr >= 0xDC00 && addr <= 0xDC0F) return 0xDC0F; // CIA1
+	if (addr >= 0xDD00 && addr <= 0xDD0F) return 0xDD0F; // CIA2
+	return 0;
+}
+
 template <uint16_t Addr>
 struct Io : FixedByte<IoSync, Addr> {
+	static_assert(io_file_end(Addr) != 0,
+	              "Io<Addr> must be a canonical chip register, not a mirror");
+
 	using FixedByte<IoSync, Addr>::FixedByte;
 
 	using At = ByteAt<IoSync>;
 
 	At operator[](int i) {
-		return At{this->host, uint16_t(Addr + i)};
+		return At{this->host, checked(i)};
 	}
 	At operator[](int i) const {
-		return At{this->host, uint16_t(Addr + i)};
+		return At{this->host, checked(i)};
+	}
+
+private:
+	uint16_t checked(int i) const {
+		if (i < 0 || Addr + i > io_file_end(Addr)) {
+			this->host.Fail(1, "Io<$%04X>[%d] is past the chip's register file "
+			                "(ends $%04X); there are no mirrors", Addr, i,
+			                io_file_end(Addr));
+		}
+		return uint16_t(Addr + i);
 	}
 };
 
 // Stock chip set used by current replicas. VIC/SID are two-layer chips:
-// raw[offset] at the canonical base (never $D040 / $D500 mirrors) plus named
+// raw[offset] at the canonical base (an offset past the register file fails;
+// there are no $D040 / $D500 mirrors) plus named
 // registers. VIC names $D010–$D026; sprite X/Y/color are sp[0..7]. SID names
 // the full public file $D400–$D41C. $D500-page mirrors are the same 32-byte
 // register file; a write to +18 is `vol`. CIA1/CIA2 name the full 6526 file

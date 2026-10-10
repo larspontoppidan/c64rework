@@ -195,7 +195,7 @@ reason = "Standalone build always produces one executable and one cpu-mock game 
 
 [[forked]]
 path = "src/cpumock/Mem.hpp"
-base_sha256 = "9cbb0c92cc52b981cdb97465a8e312da7d11571c7c64f9ac9cc9b7eb51362ea3"
+base_sha256 = "c8aef7ad66d7ac04ed8a9312e523f18abe5e7ca218c5457ba3df1ff4c33b7a73"
 reason = "Standalone register-shaped memory access preserves Main reads, writes, and I/O RMW effects without Twin fences, implicit conversion, get/set aliases, or Mem/Mem16; bags bind to gamehost::GameHost and Fail."
 
 [[forked]]

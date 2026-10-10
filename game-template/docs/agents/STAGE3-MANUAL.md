@@ -435,8 +435,11 @@ voice[0..2].{freq_lo, freq_hi, pw_lo, pw_hi, ctrl, ad, sr}}`,
 todmin, todhrs, sdr, icr, cra, crb}`, `io.cia2.{pra, prb, ddra, ddrb, talo,
 tahi, tblo, tbhi, tod10, todsec, todmin, todhrs, sdr, icr, cra, crb}`,
 `io.color_ram[i]`. `raw[off]` is the escape hatch for unnamed registers at
-the canonical base — never `$D040`/`$D500` mirrors. SID `$D500` mirrors are
-the same 32-byte file as `$D400` (a write to +18 is `vol`).
+the canonical base. There are no mirrors: an index past the chip's register
+file (SID `$1C`, VIC `$2E`, CIA `$0F`, colour RAM `$3FF`) stops the run. When
+the original reaches a mirror (a computed SID index such as `$D400,Y` with
+Y = `$73`), apply the chip's address modulo in the translation, e.g.
+`io.sid.raw[(y) & 0x1F]`, with a comment saying why.
 
 Shift RMW methods require `bool *carry` (SoftQuit if null). `INC/DEC` take
 none.
