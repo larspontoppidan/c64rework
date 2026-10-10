@@ -116,8 +116,13 @@ record such plays before export.
   framework tree.
 - `NOTES.md` never grows. `Stage<n>/NOTES.md` holds facts; the checkpoint is 
   overwritten with one working frontier, never appended.
-- Never weaken a compare, mask, golden, lint rule, or policy to make a result
-  pass.
+- Never weaken a compare, mask, golden, lint rule, or policy to make a failing
+  result pass. Fix the translation, or record the failure as the frontier.
+- Changing *what* is checked is a design decision, not a workaround. It is
+  legitimate when a check no longer measures what it was meant to measure, or
+  costs more than it catches. It needs the user's agreement, happens while the
+  gates pass, records why at the change (a KB comment, a lint allow, a NOTES
+  entry), and says which other check still covers the ground.
 - Interactive recording and play-feel checks need the user. Agents run
   deterministic headless verification only (`./rework test-play`).
 - Standalone export never edits the accepted `Stage4/` source. General

@@ -181,7 +181,8 @@ before translating beyond them.
 - Do not skip original instructions or let Twin execute untranslated work on
   Main's behalf.
 - Do not borrow Twin values for gameplay, even temporarily.
-- Do not weaken comparisons, lint, policy, or recorded gates to make progress.
+- Do not weaken comparisons, lint, policy, or recorded gates to make a failing
+  result pass (see AGENTS.md for deliberate changes to what is checked).
 - Do not use a join as a generic wait or disguise an unbounded interval.
 - Preserve a viable `--no-twin` path.
 - Keep translation discoveries aligned with the Stage 2 KB.
