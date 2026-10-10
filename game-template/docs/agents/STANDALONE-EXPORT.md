@@ -113,6 +113,19 @@ Accepted forms the analyzer will lower:
 - Linked scalar and array `read`/`write`/`inc`/`dec`/`asl`/`lsr`/`rol`/`ror`,
   including template parameters resolved from call sites across the copied
   tree. Receivers are matched by declared type path, not terminal names.
+- Members declared in a named base class (`struct Painter : PaintBase`,
+  public/protected/private/virtual, several bases, `Base::member`): hosts,
+  Linked fields and methods are found through the whole base chain, from
+  `this`, unqualified names, out-of-line `Class::method` bodies and
+  `obj.member` chains. A derived member hides a base member of the same
+  name. Template arguments of a base are not tracked.
+- Linked values reached by reference: parameters and locals declared
+  `LinkedByte<..> &`, `LinkedArray<..> &`, `decltype(Class::linked_member) &`
+  or `auto &` (taken from the initializer), lambda parameters, and methods
+  returning such a reference (`LinkedByte<..> & gate(i)`, `auto & gate(i)`
+  deduced from the `return`, `-> T &`, `decltype(..)`). The lowered types are
+  `uint8_t &`, `std::array<uint8_t, N> &`; `decltype(..)` is left as is.
+  Free (non-member) functions returning Linked references are not followed.
 - Host `Sei`/`Cli`/`SoftQuit`/`AssertBegin`/`QuitRequested`/`MainCycle` and
   `InstallIrqHandler`/`InstallNmiHandler` on a typed host or `host()`.
   `MainCycle()` is Main's simulation clock for `--no-twin` pacing; game code
@@ -120,7 +133,10 @@ Accepted forms the analyzer will lower:
 - Facade includes, `revm::cpumock` types in the rewrite map, `REVM_LOG*`
   macros, and `namespace revm::cpumock` as the game entry.
 
-Deliberate rejections: mixed Twin predicates with side effects; linked
+Deliberate rejections: a Linked operation on an `auto` / `decltype` local or
+method result whose type the exporter cannot determine (declare the type
+explicitly); an `auto` method returning two different types; mixed Twin
+predicates with side effects; linked
 `address()`; free `asl`/`lsr`/`rol`/`ror`/`inc`/`dec` helpers; unknown
 `revm::` names; `Sei()` on a non-host; parse errors other than the known
 functional-cast-vs-relational grammar defect (`unsigned(x) >= …` in a

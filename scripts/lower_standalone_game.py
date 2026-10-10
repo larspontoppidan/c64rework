@@ -160,6 +160,12 @@ class TypeInfo:
     fields: dict[str, str] = field(default_factory=dict)
     methods: dict[str, str] = field(default_factory=dict)
     linked_fields: dict[str, str] = field(default_factory=dict)
+    # Named base classes, in declaration order. Members are looked up through
+    # them (class_chain); template arguments of a base are not tracked.
+    bases: list[str] = field(default_factory=list)
+    # Members and methods declared with `auto` / `decltype` whose type the
+    # collector could not determine (and that are not host I/O).
+    unresolved: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -392,10 +398,46 @@ def function_name(node) -> str | None:
     return None
 
 
+def body_calls(node) -> list[str] | None:
+    """Names called by a function body made only of call statements."""
+    body = node.child_by_field_name("body")
+    if body is None or body.type != "compound_statement":
+        return None
+    calls: list[str] = []
+    for statement in body.named_children:
+        if statement.type == "comment":
+            continue
+        if (statement.type != "expression_statement" or
+            len(statement.named_children) != 1):
+            return None
+        parts = call_name(statement.named_children[0])
+        if parts is None:
+            return None
+        calls.append(parts[0])
+    return calls
+
+
+def is_void_function(func) -> bool:
+    kind = func.child_by_field_name("type")
+    return kind is not None and kind.type == "primitive_type" and kind.text == b"void"
+
+
+def is_registration_method(node, methods: frozenset[str]) -> bool:
+    if node.type != "function_definition" or function_name(node) not in methods:
+        return False
+    if b".Links()" in node.text:
+        return True
+    if not is_void_function(node):
+        return False
+    calls = body_calls(node)
+    return bool(calls) and all(call in methods for call in calls)
+
+
 def inventory_linked(sources: list[tuple[Path, bytes]]) -> LinkedInventory:
     scalars: set[str] = set()
     arrays: set[str] = set()
     registration_methods: set[str] = set()
+    forwarders: list[tuple[str, list[str]]] = []
     for label, source in sources:
         root = parse(source, label).root_node
         for node in walk(root):
@@ -414,25 +456,30 @@ def inventory_linked(sources: list[tuple[Path, bytes]]) -> LinkedInventory:
                     raise ValueError(
                         f"{locate(node, label)}: cannot name linked registration method"
                     )
-                body = node.child_by_field_name("body")
-                calls: list[str] = []
-                if body is not None:
-                    for statement in body.named_children:
-                        if (statement.type != "expression_statement" or
-                            len(statement.named_children) != 1):
-                            calls = []
-                            break
-                        parts = call_name(statement.named_children[0])
-                        if parts is None or not parts[0].startswith("Register"):
-                            calls = []
-                            break
-                        calls.append(parts[0])
-                if not calls:
+                calls = body_calls(node)
+                if not calls or not all(call.startswith("Register") for call in calls):
                     raise ValueError(
                         f"{locate(node, label)}: method using Links() mixes "
                         "registration with standalone behavior"
                     )
                 registration_methods.add(name)
+            elif node.type == "function_definition" and is_void_function(node):
+                # Only a plain void function can be a forwarder: a constructor
+                # whose body registers its members is still the constructor.
+                name = function_name(node)
+                calls = body_calls(node)
+                if name is not None and calls:
+                    forwarders.append((name, calls))
+    # A method whose body only calls registration methods (Game::RegisterState
+    # calling each member's Register) is registration too.
+    grew = True
+    while grew:
+        grew = False
+        for name, calls in forwarders:
+            if name not in registration_methods and all(
+                    call in registration_methods for call in calls):
+                registration_methods.add(name)
+                grew = True
     overlap = scalars & arrays
     if overlap:
         raise ValueError("linked scalar/array names overlap: " + ", ".join(sorted(overlap)))
@@ -470,11 +517,63 @@ def type_name_from_node(node) -> str | None:
     return None
 
 
+DEDUCED_TYPE_NODES = {"decltype", "placeholder_type_specifier"}
+BASE_CLASS_NODES = {"type_identifier", "qualified_identifier", "template_type"}
+BASE_CLASS_SKIPPED = {"access_specifier", "comment"}
+
+
+@dataclass
+class DeducedMember:
+    """A field or method whose type is `auto` or `decltype(...)`, resolved
+    after every class has been collected."""
+    info: TypeInfo
+    name: str
+    is_method: bool
+    type_node: object
+    init: object | None = None  # initializer of an `auto` field
+    body: object | None = None  # body of a method returning `auto`
+
+
+def collect_base_classes(info: TypeInfo, node, label: Path) -> None:
+    """Record the named base classes of a class/struct definition."""
+    for clause in node.named_children:
+        if clause.type != "base_class_clause":
+            continue
+        for base in clause.named_children:
+            if base.type in BASE_CLASS_SKIPPED:
+                continue
+            if base.type not in BASE_CLASS_NODES:
+                raise ValueError(
+                    f"{locate(base, label)}: unsupported base class form "
+                    f"'{base.text.decode('utf-8')}'; name the base class directly"
+                )
+            name = type_name_from_node(base)
+            if name is not None and name not in info.bases:
+                info.bases.append(name)
+
+
+def declared_return_type(func):
+    """The return type node of a function definition: the `T` of
+    `auto f() -> T` when there is a trailing return type, else the leading
+    type."""
+    declarator = func.child_by_field_name("declarator")
+    if declarator is not None:
+        for node in walk(declarator):
+            if node.type != "trailing_return_type":
+                continue
+            descriptor = next((child for child in node.named_children
+                               if child.type == "type_descriptor"), None)
+            if descriptor is not None:
+                return descriptor.child_by_field_name("type")
+    return func.child_by_field_name("type")
+
+
 def collect_program_types(
     sources: list[tuple[Path, bytes]],
 ) -> tuple[dict[str, TypeInfo], dict[str, str]]:
     types: dict[str, TypeInfo] = {}
     aliases: dict[str, str] = {}
+    deduced: list[DeducedMember] = []
 
     def ensure(name: str) -> TypeInfo:
         info = types.get(name)
@@ -485,8 +584,15 @@ def collect_program_types(
 
     def collect_method(info: TypeInfo, func) -> None:
         name = function_name(func)
-        ret = type_name_from_node(func.child_by_field_name("type"))
-        if name is not None and ret is not None:
+        type_node = declared_return_type(func)
+        if name is None:
+            return
+        if type_node is not None and type_node.type in DEDUCED_TYPE_NODES:
+            deduced.append(DeducedMember(info, name, True, type_node,
+                                         body=func.child_by_field_name("body")))
+            return
+        ret = type_name_from_node(type_node)
+        if ret is not None:
             info.methods[name] = aliases.get(ret, ret)
 
     def collect_field(info: TypeInfo, declaration) -> None:
@@ -496,6 +602,16 @@ def collect_program_types(
             nested = type_name_from_node(type_node)
             if nested is not None and name is not None:
                 info.fields[name] = nested
+            return
+        if type_node is not None and type_node.type in DEDUCED_TYPE_NODES:
+            if name is not None:
+                declarator = declaration.child_by_field_name("declarator")
+                is_method = any(child.type == "function_declarator"
+                                for child in walk(declarator))
+                init = (declarator.child_by_field_name("value")
+                        if declarator.type == "init_declarator" else None)
+                deduced.append(DeducedMember(info, name, is_method, type_node,
+                                             init=init))
             return
         linked = linked_type(type_node)
         if linked is not None and name is not None:
@@ -513,8 +629,8 @@ def collect_program_types(
                         for child in walk(declarator))):
             info.methods[name] = aliases.get(tname, tname)
 
-    for _, source in sources:
-        root = parse(source, Path("<types>")).root_node
+    for label, source in sources:
+        root = parse(source, label).root_node
         for node in walk(root):
             if node.type in {"class_specifier", "struct_specifier"}:
                 name = type_name_from_node(node)
@@ -524,11 +640,24 @@ def collect_program_types(
                 body = node.child_by_field_name("body")
                 if body is None:
                     continue
+                collect_base_classes(info, node, label)
                 for child in body.named_children:
                     if child.type in {"field_declaration", "declaration"}:
                         collect_field(info, child)
                     elif child.type == "function_definition":
                         collect_method(info, child)
+            elif node.type == "function_definition" and enclosing_class_name(node) is None:
+                # Out-of-line `auto & Class::method() { ... }`: the in-class
+                # declaration cannot say what `auto` is, the definition can.
+                type_node = declared_return_type(node)
+                owner = method_class_from_qualified(node)
+                if (owner is not None and type_node is not None
+                        and type_node.type in DEDUCED_TYPE_NODES):
+                    name = function_name(node)
+                    if name is not None:
+                        deduced.append(DeducedMember(
+                            ensure(owner), name, True, type_node,
+                            body=node.child_by_field_name("body")))
             elif node.type == "alias_declaration":
                 ident = next((child for child in node.named_children
                               if child.type == "type_identifier"), None)
@@ -538,7 +667,87 @@ def collect_program_types(
                 )
                 if ident is not None and aliased is not None:
                     aliases[ident.text.decode("utf-8")] = aliased
+    resolve_deduced_members(deduced, types, aliases)
     return types, aliases
+
+
+def return_expressions(body) -> list[object]:
+    """Operands of the `return` statements of a function body, not looking
+    into lambdas or nested classes (their returns are their own)."""
+    result: list[object] = []
+    pending = [body]
+    while pending:
+        node = pending.pop()
+        for child in node.named_children:
+            if child.type in {"lambda_expression", "function_definition",
+                              "class_specifier", "struct_specifier"}:
+                continue
+            if child.type == "return_statement":
+                if child.named_children:
+                    result.append(child.named_children[0])
+                continue
+            pending.append(child)
+    result.sort(key=lambda expr: expr.start_byte)
+    return result
+
+
+def resolve_deduced_members(deduced: list[DeducedMember],
+                            types: dict[str, TypeInfo],
+                            aliases: dict[str, str]) -> None:
+    """Settle `auto` / `decltype(...)` members and method return types.
+
+    A deduced member may depend on another one, so keep sweeping until a
+    whole sweep makes no progress. What is left is recorded in
+    TypeInfo.unresolved, unless it plainly yields host I/O (which is kept,
+    not lowered)."""
+    scratch = LinkedInventory(frozenset(), frozenset(), frozenset(), types, aliases)
+    pending = list(deduced)
+    progress = True
+    while pending and progress:
+        progress = False
+        still_pending: list[DeducedMember] = []
+        for member in pending:
+            result = deduce_member_type(member, scratch)
+            if result is None:
+                still_pending.append(member)
+                continue
+            progress = True
+            if member.is_method:
+                member.info.methods[member.name] = result
+            elif result in {"LinkedByte", "LinkedWord", "LinkedArray"}:
+                member.info.linked_fields[member.name] = (
+                    "array" if result == "LinkedArray" else "scalar")
+                member.info.fields[member.name] = result
+            else:
+                member.info.fields[member.name] = result
+        pending = still_pending
+    for member in pending:
+        sources = list(return_expressions(member.body)) if member.body is not None else []
+        if member.init is not None:
+            sources.append(member.init)
+        if any(is_host_io_expr(expr, scratch) for expr in sources):
+            continue
+        member.info.unresolved.add(member.name)
+
+
+def deduce_member_type(member: DeducedMember, inventory: LinkedInventory) -> str | None:
+    """Type name behind a deduced member, or None when not (yet) known."""
+    if member.body is None:
+        return deduce_declared_type(member.type_node, member.init, inventory)
+    if member.type_node.type == "decltype":
+        return deduce_declared_type(member.type_node, None, inventory)
+    found: set[str] = set()
+    for expr in return_expressions(member.body):
+        got = resolve_expr_type(expr, inventory)
+        if got is not None:
+            found.add(got)
+    if len(found) > 1:
+        raise ValueError(
+            f"line {member.body.start_point[0] + 1}: {member.name}() returns "
+            f"different types ({', '.join(sorted(found))}); its deduced type "
+            "cannot be lowered"
+        )
+    return next(iter(found), None)
 
 
 def resolve_alias(name: str | None, inventory: LinkedInventory) -> str | None:
@@ -588,26 +797,122 @@ def enclosing_function(node):
     return None
 
 
+PARAM_MAPS_IN_PROGRESS: set[int] = set()
+
+
+def parameter_declarations(parameters) -> list[object]:
+    if parameters is None:
+        return []
+    return [node for node in parameters.named_children
+            if node.type == "parameter_declaration"]
+
+
 def function_param_map(func, inventory: LinkedInventory) -> dict[str, str]:
     result: dict[str, str] = {}
     declarator = func.child_by_field_name("declarator") if func is not None else None
     if declarator is None:
         return result
-    for node in walk(declarator):
-        if node.type != "parameter_list":
-            continue
-        for parameter in node.named_children:
-            if parameter.type != "parameter_declaration":
+    # `decltype(other_param.x)` in a parameter list looks at the parameter
+    # map of this very function; answer that nested request with nothing.
+    if func.id in PARAM_MAPS_IN_PROGRESS:
+        return result
+    PARAM_MAPS_IN_PROGRESS.add(func.id)
+    try:
+        for node in walk(declarator):
+            if node.type != "parameter_list":
                 continue
-            name = declarator_name(parameter.child_by_field_name("declarator"))
-            tname = resolve_alias(
-                type_name_from_node(parameter.child_by_field_name("type")),
-                inventory,
-            )
-            if name is not None and tname is not None:
-                result[name] = tname
-        break
+            for parameter in parameter_declarations(node):
+                name = declarator_name(parameter.child_by_field_name("declarator"))
+                tname = deduce_declared_type(
+                    parameter.child_by_field_name("type"), None, inventory)
+                if name is not None and tname is not None:
+                    result[name] = tname
+            break
+    finally:
+        PARAM_MAPS_IN_PROGRESS.discard(func.id)
     return result
+
+
+def deduce_declared_type(type_node, init, inventory: LinkedInventory) -> str | None:
+    """Type name of a declaration, seeing through `decltype(expr)` and
+    `auto` (taken from the initializer `init`). References, pointers and
+    cv-qualifiers do not change what a member lookup finds, so they are
+    ignored."""
+    if type_node is None:
+        return None
+    if type_node.type == "decltype":
+        if not type_node.named_children:
+            return None
+        return resolve_expr_type(type_node.named_children[0], inventory)
+    if type_node.type == "placeholder_type_specifier":
+        if init is None:
+            return None
+        return resolve_expr_type(init, inventory)
+    return resolve_alias(type_name_from_node(type_node), inventory)
+
+
+@dataclass
+class LocalDeclaration:
+    type_node: object
+    init: object | None
+
+
+def declaration_entries(declaration) -> list[tuple[str | None, LocalDeclaration]]:
+    """One (name, declaration) per declarator of `T a = x, &b = y;`."""
+    type_node = declaration.child_by_field_name("type")
+    entries: list[tuple[str | None, LocalDeclaration]] = []
+    for declarator in declaration.children_by_field_name("declarator"):
+        init = None
+        if declarator.type == "init_declarator":
+            init = declarator.child_by_field_name("value")
+            if (init is not None and init.type == "initializer_list"
+                    and len(init.named_children) == 1):
+                init = init.named_children[0]
+        entries.append((declarator_name(declarator), LocalDeclaration(type_node, init)))
+    return entries
+
+
+def find_local_declaration(name: str, node) -> LocalDeclaration | None:
+    """The nearest local variable, loop variable or lambda parameter called
+    `name` that is visible at `node`, or None. Stops at the enclosing
+    function (its parameters are handled by site_params)."""
+    current = node
+    while current.parent is not None:
+        parent = current.parent
+        candidates: list[tuple[str | None, LocalDeclaration]] = []
+        if parent.type in {"compound_statement", "case_statement"}:
+            for sibling in reversed(parent.named_children):
+                if sibling.end_byte > current.start_byte:
+                    continue
+                if sibling.type == "declaration":
+                    candidates.extend(reversed(declaration_entries(sibling)))
+        elif parent.type == "for_statement":
+            initializer = parent.child_by_field_name("initializer")
+            if (initializer is not None and initializer.type == "declaration"
+                    and initializer.id != current.id):
+                candidates.extend(declaration_entries(initializer))
+        elif parent.type == "for_range_loop":
+            body = parent.child_by_field_name("body")
+            if body is not None and body.id == current.id:
+                loop_name = declarator_name(parent.child_by_field_name("declarator"))
+                candidates.append((loop_name, LocalDeclaration(
+                    parent.child_by_field_name("type"), None)))
+        elif parent.type == "lambda_expression":
+            body = parent.child_by_field_name("body")
+            lambda_declarator = parent.child_by_field_name("declarator")
+            if body is not None and body.id == current.id and lambda_declarator is not None:
+                parameters = lambda_declarator.child_by_field_name("parameters")
+                for parameter in parameter_declarations(parameters):
+                    candidates.append((
+                        declarator_name(parameter.child_by_field_name("declarator")),
+                        LocalDeclaration(parameter.child_by_field_name("type"), None)))
+        elif parent.type == "function_definition":
+            return None
+        for candidate_name, declaration in candidates:
+            if candidate_name == name:
+                return declaration
+        current = parent
+    return None
 
 
 def site_params(node, inventory: LinkedInventory) -> dict[str, str]:
@@ -630,18 +935,65 @@ def site_class(node) -> str | None:
     return None
 
 
+def class_chain(class_name: str | None, inventory: LinkedInventory) -> list[TypeInfo]:
+    """The class followed by its base classes, depth first in declaration
+    order. A member found earlier hides one of the same name found later."""
+    chain: list[TypeInfo] = []
+    seen: set[str] = set()
+    pending = [class_name]
+    while pending:
+        current = resolve_alias(pending.pop(), inventory)
+        if current is None or current in seen:
+            continue
+        seen.add(current)
+        info = inventory.types.get(current)
+        if info is None:
+            continue
+        chain.append(info)
+        pending.extend(reversed(info.bases))
+    return chain
+
+
+def lookup_member_type(class_name: str | None, member: str,
+                       inventory: LinkedInventory) -> str | None:
+    """Type name of a data member of the class or of one of its bases."""
+    for info in class_chain(class_name, inventory):
+        if member in info.linked_fields:
+            return "LinkedArray" if info.linked_fields[member] == "array" else "LinkedByte"
+        if member in info.fields:
+            return resolve_alias(info.fields[member], inventory)
+    return None
+
+
+def lookup_method_type(class_name: str | None, method: str,
+                       inventory: LinkedInventory) -> str | None:
+    """Return type name of a method of the class or of one of its bases."""
+    for info in class_chain(class_name, inventory):
+        if method in info.methods:
+            return resolve_alias(info.methods[method], inventory)
+    return None
+
+
+def lookup_linked_field_kind(class_name: str | None, member: str,
+                             inventory: LinkedInventory) -> str | None:
+    """"scalar" / "array" when the member is declared Linked storage in the
+    class or one of its bases."""
+    for info in class_chain(class_name, inventory):
+        if member in info.linked_fields:
+            return info.linked_fields[member]
+        if member in info.fields:
+            return None
+    return None
+
+
 def lookup_identifier_type(name: str, node, inventory: LinkedInventory) -> str | None:
+    local = find_local_declaration(name, node)
+    if local is not None:
+        return deduce_declared_type(local.type_node, local.init, inventory)
     params = site_params(node, inventory)
     if name in params:
         return params[name]
-    class_name = site_class(node)
-    if class_name is not None:
-        info = inventory.types.get(class_name)
-        if info is not None and name in info.fields:
-            return resolve_alias(info.fields[name], inventory)
-        if info is not None and name in info.linked_fields:
-            return "LinkedArray" if info.linked_fields[name] == "array" else "LinkedByte"
-    return None
+    return lookup_member_type(site_class(node), name, inventory)
 
 
 def resolve_expr_type(node, inventory: LinkedInventory) -> str | None:
@@ -656,39 +1008,34 @@ def resolve_expr_type(node, inventory: LinkedInventory) -> str | None:
         return site_class(node)
     if node.type in {"identifier", "field_identifier"}:
         return lookup_identifier_type(node.text.decode("utf-8"), node, inventory)
+    if node.type == "qualified_identifier":
+        # `Class::member`, as in decltype(Class::member)
+        scope = node.child_by_field_name("scope")
+        member = node.child_by_field_name("name")
+        if scope is None or member is None or member.type != "identifier":
+            return None
+        return lookup_member_type(canon_type(scope.text.decode("utf-8")),
+                                  member.text.decode("utf-8"), inventory)
     if node.type == "field_expression":
         field = node.child_by_field_name("field")
         obj_type = resolve_expr_type(node.child_by_field_name("argument"), inventory)
         if field is None or obj_type is None:
             return None
-        info = inventory.types.get(obj_type)
-        name = field.text.decode("utf-8")
-        if info is None:
-            return None
-        if name in info.linked_fields:
-            return "LinkedArray" if info.linked_fields[name] == "array" else "LinkedByte"
-        return resolve_alias(info.fields.get(name), inventory)
+        return lookup_member_type(obj_type, field.text.decode("utf-8"), inventory)
     if node.type == "call_expression":
         function = node.child_by_field_name("function")
         if function is None:
             return None
         if function.type == "identifier":
-            class_name = site_class(node)
-            info = inventory.types.get(class_name) if class_name else None
-            name = function.text.decode("utf-8")
-            if info is not None and name in info.methods:
-                return resolve_alias(info.methods[name], inventory)
-            return None
+            return lookup_method_type(site_class(node), function.text.decode("utf-8"),
+                                      inventory)
         if function.type == "field_expression":
             field = function.child_by_field_name("field")
             obj_type = resolve_expr_type(
                 function.child_by_field_name("argument"), inventory)
             if field is None or obj_type is None:
                 return None
-            info = inventory.types.get(obj_type)
-            if info is None:
-                return None
-            return resolve_alias(info.methods.get(field.text.decode("utf-8")), inventory)
+            return lookup_method_type(obj_type, field.text.decode("utf-8"), inventory)
         return None
     if node.type == "subscript_expression":
         base = (node.child_by_field_name("argument") or
@@ -718,9 +1065,10 @@ def linked_kind_of_expr(node, inventory: LinkedInventory) -> str | None:
         field = node.child_by_field_name("field")
         obj_type = resolve_expr_type(node.child_by_field_name("argument"), inventory)
         if field is not None and obj_type is not None:
-            info = inventory.types.get(obj_type)
-            if info is not None:
-                return info.linked_fields.get(field.text.decode("utf-8"))
+            kind = lookup_linked_field_kind(obj_type, field.text.decode("utf-8"),
+                                            inventory)
+            if kind is not None:
+                return kind
         name = field.text.decode("utf-8") if field is not None else None
         if name in inventory.arrays:
             return None
@@ -1494,6 +1842,82 @@ def is_linked_receiver(receiver, inventory: LinkedInventory) -> bool:
     return linked_kind_of_expr(receiver, inventory) == "scalar"
 
 
+def is_host_io_expr(node, inventory: LinkedInventory) -> bool:
+    """True when `node` reaches into a framework object (`io`, an IoMap
+    member, a VideoAssets, ...) rather than into game state: its root is the
+    `io` chain, or a variable whose type is known but is not a game type."""
+    if _io_chain(node):
+        return True
+    current = node
+    while current is not None:
+        if current.type == "field_expression":
+            current = current.child_by_field_name("argument")
+        elif current.type == "call_expression":
+            current = current.child_by_field_name("function")
+        elif current.type == "subscript_expression":
+            current = (current.child_by_field_name("argument") or
+                       (current.named_children[0] if current.named_children else None))
+        elif current.type == "parenthesized_expression":
+            current = current.named_children[0] if current.named_children else None
+        else:
+            break
+    if current is None or current.type not in {"identifier", "field_identifier"}:
+        return False
+    root_type = resolve_expr_type(current, inventory)
+    return (root_type is not None and root_type not in inventory.types
+            and root_type not in {"LinkedByte", "LinkedWord", "LinkedArray"})
+
+
+def unresolved_deduced_receiver(receiver, inventory: LinkedInventory) -> str | None:
+    """Describe an `auto` / `decltype` local variable or method behind
+    `receiver` whose type could not be determined, else None.
+
+    A Linked operation on such a receiver cannot be told from any other
+    `.read()` / `.write()` call, so it is reported instead of being left in
+    the source silently. Things that start from host I/O are not reported."""
+    current = receiver
+    while current is not None and current.type in {"parenthesized_expression",
+                                                    "subscript_expression"}:
+        current = (current.child_by_field_name("argument") or
+                   (current.named_children[0] if current.named_children else None))
+    if current is None:
+        return None
+    if current.type == "identifier":
+        name = current.text.decode("utf-8")
+        local = find_local_declaration(name, current)
+        if local is None or local.type_node is None:
+            return None
+        if local.type_node.type not in DEDUCED_TYPE_NODES:
+            return None
+        if deduce_declared_type(local.type_node, local.init, inventory) is not None:
+            return None
+        if local.init is not None and is_host_io_expr(local.init, inventory):
+            return None
+        return f"variable '{name}'"
+    if current.type == "call_expression":
+        function = current.child_by_field_name("function")
+        if function is None:
+            return None
+        if function.type == "identifier":
+            class_name = site_class(current)
+            method = function.text.decode("utf-8")
+        elif function.type == "field_expression":
+            field = function.child_by_field_name("field")
+            if field is None:
+                return None
+            class_name = resolve_expr_type(
+                function.child_by_field_name("argument"), inventory)
+            method = field.text.decode("utf-8")
+        else:
+            return None
+        for info in class_chain(class_name, inventory):
+            if method in info.methods:
+                return None
+            if method in info.unresolved:
+                return f"method '{method}()'"
+    return None
+
+
 def remove_whole_statement(source: bytes, statement) -> tuple[int, int, bytes]:
     in_block = (statement.parent is not None and
                 statement.parent.type == "compound_statement")
@@ -1505,6 +1929,30 @@ def remove_whole_statement(source: bytes, statement) -> tuple[int, int, bytes]:
     return start, statement.end_byte, b"" if in_block else b";"
 
 
+def removal_span_with_comments(source: bytes, node) -> tuple[int, int]:
+    """Whole lines of node plus the comment lines directly above it, so a
+    removed method does not leave its description behind."""
+    first = node
+    previous = node.prev_sibling
+    while (previous is not None and previous.type == "comment" and
+           first.start_point[0] - previous.end_point[0] <= 1 and
+           not source[source.rfind(b"\n", 0, previous.start_byte) + 1:
+                      previous.start_byte].strip()):
+        first = previous
+        previous = previous.prev_sibling
+    start = source.rfind(b"\n", 0, first.start_byte) + 1
+    if source[start:first.start_byte].strip():
+        start = first.start_byte
+    end = node.end_byte
+    newline = source.find(b"\n", end)
+    if newline != -1 and not source[end:newline].strip():
+        end = newline + 1
+        # Between two blank lines, take one of them too.
+        if source[start - 2:start] == b"\n\n" and source[end:end + 1] == b"\n":
+            end += 1
+    return start, end
+
+
 def lower_linked_registration(source: bytes, label: Path, counts: Counts,
                               inventory: LinkedInventory) -> bytes:
     if not inventory.registration_methods:
@@ -1512,15 +1960,18 @@ def lower_linked_registration(source: bytes, label: Path, counts: Counts,
     root = parse(source, label).root_node
     edits: list[Edit] = []
     for node in walk(root):
-        if node.type == "function_definition" and function_name(node) in inventory.registration_methods:
-            if b".Links()" not in node.text:
-                continue
-            start = source.rfind(b"\n", 0, node.start_byte) + 1
-            if source[start:node.start_byte].strip():
-                start = node.start_byte
-            edits.append(Edit(start, node.end_byte, b"",
-                              "remove-linked-registration-method"))
+        if is_registration_method(node, inventory.registration_methods):
+            start, end = removal_span_with_comments(source, node)
+            edits.append(Edit(start, end, b"", "remove-linked-registration-method"))
             counts.linked_registration_methods += 1
+        elif (node.type in {"field_declaration", "declaration"} and
+              node.child_by_field_name("declarator") is not None and
+              node.child_by_field_name("declarator").type == "function_declarator" and
+              declarator_name(node.child_by_field_name("declarator"))
+              in inventory.registration_methods):
+            # The declaration of an out-of-line registration method.
+            start, end = removal_span_with_comments(source, node)
+            edits.append(Edit(start, end, b"", "remove-linked-registration-declaration"))
     source = apply_edits(source, edits, label)
 
     root = parse(source, label).root_node
@@ -1535,6 +1986,9 @@ def lower_linked_registration(source: bytes, label: Path, counts: Counts,
                 f"{locate(node, label)}: linked registration is not a statement"
             )
         start, end, replacement = remove_whole_statement(source, statement)
+        if replacement == b"" and start < statement.start_byte:
+            # The statement had its own line; remove the line.
+            start, end = removal_span_with_comments(source, statement)
         edits.append(Edit(start, end, replacement, "remove-linked-registration-call"))
         counts.linked_registration_calls += 1
     return apply_edits(source, edits, label)
@@ -2128,6 +2582,17 @@ def analyze_file(source: bytes, label: Path,
                 }:
                     findings.append(_finding(
                         "io_surface", name, node, label, "retained"))
+                elif name != "address":
+                    unresolved = unresolved_deduced_receiver(receiver, inventory)
+                    if unresolved is not None:
+                        findings.append(_finding(
+                            "linked_op", name, node, label, "unsupported",
+                            detail=(
+                                f"{name}() on {unresolved} declared auto/decltype: "
+                                "cannot tell whether it is a Linked value; "
+                                "declare its type explicitly "
+                                "(LinkedByte<..> & / LinkedArray<..> &)"
+                            )))
             if name in inventory.registration_methods:
                 findings.append(_finding(
                     "linked_registration", name, node, label, "lowerable",
@@ -2152,9 +2617,7 @@ def analyze_file(source: bytes, label: Path,
                 findings.append(_finding(
                     "asset_install", "install", node, label, "retained"))
 
-        if (node.type == "function_definition"
-                and function_name(node) in inventory.registration_methods
-                and b".Links()" in node.text):
+        if is_registration_method(node, inventory.registration_methods):
             findings.append(_finding(
                 "linked_registration", function_name(node) or "Register",
                 node, label, "lowerable", "remove-linked-registration-method"))
@@ -2502,6 +2965,19 @@ struct S {
   LinkedByte<0x21> flag{uninitialized};
   void Register(Host &host) { value.Register(host.Links(), "value"); }
 };
+struct G {
+  S s;
+  explicit G(Host &host);
+  // Registers every member (deleted by the export).
+  void RegisterAll(Host &host);
+};
+G::G(Host &host) : s() {
+  s.Register(host);
+}
+// Forwards to the members' Register.
+void G::RegisterAll(Host &host) {
+  s.Register(host);
+}
 void f(S &s, Io &io) {
   s.value.write(uint8_t(s.value.read() + 1));
   const auto next = s.data[0].inc();
@@ -2511,7 +2987,9 @@ void f(S &s, Io &io) {
 }
 '''
     linked, linked_counts = lower_source(linked_fixture, Path("linked.cpp"))
-    if (b"Linked" in linked or b".Register(" in linked or b".Links()" in linked):
+    if (b"Linked" in linked or b".Register(" in linked or b".Links()" in linked or
+        b"RegisterAll" in linked or b"Registers every" in linked or b"Forwards" in linked or
+        b"explicit G(Host &host);" not in linked or b"G::G(Host &host) : s() {" not in linked):
         print("lower-standalone-game selftest: linked state survived", file=sys.stderr)
         return 1
     if (b"uint8_t value{7}" not in linked or
@@ -2533,7 +3011,7 @@ void f(S &s, Io &io) {
         linked_counts.linked_reads != 1 or linked_counts.linked_writes != 1 or
         linked_counts.linked_increments != 1 or
         linked_counts.linked_shifts != 1 or
-        linked_counts.linked_registration_methods != 1):
+        linked_counts.linked_registration_methods != 2):
         print(f"lower-standalone-game selftest: bad linked counts {linked_counts}",
               file=sys.stderr)
         return 1
@@ -2894,6 +3372,180 @@ struct G {
         print("lower-standalone-game selftest: linked/io x collision failed",
               file=sys.stderr)
         print(colliding_out.decode("utf-8"), file=sys.stderr)
+        return 1
+    based = b'''\
+struct ScratchState { LinkedByte<0x10> val{0}; LinkedArray<0x20, 4> tab{{0}}; };
+struct PaintBase {
+  revm::cpumock::CpuMockHost & host_;
+  ScratchState & scratch_;
+};
+struct MidBase : protected PaintBase {};
+struct Other { int unrelated; };
+template <class T> struct Tmpl { T t; };
+struct HudPainter : Other, public Tmpl<int>, private virtual MidBase {
+  void f() { (void)host_.MainCycle(); scratch_.val.write(1); }
+  void g();
+  void h() { this->host_.Sei(); PaintBase::host_.Cli(); scratch_.tab[2].inc(); }
+};
+void HudPainter::g() { host_.Sei(); scratch_.val.write(uint8_t(scratch_.val.read() + 1)); }
+void free_fn(HudPainter & p) { p.scratch_.val.dec(); p.host_.Sei(); }
+'''
+    based_out, based_counts = lower_source(based, Path("based.cpp"))
+    if (b"Linked" in based_out or
+            b"scratch_.val = 1;" not in based_out or
+            b"scratch_.val = uint8_t(scratch_.val + 1)" not in based_out or
+            b"++scratch_.tab[2]" not in based_out or
+            b"--p.scratch_.val" not in based_out or
+            b"this->host_.IrqDisable()" not in based_out or
+            b"PaintBase::host_.IrqEnable()" not in based_out or
+            b"p.host_.IrqDisable()" not in based_out or
+            based_counts.host_methods != 5 or
+            based_counts.linked_writes != 2 or
+            based_counts.linked_reads != 1):
+        print("lower-standalone-game selftest: base class members not lowered",
+              file=sys.stderr)
+        print(based_out.decode("utf-8"), file=sys.stderr)
+        return 1
+    hidden = (
+        b"struct Base { LinkedByte<1> x; };\n"
+        b"struct Derived : Base { int x; };\n"
+        b"struct Plain : Base {};\n"
+        b"void f(Derived & d, Plain & p) { d.x.write(1); p.x.write(2); }\n"
+    )
+    hidden_out, _ = lower_source(hidden, Path("hidden.cpp"))
+    if b"d.x.write(1)" not in hidden_out or b"p.x = 2" not in hidden_out:
+        print("lower-standalone-game selftest: derived member did not hide base",
+              file=sys.stderr)
+        print(hidden_out.decode("utf-8"), file=sys.stderr)
+        return 1
+
+    by_reference = b'''\
+struct RankState {
+  LinkedByte<0x95> border_saved{0};
+  LinkedArray<0x100, 4> cells{{0}};
+};
+struct SoundState {
+  LinkedArray<0x200, 8> wave_time_gate{{0}};
+  LinkedByte<0x200> & gate(size_t i) { return wave_time_gate[i]; }
+  auto & gate_auto(size_t i) { return wave_time_gate[i]; }
+  auto & gate_via(size_t i) { return gate_late(i); }
+  auto & gate_late(size_t i) { return wave_time_gate[i]; }
+  decltype(wave_time_gate) & whole() { return wave_time_gate; }
+  auto trailing(size_t i) -> LinkedByte<0x200> & { return wave_time_gate[i]; }
+};
+struct Painter {
+  RankState rank_;
+  SoundState sound_;
+  decltype(RankState::border_saved) & alias_;
+  void params(LinkedByte<0x95> & b, LinkedArray<0x100, 4> & a,
+              decltype(RankState::border_saved) & c,
+              decltype(RankState::cells) & d) {
+    b.write(1);
+    a[2].write(a[1].read());
+    c.inc();
+    d[0].dec();
+  }
+  void locals() {
+    auto & b = rank_.border_saved;
+    b.write(uint8_t(b.read() + 1));
+    LinkedByte<0x95> & e = rank_.border_saved;
+    e.inc();
+    auto & cell = rank_.cells[3];
+    cell.write(9);
+    decltype(RankState::border_saved) & f = rank_.border_saved;
+    f.dec();
+    alias_.write(4);
+    auto lambda = [&](LinkedByte<0x95> & z) { z.write(7); };
+  }
+  void methods(size_t y) {
+    sound_.gate(y).write(1);
+    sound_.gate_auto(y).write(2);
+    sound_.gate_via(y).inc();
+    sound_.whole()[1].write(3);
+    sound_.trailing(y).write(4);
+    for (size_t i = 0; i < 2; ++i) { auto & t = sound_.gate(i); t.write(5); }
+  }
+};
+void Painter_free(Painter & p) {
+  auto & b = p.rank_.border_saved;
+  b.write(6);
+}
+'''
+    ref_out, ref_counts = lower_source(by_reference, Path("by-reference.cpp"))
+    for needle in (
+        b"uint8_t & gate(size_t i) { return wave_time_gate[i]; }",
+        b"auto & gate_auto(size_t i)",
+        b"decltype(wave_time_gate) & whole()",
+        b"auto trailing(size_t i) -> uint8_t &",
+        b"std::array<uint8_t, 4> & a,",
+        b"decltype(RankState::border_saved) & c,",
+        b"uint8_t & b,",
+        b"b = uint8_t(b + 1);",
+        b"uint8_t & e = rank_.border_saved;\n    ++e;",
+        b"cell = 9;",
+        b"--f;",
+        b"alias_ = 4;",
+        b"z = 7;",
+        b"a[2] = a[1];",
+        b"++c;",
+        b"--d[0];",
+        b"sound_.gate(y) = 1;",
+        b"sound_.gate_auto(y) = 2;",
+        b"++sound_.gate_via(y);",
+        b"sound_.whole()[1] = 3;",
+        b"sound_.trailing(y) = 4;",
+        b"t = 5;",
+        b"  b = 6;",
+    ):
+        if needle not in ref_out:
+            print(f"lower-standalone-game selftest: Linked reference lowering "
+                  f"lacks {needle.decode('utf-8')!r}", file=sys.stderr)
+            print(ref_out.decode("utf-8"), file=sys.stderr)
+            return 1
+    if b"Linked" in ref_out or b".write(" in ref_out or b".read(" in ref_out:
+        print("lower-standalone-game selftest: Linked reference survived",
+              file=sys.stderr)
+        print(ref_out.decode("utf-8"), file=sys.stderr)
+        return 1
+
+    unresolved_deduced = {
+        "unknown-auto-local.cpp": (
+            b"struct S { LinkedByte<1> v; auto & pick(int i) { return mystery(i); } };\n"
+            b"void f(S & s) { auto & b = s.pick(1); b.write(2); }\n",
+            "variable 'b' declared auto/decltype",
+        ),
+        "unknown-auto-method.cpp": (
+            b"struct S { auto & pick(int i) { return mystery(i); } };\n"
+            b"void f(S & s) { s.pick(1).write(2); }\n",
+            "method 'pick()' declared auto/decltype",
+        ),
+        "conflicting-returns.cpp": (
+            b"struct A { LinkedByte<1> a; int b; };\n"
+            b"struct D { A s; auto & m(int i) { if (i) return s.a; return s.b; } };\n",
+            "returns different types",
+        ),
+    }
+    for name, (source, diagnostic) in unresolved_deduced.items():
+        try:
+            lower_source(source, Path(name))
+        except ValueError as exc:
+            if diagnostic not in str(exc):
+                print(f"lower-standalone-game selftest: wrong diagnostic for "
+                      f"{name}: {exc}", file=sys.stderr)
+                return 1
+        else:
+            print(f"lower-standalone-game selftest: {name} accepted",
+                  file=sys.stderr)
+            return 1
+    io_deduced = (
+        b"struct T { Io io_; auto & col(int i) { return io_.color_ram[i]; } };\n"
+        b"void f(T & t, Io & io) { t.col(1).write(2); auto & v = io.vic; v.bg0.write(1); }\n"
+    )
+    io_out, _ = lower_source(io_deduced, Path("io-deduced.cpp"))
+    if b"t.col(1).write(2)" not in io_out or b"v.bg0.write(1)" not in io_out:
+        print("lower-standalone-game selftest: auto host I/O was rewritten",
+              file=sys.stderr)
+        print(io_out.decode("utf-8"), file=sys.stderr)
         return 1
     with tempfile.TemporaryDirectory() as directory:
         tree = Path(directory)
