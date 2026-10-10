@@ -472,7 +472,7 @@ invoke_play() {
 			require_begin
 			require_kb
 			exe="$BIN/revm-s3-$GAME"
-			load_args=(--load-snapshot "$BEGIN_SNAP" --kb "$KB_JSON")
+			load_args=(--load-snapshot "$BEGIN_SNAP" --kb "$KB_JSON" --kb-check-stage3)
 			;;
 		stage4)
 			require_begin

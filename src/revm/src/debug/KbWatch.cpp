@@ -34,7 +34,8 @@ void KbWatch::Configure(const KnowledgeBase & kb, bool include_yes, bool include
 	for (const auto & o : kb.Objects()) {
 		if (!KbWatchEnroll(o)) continue; // DRAM or color plane; never I/O map
 		if (o.watch == KbWatchLevel::No) continue;
-		if (o.watch == KbWatchLevel::Yes && !include_yes) continue;
+		if ((o.watch == KbWatchLevel::Yes || o.watch == KbWatchLevel::Stage3) &&
+		    !include_yes) continue;
 		if (o.watch == KbWatchLevel::Verbose && !include_verbose) continue;
 		Slot s;
 		s.obj = &o;

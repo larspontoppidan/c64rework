@@ -1203,6 +1203,7 @@ void CpuMockHost::apply_user_cfg(Config & cfg, const Config * user_cfg) {
 	cfg.kb_trace_calls = user_cfg->kb_trace_calls;
 	cfg.kb_check = user_cfg->kb_check;
 	cfg.kb_check_verbose = user_cfg->kb_check_verbose;
+	cfg.kb_check_stage3 = user_cfg->kb_check_stage3;
 	cfg.rom_dir = user_cfg->rom_dir;
 	cfg.begin_snap_path = user_cfg->begin_snap_path;
 	cfg.rand_seed = user_cfg->rand_seed;
@@ -1240,10 +1241,11 @@ void CpuMockHost::setup_kb_check() {
 	// --kb-check-verbose adds watch:"verbose" slots.
 	if (board_.Kb().Empty() || NoTwin()) return;
 	const Config & cfg = board_.GetConfig();
-	kb_check_.Configure(board_.Kb(), true, cfg.kb_check_verbose);
-	REVM_LOG(REVM_DEBUG, "kb-check: %zu slot(s), %zu byte(s)%s",
+	kb_check_.Configure(board_.Kb(), true, cfg.kb_check_verbose, cfg.kb_check_stage3);
+	REVM_LOG(REVM_DEBUG, "kb-check: %zu slot(s), %zu byte(s)%s%s",
 	              kb_check_.SlotCount(), kb_check_.ByteCount(),
-	              cfg.kb_check_verbose ? " (verbose)" : "");
+	              cfg.kb_check_verbose ? " (verbose)" : "",
+	              cfg.kb_check_stage3 ? " (stage3)" : "");
 }
 
 

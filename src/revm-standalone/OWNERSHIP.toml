@@ -83,7 +83,7 @@ reason = "Standalone timed logs format only the Main clock; Twin suffixes and Sa
 
 [[forked]]
 path = "src/core/Config.hpp"
-base_sha256 = "00485eccfde2ba62448e761483656d3b7aed46be174d6534eac08e5c7ec4fef8"
+base_sha256 = "8fb992e787960b26ccf5ff4fa26ec32e4af198eec5625b58330e18137837176d"
 reason = "Standalone configuration is blank-Main only and uses one SidMode instead of overlapping audio flags. --save-screen FRAME FILE is retained."
 
 [[forked]]
@@ -185,7 +185,7 @@ reason = "Standalone VIC removes its stale cartridge reference while preserving 
 
 [[forked]]
 path = "apps/revm/main.cpp"
-base_sha256 = "fad5a6cd4a51f9b02788dfd2ef46e5515bbdc5bb7a38a0fbc347a86dff5703a8"
+base_sha256 = "978b4b57cf3758e2d932b7f23ca51d17219aaa408abad57ed1740625372418a9"
 reason = "Standalone entry point omits REVM CLI, oracle, Twin, and analysis startup; launch uses StandaloneRunner and one SidMode for interactive play, --record-play, and replay. Prints a live key sheet (including Ctrl+F9) on windowed launches. --save-screen FRAME FILE is retained."
 
 [[forked]]

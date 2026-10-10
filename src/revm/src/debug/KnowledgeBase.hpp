@@ -24,6 +24,9 @@ enum class KbWatchLevel {
 	No,
 	Yes,
 	Verbose,
+	// Translation detail (6502 pointer/scratch registers): compared by
+	// Stage 3 kb-check only (--kb-check-stage3); shown like "yes" in watches.
+	Stage3,
 };
 
 // CPU memory bank for an annotation. Omitted / "ram" is the default (game RAM /

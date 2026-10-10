@@ -156,6 +156,12 @@ struct GameState {
 };
 ```
 
+A KB watch exists to catch drift in game variables. If Stage 4 finds itself
+keeping a RAM copy of data the game no longer reads from RAM only because a
+watch covers it, the watch is wrong, not the code: switch it off in the KB
+with a note saying why (see STAGE2.md), and keep the screen and SID compares
+as the check for assets and display memory.
+
 Registration is its own method. The standalone exporter deletes every
 `Register` method, so a function that calls `host.Links()` must be named
 `Register…` and do nothing but register: no other initialisation in it, no

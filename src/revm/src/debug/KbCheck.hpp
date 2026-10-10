@@ -24,7 +24,8 @@ namespace cpumock { class LinkedRegistry; }
 class KbCheck {
 public:
 	void Reset();
-	void Configure(const KnowledgeBase & kb, bool include_yes, bool include_verbose);
+	void Configure(const KnowledgeBase & kb, bool include_yes, bool include_verbose,
+	               bool include_stage3 = false);
 
 	bool Active() const { return !slots_.empty(); }
 	size_t SlotCount() const { return slots_.size(); }

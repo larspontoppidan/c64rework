@@ -117,6 +117,7 @@ void print_usage(const char * argv0) {
 		"                        Watch window: click a variable, configured cheat keys\n"
 		"  --watch-timeline FILE JSONL of watch changes (implies watch sampling)\n"
 		"  --kb-check-verbose    Stage 3: also check KB watch:\"verbose\" slots\n"
+		"  --kb-check-stage3     Also check KB watch:\"stage3\" slots (Stage 3 targets)\n"
 		"  --trace-calls         Log fetches at KB objects with trace:\"yes\"\n"
 		"  --coverage FILE       Record REVMCOV2 coverage (u16 counts/addr)\n"
 		"  --headless            Hidden window, uncapped; requires --max-frames N\n"
@@ -479,6 +480,8 @@ bool parse_args(int argc, char ** argv, Opts & o, std::string & error) {
 			o.cfg.kb_watch_font = v;
 		} else if (std::strcmp(a, "--kb-check-verbose") == 0) {
 			o.cfg.kb_check_verbose = true;
+		} else if (std::strcmp(a, "--kb-check-stage3") == 0) {
+			o.cfg.kb_check_stage3 = true;
 		} else if (std::strcmp(a, "--trace-calls") == 0) {
 			o.cfg.kb_trace_calls = true;
 		} else if (std::strcmp(a, "--watch-timeline") == 0) {

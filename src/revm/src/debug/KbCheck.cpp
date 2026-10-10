@@ -39,15 +39,16 @@ void KbCheck::Reset() {
 }
 
 void KbCheck::Configure(const KnowledgeBase & kb, bool include_yes,
-                        bool include_verbose) {
+                        bool include_verbose, bool include_stage3) {
 	Reset();
-	if (!include_yes && !include_verbose) return;
+	if (!include_yes && !include_verbose && !include_stage3) return;
 
 	for (const auto & o : kb.Objects()) {
 		if (!KbWatchEnroll(o)) continue;
 		if (o.watch == KbWatchLevel::No) continue;
 		if (o.watch == KbWatchLevel::Yes && !include_yes) continue;
 		if (o.watch == KbWatchLevel::Verbose && !include_verbose) continue;
+		if (o.watch == KbWatchLevel::Stage3 && !include_stage3) continue;
 		Slot s;
 		s.obj = &o;
 		s.addr = o.addr;
@@ -56,6 +57,22 @@ void KbCheck::Configure(const KnowledgeBase & kb, bool include_yes,
 		if (s.len == 0) s.len = 1;
 		slot_bytes_ += s.len;
 		slots_.push_back(s);
+	}
+
+	// KB watches are for game variables that can drift. Assets and display
+	// memory are verified by the screen and SID compares; a sweeping RAM
+	// compare only ties Main to the C64 memory map (STAGE2.md).
+	constexpr size_t kWarnTotal = 2048;
+	constexpr uint16_t kWarnObject = 512;
+	const Slot * largest = nullptr;
+	for (const auto & s : slots_)
+		if (!largest || s.len > largest->len) largest = &s;
+	if (largest && (slot_bytes_ > kWarnTotal || largest->len > kWarnObject)) {
+		REVM_LOG(REVM_INFO,
+		         "warning: KB watches %zu bytes in %zu objects (largest %s, %u bytes); "
+		         "watch game variables, not assets or display memory (STAGE2.md)",
+		         slot_bytes_, slots_.size(), largest->obj->name.c_str(),
+		         unsigned(largest->len));
 	}
 }
 

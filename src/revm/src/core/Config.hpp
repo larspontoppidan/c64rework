@@ -65,6 +65,9 @@ struct Config {
 	bool kb_trace_calls = false;
 	bool kb_check = false;
 	bool kb_check_verbose = false;
+	// --kb-check-stage3: also check watch:"stage3" slots (./rework passes it
+	// for Stage 3 targets).
+	bool kb_check_stage3 = false;
 
 	std::string coverage_path;
 	std::string watch_timeline_path; // --watch-timeline FILE (JSONL)

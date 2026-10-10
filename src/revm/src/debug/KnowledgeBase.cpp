@@ -199,6 +199,10 @@ bool parse_watch(const std::string & t, KbWatchLevel & out) {
 		out = KbWatchLevel::Verbose;
 		return true;
 	}
+	if (t == "stage3") {
+		out = KbWatchLevel::Stage3;
+		return true;
+	}
 	return false;
 }
 
@@ -701,6 +705,9 @@ bool KnowledgeBase::SaveFile(const std::string & path, std::string & error) cons
 		} else if (o.watch == KbWatchLevel::Verbose) {
 			sep();
 			json += "      \"watch\": \"verbose\"";
+		} else if (o.watch == KbWatchLevel::Stage3) {
+			sep();
+			json += "      \"watch\": \"stage3\"";
 		}
 		if (o.trace) {
 			sep();

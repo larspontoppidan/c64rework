@@ -83,7 +83,7 @@ Line notes omit `kind` (defaults to **`comment`**).
 | `name` | no | Label / symbol name |
 | `comment` | no | Free text |
 | `format` | no | Format id for `blob` (section in `Stage2/FORMATS.md`) |
-| `watch` | no | `no` \| `yes` \| `verbose` — **default `no`** |
+| `watch` | no | `no` \| `yes` \| `verbose` \| `stage3` — **default `no`** |
 | `trace` | no | `no` \| `yes` \| `false` \| `true` — **default `no`** (fetch at `addr`) |
 
 ### `bank`
@@ -179,6 +179,7 @@ Omitted `bank` defaults to DRAM. If the object's range overlays I/O chips
 | `no` | Never print (default) |
 | `yes` | Shown in `--watch` stderr / `--watch-window`; Stage 3 kb-check with `--kb` |
 | `verbose` | Shown only with `--watch-verbose` / `--kb-check-verbose` |
+| `stage3` | Shown like `yes`; kb-check only with `--kb-check-stage3`, which `./rework` passes for Stage 3 targets |
 
 `--watch-window` opens a second SDL window listing current values (redraw on
 change). Rows that do not fit are reached with the mouse wheel (3 rows per

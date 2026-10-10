@@ -262,6 +262,8 @@ def main(argv: list[str]) -> int:
                "--use-play", str(out_dir / f"{vname}.json"), "--headless", "--no-audio",
                "--ignore-play-hashes", "--rom-dir", paths["ROM_DIR"],
                "--dump-fail", str(out_dir / "fail" / vname), "--dump-fail-limit", "1"]
+        if o["target"] == "stage3":
+            cmd.append("--kb-check-stage3")
         if o["no_twin"]:
             cmd.append("--no-twin")
         if o["main_blank"]:

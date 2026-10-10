@@ -108,6 +108,22 @@ Day-to-day Stage 2 work is: edit the KB, then rebuild analysis.
 - Keep original addresses and inclusive ranges precise.
 - Use `function` for callable original routines and `label` for internal entry
   points or branch targets.
+- Watch game variables, not memory. A KB watch compares Main and Twin at
+  every fence so a translation mistake in game state shows up at the store
+  that caused it, before it reaches the frame or the SID. Watch the variables
+  and small state tables whose drift would matter: positions, counters,
+  scores, flags, per-object tables. Do not watch assets, code, screen or
+  colour memory, charsets, sprite shapes or level maps: everything the game
+  shows or plays is already checked by the screen and SID compares, and a
+  sweeping compare ties every later stage to the C64 memory map. A broad
+  watch is fine as a temporary debugging aid; switch it off before Stage 3 is
+  accepted. REVM warns when watches exceed 2048 bytes or one object 512.
+- Use `watch: "stage3"` for translation detail: the 6502's general pointer
+  and scratch registers, work bytes reused by many routines. They localize a
+  translation mistake at the store that caused it, which is Stage 3's job,
+  but they have no meaning once Stage 4 replaces them with locals and typed
+  state, so only Stage 3 compares them. `yes` is for game variables, compared
+  in every stage.
 - Use `watch: "yes"` for DRAM (or `bank:"color"` for nybble file) expected to
   agree at Stage 3 joins; reserve `watch: "verbose"` for optional detail.
   A watch whose range overlays `$D000-$DFFF` / `$0000-$0001` must set `bank`.
