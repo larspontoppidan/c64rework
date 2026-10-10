@@ -155,7 +155,7 @@ reason = "Standalone CPU interface removes cartridge, IEC, tape, REU, and autost
 
 [[forked]]
 path = "src/vendor/frodo/CPUC64_SC.cpp"
-base_sha256 = "16b8105a96c467430c1999489595a191926e4ec96257be4caf2a28ed8ac8707b"
+base_sha256 = "465b15bc8d8ebc8f2b6bdbc88c0e7a72cb2dc533eb2bc541958785e05e49db96"
 reason = "Standalone CPU memory map treats removed cartridge I/O as open bus and omits media and expansion handlers."
 
 [[forked]]

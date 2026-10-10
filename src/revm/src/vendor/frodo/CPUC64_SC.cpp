@@ -504,17 +504,14 @@ inline void MOS6510::write_byte_io(uint16_t adr, uint8_t byte)
 			case 0x3:
 				the_vic->WriteRegister(adr & 0x3f, byte);
 				return;
-			case 0x4:	// SID
+			case 0x4:	// SID and its mirrors
 			case 0x5:
 			case 0x6:
-				the_sid->WriteRegister(adr & 0x1f, byte);
-				return;
 			case 0x7:
-				if (ThePrefs.TestBench && adr == 0xd7ff) {
-					the_c64->RequestQuit(byte);
-				} else {
-					the_sid->WriteRegister(adr & 0x1f, byte);
-				}
+				// REVM: no Frodo TestBench quit trap at $D7FF. REVM enables
+				// TestBench for every headless and Twin board, so the trap
+				// turned a game's SID-mirror write into a silent exit.
+				the_sid->WriteRegister(adr & 0x1f, byte);
 				return;
 			case 0x8:	// Color RAM
 			case 0x9:
