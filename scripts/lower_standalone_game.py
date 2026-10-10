@@ -205,6 +205,7 @@ class Counts:
     diag_watch_calls: int = 0
     diag_align_calls: int = 0
     compare_mask_usings: int = 0
+    compare_mask_functions: int = 0
     fence_slack_usings: int = 0
     linked_bytes: int = 0
     linked_words: int = 0
@@ -1217,6 +1218,54 @@ def lower_dead_diag(source: bytes, label: Path, counts: Counts) -> bytes:
         setattr(counts, DIAG_CALLS[kind],
                 getattr(counts, DIAG_CALLS[kind]) + 1)
     return apply_edits(source, edits, label)
+
+
+def _is_compare_mask_type(node) -> bool:
+    return node is not None and node.text.decode("utf-8").split("::")[-1] == "CompareMask"
+
+
+def _declared_function_name(node) -> str | None:
+    declarator = node.child_by_field_name("declarator")
+    while declarator is not None and declarator.type != "function_declarator":
+        declarator = declarator.child_by_field_name("declarator")
+    if declarator is None:
+        return None
+    name = declarator.child_by_field_name("declarator")
+    return None if name is None else name.text.decode("utf-8").split("::")[-1]
+
+
+def lower_compare_mask_functions(source: bytes, label: Path, counts: Counts) -> bytes:
+    """Remove functions that return a CompareMask.
+
+    A CompareMask only parameterises a Twin compare, and every compare is gone
+    once the Sync calls are lowered, so such a function is Twin-only. A call
+    that survives elsewhere is an export error, not a silent removal."""
+    root = parse(source, label).root_node
+    edits: list[Edit] = []
+    names: set[str] = set()
+    for node in walk(root):
+        if node.type not in {"function_definition", "declaration", "field_declaration"}:
+            continue
+        if not _is_compare_mask_type(node.child_by_field_name("type")):
+            continue
+        name = _declared_function_name(node)
+        if name is None:
+            continue
+        names.add(name)
+        edits.append(Edit(node.start_byte, node.end_byte, b"",
+                          "remove-compare-mask-function"))
+        counts.compare_mask_functions += 1
+    if not edits:
+        return source
+    lowered = apply_edits(source, edits, label)
+    for node in walk(parse(lowered, label).root_node):
+        if node.type in {"identifier", "field_identifier"} and \
+                node.text.decode("utf-8") in names:
+            raise ValueError(
+                f"{locate(node, label)}: {node.text.decode('utf-8')} returns a "
+                "CompareMask (Twin-only) but is still used outside a Sync call"
+            )
+    return lowered
 
 
 UNUSED_USING_IMPORTS = {
@@ -2295,6 +2344,7 @@ def lower_source(source: bytes, label: Path,
     lowered = step(lower_dead_diag, lowered)
     lowered = step(lower_clock, lowered)
     lowered = step(lower_sync_imports, lowered)
+    lowered = step(lower_compare_mask_functions, lowered)
     lowered = step(lower_unused_using_imports, lowered)
     lowered = step(lower_linked_registration, lowered, inventory)
     lowered = step(lower_linked_operations, lowered, inventory)
@@ -2680,6 +2730,31 @@ struct G {
         print("lower-standalone-game selftest: comments shifted Sync arguments:\n"
               + commented, file=sys.stderr)
         return 1
+    mask_helper = (
+        b"using revm::cpumock::CompareMask;\n"
+        b"struct T {\n"
+        b"  int depth = 0;\n"
+        b"  CompareMask exit_mask() const { return depth ? CompareMask::Kb() : CompareMask::None(); }\n"
+        b"};\n"
+        b"void f(T &t) { Sync::JoinAtPc(host_, 0x1000, t.exit_mask()); }\n"
+    )
+    lowered_helper = lower_source(mask_helper, Path("mask-helper.cpp"))[0].decode("utf-8")
+    if "CompareMask" in lowered_helper or "exit_mask" in lowered_helper:
+        print("lower-standalone-game selftest: CompareMask helper survived:\n"
+              + lowered_helper, file=sys.stderr)
+        return 1
+    try:
+        lower_source(mask_helper + b"int g(T &t) { return t.exit_mask().kb; }\n",
+                     Path("mask-helper-used.cpp"))
+    except ValueError as exc:
+        if "still used outside a Sync call" not in str(exc):
+            print(f"lower-standalone-game selftest: wrong mask diagnostic: {exc}",
+                  file=sys.stderr)
+            return 1
+    else:
+        print("lower-standalone-game selftest: CompareMask helper used outside "
+              "Sync accepted", file=sys.stderr)
+        return 1
     missing_frames = (
         b"void f() { Sync::JoinAtPcBounded(host_, 0x03C0, {.max_frames = 8}); }\n"
     )
@@ -2907,6 +2982,7 @@ def main() -> int:
         f"diag_watch_calls={counts.diag_watch_calls} "
         f"diag_align_calls={counts.diag_align_calls} "
         f"compare_mask_usings={counts.compare_mask_usings} "
+        f"compare_mask_functions={counts.compare_mask_functions} "
         f"fence_slack_usings={counts.fence_slack_usings}"
         f" linked_bytes={counts.linked_bytes} linked_words={counts.linked_words} "
         f"linked_arrays={counts.linked_arrays} linked_uninitialized={counts.linked_uninitialized} linked_reads={counts.linked_reads} "
