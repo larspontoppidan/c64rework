@@ -331,6 +331,18 @@ The rule fixtures are part of the tool and must remain green:
 ./rework selftest
 ```
 
+## REMASTERING.md
+
+The last Stage 4 deliverable is `Stage4/REMASTERING.md`, a guide for the people
+who will remaster the standalone export. `start-stage4` keeps the template's
+headlines (game, architecture, timing, assets, hardware surfaces, gotchas,
+changing the game safely, carried debt); fill them in once the code has
+settled. Explain the game and the code as they are, in game terms: what each
+module owns, what must stay frame-exact, which quirks of the original the game
+depends on. Leave the rework history to NOTES.md and the instruction-level
+detail to Stage 3, the KB and LANDMINES.md. The export copies the file to its
+root.
+
 ## Done
 
 Stage 4 as a whole, including Stage 4.5, is complete when:
@@ -339,4 +351,5 @@ Stage 4 as a whole, including Stage 4.5, is complete when:
 - Every no-twin play passes with `--main-blank --no-twin`
 - At least one no-twin play without `mod_events` is recorded on Stage 4.5
 - No lint findings except for valid and documented exceptions
+- `Stage4/REMASTERING.md` describes the finished code
 - Review based on STAGE4-REVIEW.md accepts the quality of the code.

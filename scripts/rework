@@ -397,12 +397,14 @@ start_stage4() {
 	mkdir -p -- "$destination"
 	local unexpected
 	unexpected="$(find "$destination" -mindepth 1 -maxdepth 1 \
-		! -name .gitkeep ! -name NOTES.md ! -name REVIEW.md -print -quit)"
+		! -name .gitkeep ! -name NOTES.md ! -name REVIEW.md ! -name REMASTERING.md \
+		-print -quit)"
 	[[ -z "$unexpected" ]] || die "Stage4 is not pristine: $unexpected"
 	python3 - "$source" "$destination" <<'PY'
 import pathlib, shutil, sys
 source, destination = map(pathlib.Path, sys.argv[1:])
-skip = {".git", "build", "bin", "NOTES.md", "REVIEW.md", "stage3-lint.json"}
+skip = {".git", "build", "bin", "NOTES.md", "REVIEW.md", "REMASTERING.md",
+        "stage3-lint.json"}
 for path in source.iterdir():
     if path.name in skip:
         continue
@@ -638,6 +640,8 @@ generate_export() {
 	if [[ ${1:-} == --replace ]]; then replace=true; shift; fi
 	[[ $# -eq 0 ]] || die "export accepts only --replace"
 	[[ ! -e "$EXPORT" || "$replace" == true ]] || die "$EXPORT exists; pass --replace"
+	[[ -f "$GAME_ROOT/Stage4/REMASTERING.md" ]] ||
+		die "missing Stage4/REMASTERING.md (a Stage 4.5 deliverable; template in game-template/Stage4/)"
 	stage4_diag
 	audit_runtime
 	local stage_dir backup=""
@@ -647,6 +651,7 @@ generate_export() {
 	mkdir -p -- "$stage_dir/src/game"
 	cp -a -- "$REVM_ROOT/VERSION" "$stage_dir/c64rework.version"
 	cp -a -- "$GAME_ROOT/Stage4/." "$stage_dir/src/game/"
+	cp -a -- "$GAME_ROOT/Stage4/REMASTERING.md" "$stage_dir/REMASTERING.md"
 	rm -f -- "$stage_dir/src/game/CMakeLists.txt"
 	find "$stage_dir/src/game" -type f -name '*.md' -delete
 	run_script "$SCRIPTS/lower_standalone_game.py" lower "$stage_dir/src/game"

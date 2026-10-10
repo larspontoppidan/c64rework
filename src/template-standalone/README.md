@@ -3,6 +3,9 @@
 This is a faithful standalone C++/SDL2 reimplementation produced with the
 [C64rework](https://github.com/larspontoppidan/c64rework) framework.
 
+Start with `REMASTERING.md`: the game's architecture, timing, assets and
+gotchas, written for remastering work.
+
 Layout:
 
 - `src/game/` — reimplemented game code and packaged assets.

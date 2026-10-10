@@ -42,7 +42,8 @@ once so the Python lowering and audit tools can execute.
 ## Required input
 
 - An accepted `Stage4/` checkpoint passing all the gates and code quality 
-requirements.
+requirements, including `Stage4/REMASTERING.md`. The export copies it to its
+root and refuses to export without it.
 - Relevant play recordings for testing. Standalone can only faithfully
 playback no-twin type plays with no `mod_events`, recorded on Stage 4.5
 (`--main-blank --no-twin`).

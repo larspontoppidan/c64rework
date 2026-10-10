@@ -68,6 +68,8 @@ Things to remember checking and pointing out:
 - All strings in the assets should be legible strings or chars, not hexadecimals.
 This will most likely require a petscii to ascii conversion system. This can be done
 compile-time in C++.
+- At the Stage 4.5 review, check `Stage4/REMASTERING.md` against the code: would
+a remaster team understand the architecture, timing, assets and gotchas from it?
 - Check that comments explain the game rather than the original's opcodes:
 one provenance line per function, no instruction echoes or investigation
 narratives (lint S4-008).
