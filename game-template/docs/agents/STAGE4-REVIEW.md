@@ -68,6 +68,9 @@ Things to remember checking and pointing out:
 - All strings in the assets should be legible strings or chars, not hexadecimals.
 This will most likely require a petscii to ascii conversion system. This can be done
 compile-time in C++.
+- Check that comments explain the game rather than the original's opcodes:
+one provenance line per function, no instruction echoes or investigation
+narratives (lint S4-008).
 - Check that packed or encoded data (compressed streams, run lists, records in
 the game's character codes) is shipped decoded as explicit assets. A named byte
 array a reader cannot read is still a blob.

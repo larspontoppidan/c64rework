@@ -39,6 +39,7 @@ RULES = {
     "S4-005": ("error", "goto in migrated game code"),
     "S4-006": ("warning", "raw machine address outside Sync/Linked provenance"),
     "S4-007": ("error", "free opcode-mimicking helper call or import"),
+    "S4-008": ("warning", "comment echoes an original 6502 instruction"),
 }
 
 SUPP_RE = re.compile(
@@ -113,6 +114,48 @@ def load_config(game_dir: Path) -> Config:
             raise SystemExit(f"{path}: exception {key!r} needs a reason")
         exceptions[str(key)] = reason.strip()
     return Config(exceptions)
+
+
+def _comments_cpp(src: str) -> str:
+    """Keep only comment text (line and block), blanking code and literals,
+    preserving line/column offsets."""
+    out = [ch if ch == "\n" else " " for ch in src]
+    i = 0
+    state = "code"
+    while i < len(src):
+        c = src[i]
+        n = src[i + 1] if i + 1 < len(src) else ""
+        if state == "code":
+            if c == "/" and n in "/*" and n:
+                state = "line" if n == "/" else "block"
+                i += 2
+            elif c in "\"'":
+                state = "string" if c == '"' else "char"
+                i += 1
+            else:
+                i += 1
+        elif state == "line":
+            if c == "\n":
+                state = "code"
+            else:
+                out[i] = c
+            i += 1
+        elif state == "block":
+            if c == "*" and n == "/":
+                state = "code"
+                i += 2
+            else:
+                out[i] = c
+                i += 1
+        else:
+            if c == "\\":
+                i += 2
+            elif (state == "string" and c == '"') or (state == "char" and c == "'"):
+                state = "code"
+                i += 1
+            else:
+                i += 1
+    return "".join(out)
 
 
 def _mask_cpp(src: str) -> str:
@@ -190,6 +233,7 @@ class Scanner:
         self.findings: list[Finding] = []
         self.lines = source.splitlines()
         self.masked_lines = self.masked.splitlines()
+        self.comment_lines = _comments_cpp(source).splitlines()
 
     def suppressed(self, line: int, rule: str) -> bool:
         for candidate in (line - 1, line):
@@ -291,10 +335,29 @@ class Scanner:
                      "metadata in Sync PCs/Linked provenance or name the "
                      "asset/hardware surface")
 
+    def check_comment(self, line_no: int, comment: str) -> None:
+        # Stage 4 reads like a game: instruction-level provenance belongs in
+        # Stage 3, the KB and LANDMINES. A one-line anchor per function
+        # ("Original: $3C14 unpack_stream") does not match.
+        if OPCODE_ECHO_RE.search(comment):
+            self.add("S4-008", line_no,
+                     "comment echoes an original 6502 instruction; keep one "
+                     "provenance line per function and explain the game, not "
+                     "the opcodes (Stage 3 keeps the instruction trail)")
+
     def run(self) -> list[Finding]:
         for line_no, line in enumerate(self.masked_lines, 1):
             self.check_line(line_no, line)
+        for line_no, comment in enumerate(self.comment_lines, 1):
+            self.check_comment(line_no, comment)
         return self.findings
+
+
+OPCODE_ECHO_RE = re.compile(
+    r"\$[0-9A-Fa-f]{4}\s+(?:ADC|AND|ASL|BCC|BCS|BEQ|BIT|BMI|BNE|BPL|BVC|BVS|"
+    r"CLC|CLD|CLI|CMP|CPX|CPY|DEC|DEX|DEY|EOR|INC|INX|INY|JMP|JSR|LDA|LDX|"
+    r"LDY|LSR|NOP|ORA|PHA|PHP|PLA|PLP|ROL|ROR|RTI|RTS|SBC|SEC|SED|SEI|STA|"
+    r"STX|STY|TAX|TAY|TSX|TXA|TXS|TYA)\b")
 
 
 def scan_sources(sources: dict[str, str], config: Config) -> list[Finding]:
@@ -332,6 +395,10 @@ void Game::ok() {
         ("qualified free helper", "revm::cpumock::inc(index);", {"S4-007"}),
         ("free helper import", "using revm::cpumock::ror;", {"S4-007"}),
         ("bag RMW allowed", "io.vic.border.rol(&carry);", set()),
+        ("opcode echo comment", "x = 1; // $3C1E INY", {"S4-008"}),
+        ("opcode echo line comment", "// $3C16 LDA ($1A),Y -- the page", {"S4-008"}),
+        ("provenance anchor allowed", "// Original: $3C14 unpack_stream", set()),
+        ("string is not a comment", 'log("// $1000 SEI");', set()),
     ]
     failures = 0
     for name, source, expected in cases:

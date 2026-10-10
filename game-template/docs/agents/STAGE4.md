@@ -169,6 +169,23 @@ struct GameState {
 };
 ```
 
+## Comments
+
+Stage 4 should read like a game. Stage 3 stays the annotated translation and
+keeps the instruction-level trail; the KB, `Stage2/FORMATS.md` and
+`docs/LANDMINES.md` keep the understanding; git history and `NOTES.md` keep
+how it was found. In Stage 4:
+
+- give each function one provenance line, e.g.
+  `// Original: $3C14 unpack_stream (Stage3/title.cpp)`;
+- explain game behaviour and why the code has its shape, including quirks the
+  game depends on;
+- do not echo original instructions (`// $3C1E INY`) or keep investigation
+  narratives; move anything still needed to LANDMINES.md or NOTES.md.
+
+Lint rule S4-008 warns about comments that echo an original instruction. PCs in
+`Sync` calls are code, not comments, and stay.
+
 A KB watch exists to catch drift in game variables. If Stage 4 finds itself
 keeping a RAM copy of data the game no longer reads from RAM only because a
 watch covers it, the watch is wrong, not the code: switch it off in the KB
