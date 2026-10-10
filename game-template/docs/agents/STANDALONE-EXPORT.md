@@ -112,8 +112,10 @@ Accepted forms the analyzer will lower:
 - Linked scalar and array `read`/`write`/`inc`/`dec`/`asl`/`lsr`/`rol`/`ror`,
   including template parameters resolved from call sites across the copied
   tree. Receivers are matched by declared type path, not terminal names.
-- Host `Sei`/`Cli`/`SoftQuit`/`AssertBegin`/`QuitRequested` and
+- Host `Sei`/`Cli`/`SoftQuit`/`AssertBegin`/`QuitRequested`/`MainCycle` and
   `InstallIrqHandler`/`InstallNmiHandler` on a typed host or `host()`.
+  `MainCycle()` is Main's simulation clock for `--no-twin` pacing; game code
+  must not reach into `MainBoard()`, which has no standalone counterpart.
 - Facade includes, `revm::cpumock` types in the rewrite map, `REVM_LOG*`
   macros, and `namespace revm::cpumock` as the game entry.
 

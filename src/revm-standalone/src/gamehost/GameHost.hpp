@@ -117,6 +117,8 @@ public:
 	uint32_t AdvanceFrames(uint32_t frames);
 	void ReturnIrq(uint32_t body_cycles);
 	void ReturnNmi(uint32_t cycles);
+	// Main's simulation clock (CpuMockHost::MainCycle in Stage 4).
+	uint32_t MainCycle() const;
 
 private:
 	friend class revm::StandaloneRunner;

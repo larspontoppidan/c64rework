@@ -88,6 +88,7 @@ HOST_METHOD_MAP = {
     "AssertBegin": "AssertEntry",
     "InstallIrqHandler": "SetIrqHandler",
     "InstallNmiHandler": "SetNmiHandler",
+    "MainCycle": "MainCycle",
 }
 HOST_CONTROL_METHODS = {
     "Sei", "Cli", "SoftQuit", "QuitRequested", "AssertBegin",

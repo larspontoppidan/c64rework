@@ -209,6 +209,9 @@ public:
 	uint32_t AdvanceFrames(uint32_t frames);
 	void ReturnIrq(uint32_t body_cycles);
 	void ReturnNmi(uint32_t cycles);
+	// Main's own simulation clock: the cycle count of Main's board. Use it
+	// for --no-twin pacing; the standalone GameHost has the same method.
+	uint32_t MainCycle() const { return board_.CycleCounter(); }
 
 	Board & MainBoard() { return board_; }
 	const Board & MainBoard() const { return board_; }

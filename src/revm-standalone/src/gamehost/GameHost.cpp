@@ -428,6 +428,10 @@ void GameHost::ThrowIfQuitRequested() {
 		throw SoftQuitException{board_.ExitCode()};
 }
 
+uint32_t GameHost::MainCycle() const {
+	return board_.CycleCounter();
+}
+
 bool GameHost::ShouldQuit() const {
 	const C64 * c64 = board_.Machine();
 	return c64 && c64->QuitRequested();
