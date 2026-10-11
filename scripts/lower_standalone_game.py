@@ -232,6 +232,11 @@ class Counts:
     qualified_types: int = 0
     host_methods: int = 0
     entry_namespaces: int = 0
+    unreachable_statements: int = 0
+    dead_functions: int = 0
+    dead_function_calls: int = 0
+    dead_functions_kept: int = 0
+    dead_constants: int = 0
 
     def add(self, other: "Counts") -> None:
         for name in self.__dataclass_fields__:
@@ -1389,9 +1394,14 @@ def lower_twin_control(source: bytes, label: Path, counts: Counts) -> bytes:
                     alternative = node.child_by_field_name("alternative")
                     if alternative is not None and alternative.named_children:
                         selected = alternative.named_children[0]
-                replacement = selected.text if selected is not None else b""
-                candidates.append(Edit(node.start_byte, node.end_byte, replacement,
-                                       "select-no-twin-if"))
+                if selected is not None:
+                    candidates.append(Edit(node.start_byte, node.end_byte, selected.text,
+                                           "select-no-twin-if"))
+                else:
+                    # Nothing survives: remove the statement and, if it had a
+                    # line of its own, the line.
+                    start, end, replacement = remove_whole_statement(source, node)
+                    candidates.append(Edit(start, end, replacement, "select-no-twin-if"))
                 candidate_kinds.append("if")
             elif node.type == "conditional_expression":
                 condition = node.child_by_field_name("condition")
@@ -1456,16 +1466,8 @@ def lower_dead_sync(source: bytes, label: Path, counts: Counts) -> bytes:
                 f"{label}:{row + 1}:{column + 1}: Sync::{kind} is not a "
                 "standalone expression statement"
             )
-        in_block = (statement.parent is not None and
-                    statement.parent.type == "compound_statement")
-        start = statement.start_byte
-        if in_block:
-            line_start = source.rfind(b"\n", 0, start) + 1
-            if not source[line_start:start].strip():
-                start = line_start
-        replacement = b"" if in_block else b";"
-        edits.append(Edit(start, statement.end_byte, replacement,
-                          f"remove-{kind}"))
+        start, end, replacement = remove_whole_statement(source, statement)
+        edits.append(Edit(start, end, replacement, f"remove-{kind}"))
         if kind == "AtPc":
             counts.at_pc += 1
         elif kind == "JoinAtPc":
@@ -1554,16 +1556,8 @@ def lower_dead_diag(source: bytes, label: Path, counts: Counts) -> bytes:
                 f"{locate(node, label)}: standalone-dead {kind}() must be "
                 "a standalone expression statement (optionally (void)-cast)"
             )
-        in_block = (statement.parent is not None and
-                    statement.parent.type == "compound_statement")
-        start = statement.start_byte
-        if in_block:
-            line_start = source.rfind(b"\n", 0, start) + 1
-            if not source[line_start:start].strip():
-                start = line_start
-        replacement = b"" if in_block else b";"
-        edits.append(Edit(start, statement.end_byte, replacement,
-                          f"remove-{kind}"))
+        start, end, replacement = remove_whole_statement(source, statement)
+        edits.append(Edit(start, end, replacement, f"remove-{kind}"))
         setattr(counts, DIAG_CALLS[kind],
                 getattr(counts, DIAG_CALLS[kind]) + 1)
     return apply_edits(source, edits, label)
@@ -1919,14 +1913,24 @@ def unresolved_deduced_receiver(receiver, inventory: LinkedInventory) -> str | N
 
 
 def remove_whole_statement(source: bytes, statement) -> tuple[int, int, bytes]:
+    """Span that removes a statement. A statement alone on its line in a block
+    takes the whole line with it, so no blank line is left behind."""
     in_block = (statement.parent is not None and
-                statement.parent.type == "compound_statement")
+                statement.parent.type in {"compound_statement", "case_statement"})
     start = statement.start_byte
+    end = statement.end_byte
     if in_block:
         line_start = source.rfind(b"\n", 0, start) + 1
-        if not source[line_start:start].strip():
+        newline = source.find(b"\n", end)
+        if (not source[line_start:start].strip() and newline != -1 and
+                not source[end:newline].strip()):
             start = line_start
-    return start, statement.end_byte, b"" if in_block else b";"
+            end = newline + 1
+        else:
+            # Shares its line: take the spaces before it too.
+            while start > line_start and source[start - 1:start] in {b" ", b"\t"}:
+                start -= 1
+    return start, end, b"" if in_block else b";"
 
 
 def removal_span_with_comments(source: bytes, node) -> tuple[int, int]:
@@ -1986,9 +1990,6 @@ def lower_linked_registration(source: bytes, label: Path, counts: Counts,
                 f"{locate(node, label)}: linked registration is not a statement"
             )
         start, end, replacement = remove_whole_statement(source, statement)
-        if replacement == b"" and start < statement.start_byte:
-            # The statement had its own line; remove the line.
-            start, end = removal_span_with_comments(source, statement)
         edits.append(Edit(start, end, replacement, "remove-linked-registration-call"))
         counts.linked_registration_calls += 1
     return apply_edits(source, edits, label)
@@ -2826,6 +2827,262 @@ def lower_source(source: bytes, label: Path,
     return lowered, counts
 
 
+# ---------------------------------------------------------------------------
+# Dead code left by lowering. Folding HasTwin()/NoTwin() and deleting Sync
+# calls can leave a `return;` with statements after it, and void functions
+# whose body is now empty but which are still declared and called. This pass
+# removes both, across the whole tree, until nothing changes. It only removes
+# what is provably a no-op; anything it cannot prove is kept and counted.
+
+def is_empty_body(body) -> bool:
+    return (body is not None and body.type == "compound_statement" and
+            all(child.type == "comment" for child in body.named_children))
+
+
+def function_specifiers(func) -> set[bytes]:
+    words: set[bytes] = set()
+    for child in func.children:
+        if child.type in {"virtual", "virtual_specifier", "storage_class_specifier",
+                          "type_qualifier"}:
+            words.add(child.text)
+    declarator = func.child_by_field_name("declarator")
+    while declarator is not None:
+        for child in declarator.children:
+            if child.type == "virtual_specifier":
+                words.add(child.text)
+        declarator = declarator.child_by_field_name("declarator")
+    return words
+
+
+def unreachable_edits(source: bytes, root, counts: Counts) -> list[Edit]:
+    """Statements after a return in the same block, and a bare `return;`
+    that ends a void function."""
+    edits: list[Edit] = []
+    for node in walk(root):
+        if node.type == "if_statement":
+            # `if (c) ;`, `if (c) {}` or `if (c) {} else {}` with a condition
+            # free of side effects.
+            condition = node.child_by_field_name("condition")
+            alternative = node.child_by_field_name("alternative")
+            branches = [node.child_by_field_name("consequence")]
+            if alternative is not None:
+                branches.append(alternative.named_children[0]
+                                if alternative.named_children else None)
+            empty = all(branch is not None and (
+                (branch.type == "expression_statement" and not branch.named_children) or
+                is_empty_body(branch)) for branch in branches)
+            if empty and condition is not None and side_effect_free_predicate(condition):
+                start, end, replacement = remove_whole_statement(source, node)
+                edits.append(Edit(start, end, replacement, "remove-empty-if"))
+                counts.unreachable_statements += 1
+            continue
+        if node.type not in {"compound_statement", "case_statement"}:
+            continue
+        children = [child for child in node.named_children if child.type != "comment"]
+        for index, child in enumerate(children):
+            if child.type != "return_statement":
+                continue
+            rest = children[index + 1:]
+            if node.type == "case_statement":
+                rest = [r for r in rest if r.type not in {"case_statement"}]
+            if any(r.type in {"labeled_statement", "case_statement"} for r in rest):
+                break
+            for statement in rest:
+                start, end, _ = remove_whole_statement(source, statement)
+                edits.append(Edit(start, end, b"", "remove-unreachable"))
+                counts.unreachable_statements += 1
+            if (not rest and not child.named_children and node.parent is not None and
+                    node.parent.type == "function_definition" and
+                    is_void_function(node.parent)):
+                start, end, _ = remove_whole_statement(source, child)
+                edits.append(Edit(start, end, b"", "remove-trailing-return"))
+                counts.unreachable_statements += 1
+            break
+    return edits
+
+
+def removable_call_statement(name_node):
+    """The expression statement `name(args);` / `obj.name(args);` that
+    name_node names, if every argument is free of side effects."""
+    function = name_node.parent
+    if function is None:
+        return None
+    if function.type == "field_expression":
+        receiver = function.child_by_field_name("argument")
+        if receiver is None or not side_effect_free_predicate(receiver):
+            return None
+    elif function.type == "qualified_identifier":
+        pass
+    elif name_node.type != "identifier":
+        return None
+    else:
+        function = name_node
+    call = function.parent
+    if call is None or call.type != "call_expression":
+        return None
+    if call.child_by_field_name("function") != function:
+        return None
+    arguments = call.child_by_field_name("arguments")
+    if arguments is None:
+        return None
+    for argument in arguments.named_children:
+        if argument.type == "comment":
+            continue
+        if not side_effect_free_predicate(argument):
+            return None
+    statement = call.parent
+    if statement is None or statement.type != "expression_statement":
+        return None
+    return statement
+
+
+def dead_function_names(trees: dict[Path, tuple[bytes, object]], counts: Counts) -> set[str]:
+    empty: set[str] = set()
+    not_empty: set[str] = set()
+    for source, root in trees.values():
+        for node in walk(root):
+            if node.type != "function_definition":
+                continue
+            name = function_name(node)
+            if name is None:
+                continue
+            if (is_void_function(node) and is_empty_body(node.child_by_field_name("body"))
+                    and not function_specifiers(node) & {b"virtual", b"override", b"final"}
+                    and name != "main" and not name.startswith("operator")):
+                empty.add(name)
+            else:
+                not_empty.add(name)
+    candidates = empty - not_empty
+    # Every other mention must be a removable call statement or a declaration.
+    kept: set[str] = set()
+    for source, root in trees.values():
+        for node in walk(root):
+            if node.type not in {"identifier", "field_identifier"}:
+                continue
+            name = node.text.decode("utf-8")
+            if name not in candidates or name in kept:
+                continue
+            parent = node.parent
+            if parent is not None and parent.type == "qualified_identifier":
+                if parent.parent is not None and parent.parent.type == "function_declarator":
+                    continue
+                if parent.child_by_field_name("name") == node:
+                    node_for_call = node
+                else:
+                    kept.add(name)
+                    continue
+            if parent is not None and parent.type == "function_declarator":
+                continue
+            if removable_call_statement(node) is None:
+                kept.add(name)
+    counts.dead_functions_kept += len(kept)
+    return candidates - kept
+
+
+def dead_function_edits(source: bytes, root, names: set[str], counts: Counts) -> list[Edit]:
+    edits: list[Edit] = []
+    for node in walk(root):
+        if node.type == "function_definition" and function_name(node) in names:
+            start, end = removal_span_with_comments(source, node)
+            edits.append(Edit(start, end, b"", "remove-dead-function"))
+            counts.dead_functions += 1
+        elif (node.type in {"field_declaration", "declaration"} and
+              node.child_by_field_name("declarator") is not None and
+              node.child_by_field_name("declarator").type == "function_declarator" and
+              declarator_name(node.child_by_field_name("declarator")) in names):
+            start, end = removal_span_with_comments(source, node)
+            edits.append(Edit(start, end, b"", "remove-dead-function-declaration"))
+        elif node.type in {"identifier", "field_identifier"} and node.text.decode("utf-8") in names:
+            statement = removable_call_statement(node)
+            if statement is not None:
+                start, end, replacement = remove_whole_statement(source, statement)
+                edits.append(Edit(start, end, replacement, "remove-dead-function-call"))
+                counts.dead_function_calls += 1
+    return edits
+
+
+def identifier_mentions(sources: dict[Path, bytes]) -> dict[str, int]:
+    mentions: dict[str, int] = {}
+    for path, source in sources.items():
+        for node in walk(parse(source, path).root_node):
+            if node.type in {"identifier", "field_identifier"}:
+                name = node.text.decode("utf-8")
+                mentions[name] = mentions.get(name, 0) + 1
+    return mentions
+
+
+def orphaned_constant_edits(source: bytes, root, before: dict[str, int],
+                            now: dict[str, int], counts: Counts) -> list[Edit]:
+    """A constexpr constant that Stage 4 used and lowering left unused."""
+    edits: list[Edit] = []
+    for node in walk(root):
+        if node.type not in {"declaration", "field_declaration"}:
+            continue
+        if not any(child.type == "type_qualifier" and child.text == b"constexpr"
+                   for child in node.children):
+            continue
+        declarator = node.child_by_field_name("declarator")
+        if declarator is None or declarator.type == "function_declarator":
+            continue
+        name = declarator_name(declarator)
+        if name is None or before.get(name, 0) <= 1 or now.get(name, 0) != 1:
+            continue
+        start, end = removal_span_with_comments(source, node)
+        edits.append(Edit(start, end, b"", "remove-orphaned-constant"))
+        counts.dead_constants += 1
+    return edits
+
+
+def outermost_edits(edits: list[Edit]) -> list[Edit]:
+    """Drop edits that lie inside another edit; the outer one removes them."""
+    kept: list[Edit] = []
+    for edit in sorted(edits, key=lambda e: (e.start, -e.end)):
+        if kept and edit.start >= kept[-1].start and edit.end <= kept[-1].end:
+            continue
+        kept.append(edit)
+    return kept
+
+
+def lower_dead_code(sources: dict[Path, bytes], counts: Counts,
+                    original: dict[Path, bytes] | None = None) -> dict[Path, bytes]:
+    before = identifier_mentions(original) if original is not None else {}
+    while True:
+        changed = False
+        if before:
+            now = identifier_mentions(sources)
+            for path, source in list(sources.items()):
+                root = parse(source, path).root_node
+                edits = outermost_edits(orphaned_constant_edits(source, root, before, now, counts))
+                if edits:
+                    sources[path] = apply_edits(source, edits, path)
+                    assert_parse_ok(sources[path], path)
+                    changed = True
+        for path, source in list(sources.items()):
+            root = parse(source, path).root_node
+            edits = outermost_edits(unreachable_edits(source, root, counts))
+            if edits:
+                sources[path] = apply_edits(source, edits, path)
+                assert_parse_ok(sources[path], path)
+                changed = True
+        trees = {path: (source, parse(source, path).root_node)
+                 for path, source in sources.items()}
+        kept_before = counts.dead_functions_kept
+        names = dead_function_names(trees, counts)
+        counts.dead_functions_kept = kept_before
+        if names:
+            for path, (source, root) in trees.items():
+                edits = outermost_edits(dead_function_edits(source, root, names, counts))
+                if edits:
+                    sources[path] = apply_edits(source, edits, path)
+                    assert_parse_ok(sources[path], path)
+            changed = True
+        if not changed:
+            trees = {path: (source, parse(source, path).root_node)
+                     for path, source in sources.items()}
+            dead_function_names(trees, counts)
+            return sources
+
+
 def cpp_files(root: Path) -> list[Path]:
     if root.is_file():
         return [root] if root.suffix in CPP_SUFFIXES else []
@@ -2849,12 +3106,16 @@ def lower_tree(root: Path) -> Counts:
     inventory = inventory_linked(sources)
     bindings = resolve_templates_tree(sources, inventory)
     total = Counts()
+    lowered_sources: dict[Path, bytes] = {}
     for path, source in sources:
         lowered, counts = lower_source(
             source, path, inventory, bindings.get(path))
-        if lowered != source:
-            path.write_bytes(lowered)
+        lowered_sources[path] = lowered
         total.add(counts)
+    lowered_sources = lower_dead_code(lowered_sources, total, dict(sources))
+    for path, source in sources:
+        if lowered_sources[path] != source:
+            path.write_bytes(lowered_sources[path])
     check_tree(root)
     return total
 
@@ -2906,17 +3167,12 @@ void fixture() {
 using gamehost::VSyncPolicy;
 void fixture() {
   main_path();
-\x20\x20
   main_too();
   { nested_main(); }
   const char* mode = "main";
-\x20\x20
   main_and();
   main_or_a();
   main_or_b();
-
-
-
   mark = uint64_t{0};
   if (ordinary()) ;
   const char* text = "Sync::AtPc host_.HasTwin()";
@@ -2928,8 +3184,6 @@ void fixture() {
   g.host().ReturnNmi(0);
   const uint32_t n = host_.AdvanceFrames(1);
   host_.AdvanceCycles(5u);
-
-
 }
 '''
     lowered, counts = lower_source(fixture, Path("selftest.cpp"))
@@ -3569,6 +3823,65 @@ void Painter_free(Painter & p) {
                   file=sys.stderr)
             return 1
         check_tree(tree)
+    dead_header = b"""\
+struct T {
+  // Positions the claim may use.
+  static constexpr int kClaimable[] = {1, 2};
+  static constexpr int kUnused = 7;
+  // Claims a position (Twin only).
+  void claim(int pc);
+  void open(int pc) {
+    return;
+    claim(pc);
+    flag = true;
+  }
+  void keep(int x);
+  void hook();
+  bool flag = false;
+};
+"""
+    dead_source = b"""\
+// Claims a position: empty once Sync is gone.
+void T::claim(int pc) {
+  if (twin) { for (int k : kClaimable) (void)k; }
+}
+void T::keep(int x) { }
+void T::hook() { }
+void use(T &t, int i) {
+  t.claim(1);
+  t.open(2);
+  t.keep(i++);
+  void (T::*f)() = &T::hook;
+  t.hook();
+  if (i) t.claim(3);
+  if (t.flag) { t.claim(4); } else { t.claim(5); }
+  t.flag = true;
+}
+"""
+    dead_counts = Counts()
+    dead_lowered_source = dead_source.replace(
+        b"  if (twin) { for (int k : kClaimable) (void)k; }\n", b"")
+    dead = lower_dead_code({Path("t.hpp"): dead_header, Path("t.cpp"): dead_lowered_source},
+                           dead_counts,
+                           {Path("t.hpp"): dead_header, Path("t.cpp"): dead_source})
+    dead_text = dead[Path("t.hpp")] + dead[Path("t.cpp")]
+    if (b"claim" in dead_text or b"Claims" in dead_text or b"open" in dead_text or
+            b"kClaimable" in dead_text or b"Positions" in dead_text or
+            b"kUnused = 7" not in dead_text or
+            b"t.keep(i++);" not in dead_text or b"void T::keep" not in dead_text or
+            b"t.hook();" not in dead_text or b"void T::hook" not in dead_text or
+            b"if (" in dead_text or b"t.flag = true;" not in dead_text or
+            b"\n\n" in dead[Path("t.cpp")]):
+        print("lower-standalone-game selftest: bad dead-code lowering", file=sys.stderr)
+        print(dead_text.decode("utf-8"), file=sys.stderr)
+        return 1
+    if (dead_counts.dead_functions != 2 or dead_counts.dead_function_calls != 5 or
+            dead_counts.unreachable_statements != 5 or dead_counts.dead_functions_kept != 2 or
+            dead_counts.dead_constants != 1):
+        print(f"lower-standalone-game selftest: bad dead-code counts {dead_counts}",
+              file=sys.stderr)
+        print(dead_text.decode("utf-8"), file=sys.stderr)
+        return 1
     print("lower-standalone-game selftest: PASS")
     return 0
 
@@ -3648,7 +3961,12 @@ def main() -> int:
         f"log_macros={counts.log_macros} "
         f"qualified_types={counts.qualified_types} "
         f"host_methods={counts.host_methods} "
-        f"entry_namespaces={counts.entry_namespaces}"
+        f"entry_namespaces={counts.entry_namespaces} "
+        f"unreachable={counts.unreachable_statements} "
+        f"dead_functions={counts.dead_functions} "
+        f"dead_calls={counts.dead_function_calls} "
+        f"dead_kept={counts.dead_functions_kept} "
+        f"dead_constants={counts.dead_constants}"
     )
     return 0
 

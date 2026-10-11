@@ -89,7 +89,16 @@ The generated tree must apply deterministic rules:
    `revm::cpumock` entry namespace onto the `gamehost` facade. Unknown
    qualified names, namespaces, and parse errors fail before any staged file
    is changed.
-7. Generate the standalone entry point and CMake project. It links the curated
+7. Remove what the steps above leave dead, across the whole tree, until
+   nothing changes: statements after a `return` in the same block, a bare
+   `return;` ending a `void` function, an `if` whose branches are empty and
+   whose condition is side-effect-free, a non-virtual `void` function whose
+   body is now empty (with its declaration, the comment directly above it,
+   and every call to it), and a `constexpr` constant that Stage 4 used and
+   lowering left unused. A call is removed only when it is a statement and
+   every argument is side-effect-free; an emptied function whose address is
+   taken, or with any other call, is kept (`dead_kept` in the summary).
+8. Generate the standalone entry point and CMake project. It links the curated
    standalone runtime assembled from existing REVM/Frodo/reSID modules, but
    must not link the REVM executable, Twin, snapshot/golden machinery,
    debugger/KB tooling, or other reverse-engineering-only orchestration.

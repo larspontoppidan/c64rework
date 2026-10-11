@@ -176,6 +176,14 @@ struct GameState {
 };
 ```
 
+## Verification-only code
+
+Code that exists only to check Main against Twin (a declared-PC table scan, a
+flag cross-check, a compare helper) must sit under `HasTwin()`, or start with
+`if (host_.NoTwin()) return;`. The export then removes it with its callers
+(STANDALONE-EXPORT.md, step 7). Unmarked checking code survives into the
+export as dead weight that a remaster team has to read and understand.
+
 ## Comments
 
 Stage 4 should read like a game. Stage 3 stays the annotated translation and
