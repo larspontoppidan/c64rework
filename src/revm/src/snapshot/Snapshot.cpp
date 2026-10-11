@@ -101,10 +101,11 @@ bool WriteCpuViewFile(const Board & board, const std::string & path, std::string
 	return true;
 }
 
-bool WriteCpuViewFromFullSnapshot(const FullSnapshot & snap, const std::string & path,
-                                  std::string & error) {
+bool WriteCpuViewFromFullSnapshot(const FullSnapshot & snap, const std::string & rom_dir,
+                                  const std::string & path, std::string & error) {
 	Board board;
 	Config cfg;
+	cfg.rom_dir = rom_dir;
 	cfg.headless = true;
 	cfg.audio_enabled = false;
 	cfg.limit_speed = false;

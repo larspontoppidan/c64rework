@@ -65,7 +65,8 @@ void usage(const char * argv0) {
 		"                       (+ stack RTS peeks; mid-instruction warning)\n"
 		"  --dump-ram FILE      Write 64K raw DRAM image (under-ROM RAM)\n"
 		"  --dump-cpuview FILE  Write banked-in 64K CPU view (ROM/I/O as seen\n"
-		"                       by the 6510 at this snap; needs FullSnapshot)\n"
+		"                       by the 6510 at this snap; needs FullSnapshot\n"
+		"                       and --rom-dir)\n"
 		"\n"
 		"SNAP show mode with knowledge base adds options:\n"
 		"  --dump-blobs DIR     Dump kind:blob ranges as <name>.bin in DIR\n"
@@ -361,9 +362,9 @@ void dump_ram_file(const uint8_t ram[0x10000], const std::string & path) {
 	std::fprintf(stdout, "Wrote 64K RAM → %s\n", path.c_str());
 }
 
-bool dump_cpuview_file(const revm::FullSnapshot & snap, const std::string & path,
-                       std::string & error) {
-	if (!revm::WriteCpuViewFromFullSnapshot(snap, path, error)) return false;
+bool dump_cpuview_file(const revm::FullSnapshot & snap, const std::string & rom_dir,
+                       const std::string & path, std::string & error) {
+	if (!revm::WriteCpuViewFromFullSnapshot(snap, rom_dir, path, error)) return false;
 	std::fprintf(stdout, "Wrote banked CPU view → %s\n", path.c_str());
 	return true;
 }
@@ -1975,7 +1976,7 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 		dump_ram_file(ram, dump_ram);
 	}
 	if (!dump_cpuview.empty()) {
-		if (!dump_cpuview_file(snap, dump_cpuview, error)) {
+		if (!dump_cpuview_file(snap, rom_dir, dump_cpuview, error)) {
 			std::fprintf(stderr, "--dump-cpuview failed: %s\n", error.c_str());
 			rc = 1;
 		}

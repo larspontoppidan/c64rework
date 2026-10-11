@@ -133,8 +133,9 @@ bool CaptureCompareSnapshot(const Board & board, FullSnapshot & out);
 bool CaptureCpuView(const Board & board, uint8_t out[C64_RAM_SIZE]);
 bool WriteCpuViewFile(const Board & board, const std::string & path, std::string & error);
 // Restore snap into a temporary headless Board, then dump the banked 64K view.
-bool WriteCpuViewFromFullSnapshot(const FullSnapshot & snap, const std::string & path,
-                                  std::string & error);
+// The Board needs the ROMs the view shows, so rom_dir is required.
+bool WriteCpuViewFromFullSnapshot(const FullSnapshot & snap, const std::string & rom_dir,
+                                  const std::string & path, std::string & error);
 bool RestoreFullSnapshot(Board & board, const FullSnapshot & in);
 
 bool CaptureChipSnapshot(const Board & board, ChipSnapshot & out);
