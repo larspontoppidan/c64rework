@@ -131,6 +131,11 @@ record such plays before export.
 - Stage 4 asset lifting uses the named `video` surfaces. `install()` seeds a
   mutable charset or sprite surface; live changes must use the corresponding
   timed write API so the Twin comparison retains original timing.
+- Write explicit, readable C++: plain loops and named functions. No clever
+  constructs such as immediately-invoked lambdas, lambda folds or
+  `std::function` indirection.
+- Commit messages are short: a one-line subject a non-expert can follow,
+  and at most a few lines of body.
 
 ## Working loop (all game-work stages)
 
