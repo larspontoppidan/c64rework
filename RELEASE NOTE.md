@@ -1,5 +1,30 @@
 # c64rework releases
 
+## v0.9.3
+
+- REVM performance: faster KB compares with Linked values and cheaper play
+hash checks.
+- REVM saves the play json even on crashes and hangs
+- REVM watch window now scrollable with mouse wheel
+- Lots of bug fixes in REVM and tools.
+- New `./rework fuzz-play`: replays shifted and jittered variants of the
+recorded plays under Twin to find timing defects no single recording hits.
+A probe, not a gate.
+- Stage 4.5 has a new deliverable, `Stage4/REMASTERING.md`: a guide to the
+game and its code for remasterers. The standalone export copies it to its root.
+- Stage 1: BEGIN must not have an interrupt about to be taken. `revm-tool snap`
+prints the interrupt state, and `--check-begin` fails on a bad BEGIN.
+- Stage 4: Linked values can be declared `revm::uninitialized`; reading one
+before it is written fails loudly. The standalone export lowers it to
+zero-initialised storage.
+- KB json new watch level: "stage3" that compares in Stage 3 only. Useful to
+allow eliminating values in Stage 4.
+- Standalone export fixes, now supports base-class members and Linked values
+reached through references.
+- Numerous process and policy improvements
+
+Author: Lars Ole Pontoppidan, 2026-10-10
+
 ## v0.9.2
 
 - Support for d64 images: REVM can now load d64 disk images with --load-d64
