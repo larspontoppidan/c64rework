@@ -1,5 +1,7 @@
 # c64rework releases
 
+## v0.9.4
+
 ## v0.9.3
 
 - REVM performance: faster KB compares with Linked values and cheaper play
