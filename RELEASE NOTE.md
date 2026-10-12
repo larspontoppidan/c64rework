@@ -61,6 +61,10 @@ IRQ flips `$D018`; `video.charset` still follows the live `$D018`.
 of all ones. A read-modify-write of `$DD00` now leaves the same port A latch
 as Stage 4.5; the `cia2` state hash counts that whole latch.
 - `./rework export` removes staging directories left by an interrupted export.
+- REVM's stuck-run watchdog counts the emulation thread's own CPU time: it
+aborts after 5 CPU seconds without a Main VBlank (before: one wall-clock
+second), so runs slowed by machine load or a debugger are no longer killed.
+- The standalone game has no watchdog thread any more.
 - Standalone export: a Linked name may be a `LinkedArray` in one struct and a
 `LinkedByte`/`LinkedWord` in another (it failed with "linked scalar/array
 names overlap"); the owner's declared type decides. A function template that

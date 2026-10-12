@@ -12,16 +12,12 @@
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cstdint>
 #include <functional>
-#include <mutex>
 #include <optional>
 #include <string>
-#include <thread>
 #include <vector>
 
-#include <pthread.h>
 
 class C64;
 
@@ -70,10 +66,6 @@ public:
 	void SetInputSource(IInputSource * src) { input_ = src; }
 	void SetPlayRecorder(PlayRecorder * r) { play_recorder_ = r; }
 
-	// Arm/disarm the wall-clock supervisor for VSYNC liveness and
-	// --max-seconds. Safe to call repeatedly.
-	void StartWallClockLimit();
-	void StopWallClockLimit();
 
 	// Close --state-hashes; error if a --save-screen FRAME was never reached.
 	bool FinishOutputs(std::string & error);
@@ -96,7 +88,6 @@ private:
 	void save_live_screenshot();
 	bool write_display_png(const std::string & path, std::string & error);
 	void check_max_cycles();
-	void check_max_seconds();
 
 	Config cfg_;
 	C64 * c64_ = nullptr;
@@ -113,20 +104,6 @@ private:
 	uint32_t vblank_period_ = kCyclesPerFrame;
 	bool have_last_vblank_ = false;
 
-	std::optional<std::chrono::steady_clock::time_point> wall_deadline_;
-	std::atomic<bool> supervisor_stop_{true};
-	// One wall-clock supervisor handles both --max-seconds and the VSYNC
-	// liveness guard. It is armed for every run so a translated entry which
-	// never returns to the machine clock cannot spin forever.
-	std::thread supervisor_;
-	std::mutex supervisor_mutex_;
-	std::condition_variable supervisor_wake_;
-	pthread_t supervised_thread_{};
-	std::atomic<int> supervisor_quit_code_{0};
-	uint32_t wall_check_counter_ = 0;
-	std::atomic<uint64_t> vblank_generation_{0};
-	std::atomic<uint32_t> supervisor_last_vblank_frame_{0};
-	std::atomic<uint32_t> supervisor_last_vblank_cycle_{0};
 	std::vector<bool> save_screens_done_; // one per cfg_.save_screens entry
 	StateHashRecorder state_hashes_;
 	bool screenshot_chord_was_down_ = false;

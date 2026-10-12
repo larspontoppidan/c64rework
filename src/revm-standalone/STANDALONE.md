@@ -32,4 +32,5 @@ Blank startup walks only to the declared PAL phase, then relocates the machine
 counters to the game's BEGIN timestamp. Both standalone and Stage 4 rebase
 the SID renderer clock after that untimed relocation. reSID retains its chip
 state and PCM buffers; it must not synthesize audio for the omitted loader
-interval. The VBlank watchdog remains active during gameplay.
+interval. The standalone game has no watchdog: `--max-seconds` is a
+cooperative limit for headless tests.

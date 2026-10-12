@@ -28,7 +28,6 @@ struct Config {
 	bool sid_8580 = false; // --sid-model; default 6581
 
 	std::optional<uint64_t> max_cycles;
-	std::optional<double> max_seconds;
 	unsigned rand_seed = 42;
 
 	// --save-screen FRAME FILE (repeatable): indexed Pepto PNG at VBLANK FRAME

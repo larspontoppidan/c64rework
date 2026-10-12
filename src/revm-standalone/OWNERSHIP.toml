@@ -61,8 +61,8 @@ reason = "Standalone extracts the shared AdvanceResult enum and name helper from
 
 [[forked]]
 path = "src/core/Board.cpp"
-base_sha256 = "7bf171ff5caa847f4defa3811e7e8910584ead730af40ac701debdabee13b840"
-reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write an indexed Pepto PNG from the VIC bitmap without the full media/snapshot stack; --state-hashes uses the shared StateHashRecorder, closed by FinishOutputs. Optional PlayRecorder captures sticky C64 input at VSYNC; the supervisor salvages it (SaveTruncated) before a watchdog hard abort, as upstream does. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
+base_sha256 = "a00e076fa9d2cd4cff7677f09f72b30183abf490f26d5b2f3274677bd1764428"
+reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write an indexed Pepto PNG from the VIC bitmap without the full media/snapshot stack; --state-hashes uses the shared StateHashRecorder, closed by FinishOutputs. Optional PlayRecorder captures sticky C64 input at VSYNC. The game has no supervisor or watchdog thread: --max-seconds is a cooperative limit checked in the emulation loop, for headless tests. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
 
 [[forked]]
 path = "src/core/Board.hpp"

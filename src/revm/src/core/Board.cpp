@@ -42,6 +42,7 @@
 #include <thread>
 
 #include <pthread.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <SDL.h>
@@ -97,6 +98,14 @@ void supervisor_salvage_play(PlayRecorder * recorder) {
 		const ssize_t written = ::write(STDERR_FILENO, message, count);
 		(void)written;
 	}
+}
+
+// CPU seconds a thread has used, or -1 when its clock cannot be read.
+double thread_cpu_seconds(clockid_t clock) {
+	timespec ts{};
+	if (::clock_gettime(clock, &ts) != 0)
+		return -1.0;
+	return double(ts.tv_sec) + double(ts.tv_nsec) / 1e9;
 }
 
 [[noreturn]] void supervisor_hard_abort(pthread_t supervised_thread,
@@ -932,9 +941,17 @@ void Board::StartWallClockLimit() {
 		constexpr auto kPoll = std::chrono::seconds(1);
 		constexpr auto kGrace = std::chrono::seconds(2);
 
+		// A run counts as stuck after this much of the emulation thread's own
+		// CPU time without a new Main VBlank (a frame costs milliseconds).
+		constexpr double kStuckCpuSeconds = 5.0;
+		clockid_t cpu_clock{};
+		const bool have_cpu_clock =
+			::pthread_getcpuclockid(supervised_thread_, &cpu_clock) == 0;
+		double cpu_at_progress =
+			have_cpu_clock ? thread_cpu_seconds(cpu_clock) : -1.0;
+
 		uint64_t observed_generation = initial_generation;
 		auto next_poll = supervisor_start + kPoll;
-		auto previous_wake = supervisor_start;
 		std::optional<steady::time_point> hard_deadline;
 
 		while (!supervisor_stop_.load(std::memory_order_acquire)) {
@@ -952,8 +969,6 @@ void Board::StartWallClockLimit() {
 			if (supervisor_stop_.load(std::memory_order_acquire)) return;
 
 			const auto now = steady::now();
-			const bool process_was_suspended = now - previous_wake > 2 * kPoll;
-			previous_wake = now;
 
 			if (!hard_deadline && wall_deadline_ && now >= *wall_deadline_) {
 				// Cross-thread access is atomics-only. The emulation thread consumes
@@ -981,26 +996,31 @@ void Board::StartWallClockLimit() {
 			if (now < next_poll) continue;
 			next_poll = now + kPoll;
 
-			// SIGSTOP and debugger pauses suspend all threads, including this
-			// supervisor.  Do not mistake the resulting long wake-up gap for a
-			// dead emulation; the absolute max-seconds deadline remains active.
-			if (process_was_suspended) {
-				observed_generation =
-					vblank_generation_.load(std::memory_order_acquire);
-				continue;
-			}
-
+			// Liveness is measured in the emulation thread's own CPU time, not
+			// wall time. A translation stuck in a loop burns CPU without reaching
+			// a VBlank. A thread starved by machine load or suspended by a
+			// debugger uses no CPU while it waits, and a slow but healthy run
+			// (heavy instrumentation) keeps reaching VBlanks, so neither is taken
+			// for a hang. --max-seconds stays the backstop for a thread that
+			// blocks without using CPU.
 			const uint64_t generation =
 				vblank_generation_.load(std::memory_order_acquire);
-			if (!paused_.load(std::memory_order_acquire) &&
-			    generation == observed_generation) {
+			const double cpu = have_cpu_clock ? thread_cpu_seconds(cpu_clock) : -1.0;
+			if (paused_.load(std::memory_order_acquire) ||
+			    generation != observed_generation || cpu < 0.0 ||
+			    cpu_at_progress < 0.0) {
+				observed_generation = generation;
+				cpu_at_progress = cpu;
+				continue;
+			}
+			if (cpu - cpu_at_progress >= kStuckCpuSeconds) {
 				supervisor_hard_abort(
-					supervised_thread_, "no Main VBlank for one second",
+					supervised_thread_,
+					"no Main VBlank in 5 seconds of emulation CPU time",
 					supervisor_last_vblank_frame_.load(std::memory_order_acquire),
 					supervisor_last_vblank_cycle_.load(std::memory_order_acquire),
 					generation, play_recorder_);
 			}
-			observed_generation = generation;
 		}
 	});
 }

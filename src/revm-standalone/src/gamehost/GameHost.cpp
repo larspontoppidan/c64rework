@@ -551,13 +551,11 @@ int GameHost::run_entry() {
 		REVM_LOG(REVM_ERROR, "no EntryPoint (SetEntryHandler)");
 		return 1;
 	}
-	board_.StartWallClockLimit();
 	try {
 		if (!ShouldQuit())
 			entry_handler_();
 	} catch (const SoftQuitException &) {
 	}
-	board_.StopWallClockLimit();
 	{
 		std::string screen_err;
 		if (!board_.FinishOutputs(screen_err) && !screen_err.empty()) {
