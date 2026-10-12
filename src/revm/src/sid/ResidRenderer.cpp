@@ -65,6 +65,8 @@ void ResidRenderer::Reset()
 		std::lock_guard<std::mutex> lock(ring_mu_);
 		ring_r_ = ring_w_ = ring_count_ = 0;
 		last_sample_ = 0;
+		resample_pos_ = 0.0;
+		resample_prev_ = 0;
 		std::fill(ring_.begin(), ring_.end(), int16_t(0));
 	}
 	audio_started_ = false;
@@ -100,15 +102,26 @@ void ResidRenderer::Resume()
 	}
 }
 
+size_t ResidRenderer::target_fill() const
+{
+	return size_t(double(sample_rate_) * kTargetFrames / double(SCREEN_FREQ) + 0.5);
+}
+
 void ResidRenderer::try_start_audio()
 {
 	if (audio_started_ || paused_ || !device_id_) return;
 
-	const size_t want = 
-		size_t(double(sample_rate_) * kStartFrames / double(SCREEN_FREQ) + 0.5);
+	const size_t want = target_fill();
 	{
 		std::lock_guard<std::mutex> lock(ring_mu_);
 		if (ring_count_ < want) return;
+		// Startup can run ahead of real time and over-fill the ring. Start at
+		// the target fill: drop the oldest PCM, which nobody has heard yet.
+		while (ring_count_ > want) {
+			ring_r_ = (ring_r_ + 1) % kRingSamples;
+			--ring_count_;
+		}
+		smoothed_fill_ = double(want);
 	}
 
 	audio_started_ = true;
@@ -130,15 +143,50 @@ void ResidRenderer::push_samples(const int16_t * samples, int count)
 
 	{
 		std::lock_guard<std::mutex> lock(ring_mu_);
+		// Drift control. The emulator is paced by the wall clock and the sound
+		// card by its own crystal; they never agree exactly, so an uncorrected
+		// ring slowly fills (dropped samples, crackle) or drains (gaps). Once
+		// playing, resample by up to kMaxRateAdjust toward the target fill:
+		// step > 1 consumes input faster (less PCM), step < 1 slower.
+		double step = 1.0;
+		if (audio_started_) {
+			const double target = double(target_fill());
+			const double weight =
+				std::min(1.0, double(count) / double(sample_rate_));
+			smoothed_fill_ += (double(ring_count_) - smoothed_fill_) * weight;
+			const double error = (smoothed_fill_ - target) / target;
+			step = 1.0 + std::clamp(error * kMaxRateAdjust * 2.0,
+			                        -kMaxRateAdjust, kMaxRateAdjust);
+		}
 		for (int i = 0; i < count; ++i) {
-			if (ring_count_ >= kRingSamples) {
-				// Drop oldest sample on overrun.
+			const int16_t next = samples[i];
+			// Emit the output samples that fall between the previous input
+			// sample and this one (linear interpolation).
+			while (resample_pos_ < 1.0) {
+				const double value = double(resample_prev_) +
+				                     double(next - resample_prev_) * resample_pos_;
+				if (ring_count_ >= kRingSamples) {
+					// Drop oldest sample on overrun (backstop only).
+					ring_r_ = (ring_r_ + 1) % kRingSamples;
+					--ring_count_;
+				}
+				ring_[ring_w_] = int16_t(value);
+				ring_w_ = (ring_w_ + 1) % kRingSamples;
+				++ring_count_;
+				resample_pos_ += step;
+			}
+			resample_pos_ -= 1.0;
+			resample_prev_ = next;
+		}
+		// A burst far ahead of real time (startup, a pause, warp) is more than
+		// drift control should absorb: drop back to the target fill at once.
+		const size_t target = target_fill();
+		if (audio_started_ && ring_count_ > 2 * target) {
+			while (ring_count_ > target) {
 				ring_r_ = (ring_r_ + 1) % kRingSamples;
 				--ring_count_;
 			}
-			ring_[ring_w_] = samples[i];
-			ring_w_ = (ring_w_ + 1) % kRingSamples;
-			++ring_count_;
+			smoothed_fill_ = double(target);
 		}
 	}
 	try_start_audio();

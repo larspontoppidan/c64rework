@@ -62,6 +62,13 @@ so they no longer need an `s3lint:allow S3-013`.
 (the C64's own outputs and Frodo's parked 1541 pull the lines low) instead
 of all ones. A read-modify-write of `$DD00` now leaves the same port A latch
 as Stage 4.5; the `cia2` state hash counts that whole latch.
+- reSID speaker output (`--resid`, `--resid-hq`, REVM and the standalone
+export): drift control keeps about 30 ms of audio buffered by resampling,
+averaged over a second (in practice under 0.1%; at most 0.5%). Before, the buffer filled up within seconds and then
+dropped samples (crackle, ~150 ms latency).
+- Fixed: REVM's cycle counter was uninitialized until a snapshot set it, so
+loading a disk-game snapshot with reSID could stall for up to a minute.
+- Fixed: Stage 3/4 builds ignored `--resid-hq` and `--sid-model`.
 - `./rework export` removes staging directories left by an interrupted export.
 - REVM's stuck-run watchdog counts the emulation thread's own CPU time: it
 aborts after 5 CPU seconds without a Main VBlank (before: one wall-clock

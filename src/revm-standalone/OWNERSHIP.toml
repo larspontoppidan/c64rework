@@ -133,7 +133,7 @@ reason = "Standalone recorder API is Configure/Start/OnFrame/Finish plus the ups
 
 [[forked]]
 path = "src/vendor/frodo/C64.h"
-base_sha256 = "cd3da7c7570558ea37de044a297ca29bbf6cafff7b894cec3419a740a44b8eae"
+base_sha256 = "e8c1c7dfe2ff6cf60e51775a2dedc2e11c9544f7e482c829386050ddd3fd80b5"
 reason = "Standalone C64 owns only RAM/color buffers and the CPU, VIC, SID, CIA, display, and the public EmulateCycle lifecycle; unused Reset/NMI and frame-counter freeze are omitted. StringForKeycode is kept for play JSON key names."
 
 [[forked]]

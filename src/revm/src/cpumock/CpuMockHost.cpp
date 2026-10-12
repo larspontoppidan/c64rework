@@ -1323,6 +1323,8 @@ void CpuMockHost::apply_user_cfg(Config & cfg, const Config * user_cfg) {
 	cfg.report_path = user_cfg->report_path;
 	cfg.no_audio = user_cfg->no_audio;
 	cfg.sid_resid = user_cfg->sid_resid;
+	cfg.sid_resid_hq = user_cfg->sid_resid_hq;
+	cfg.sid_8580 = user_cfg->sid_8580;
 	cfg.main_blank = user_cfg->main_blank;
 	if (cfg.no_audio) {
 		cfg.audio_enabled = false;

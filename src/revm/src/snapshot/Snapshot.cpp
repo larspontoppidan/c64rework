@@ -161,6 +161,10 @@ bool enable_1541_processor(C64 * c64, std::string * error) {
 	next.DrivePath[0].clear();
 	next.AutoStart = false;
 	next.LoadProgram.clear();
+	// Turning the drive on is not elapsed emulation time: move reSID's
+	// baseline first so NewPrefs does not render audio up to "now".
+	if (c64->TheSID)
+		c64->TheSID->RebaseRendererClock();
 	c64->NewPrefs(&next);
 	ThePrefs = next;
 	return true;
