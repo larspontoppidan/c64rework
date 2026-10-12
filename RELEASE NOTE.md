@@ -2,6 +2,16 @@
 
 ## v0.9.4
 
+- 0.9.4 changes the timing of armed RAM accesses (Stage 3/4 `mem.*` and
+Linked values after `Sync::AtPc`). Twin now executes the armed instruction and
+Main's read or write lands on that instruction's own bus cycle, as armed I/O
+already did; before, it landed at the opcode fetch, 2-6 Φ2 early, and the next
+fetch's VIC stall was not walked. The PC must name the load, store or RMW
+itself: an implied, immediate or control-flow opcode SoftQuits, and an arm
+whose instruction on Twin does not touch the byte Main accesses fails the run
+as a check (`--ignore-checks` runs past it).
+Games that armed the instruction after a store to make up for the early store
+must arm the store itself.
 - Recordings note how they were made: every recorder (REVM, Stage 3/4 and the
 standalone export) writes `"recorded_on": {"no_twin", "main_blank",
 "details"}` after `source`. It replaces the root `"no-twin"` field, which is

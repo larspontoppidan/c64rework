@@ -23,6 +23,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace revm { class PlayRecorder; }
 
@@ -128,6 +129,14 @@ struct CpuMockStart {
 	bool interrupts_disabled = true;
 	std::optional<CiaLivePhase> cia1;
 	std::optional<CiaLivePhase> cia2;
+};
+
+// What CpuMockHost::TwinAccessProbeBegin/End watch for on Twin's CPU.
+struct TwinAccessProbe {
+	uint16_t addr = 0;
+	bool want_write = false;
+	bool active = false;
+	bool seen = false;
 };
 
 // Stage-3/4 cpumock host: normally restore BEGIN; Stage 4.5 may start Main
@@ -407,6 +416,20 @@ private:
 	// Main's RAM): where the CPU stands once an I/O access has completed.
 	void SetMainPcAfter(uint16_t pc);
 	uint16_t MainPc() const;
+
+	// Armed RAM/Linked access check: while Twin executes the armed
+	// instruction, note whether its CPU reads (or writes) `addr`. A miss
+	// means the arm names an instruction that does not touch the byte Main
+	// accesses (for example the instruction after the store). Reported as a
+	// check failure (QuitOnCheck), so --ignore-checks can run past it.
+	void TwinAccessProbeBegin(uint16_t addr, bool write);
+	// Returns false only when the probe ran and did not see the access.
+	bool TwinAccessProbeEnd();
+	void FailArmedAccessMiss(const char * tag, uint16_t pc, uint16_t addr,
+	                         bool write);
+	TwinAccessProbe twin_access_probe_{};
+	int twin_access_probe_depth_ = 0;
+	std::vector<uint16_t> armed_access_failed_pcs_;
 
 	// C64 map through Main's mock 6510 (RAM/ROM/IO banking). Plugins use
 	// Mem / Mem16 / Io; raw Read/Write from a replica is a compile error.

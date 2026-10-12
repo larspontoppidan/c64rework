@@ -491,13 +491,23 @@ destination write.
 
 `pc` is the **opcode address of that one instruction** in the listing. One
 armed operation per original instruction. Surrounding ALU stays plain C++.
-| | I/O (`io.*`) | RAM (`mem.*`) |
+
+Both kinds land Main's access on the original's own bus cycle. Twin executes
+the instruction and stops at the fetch after it; Main's read or write happens
+there. A 6510 load reads, and a store writes, on the instruction's last cycle,
+and the VIC sees the result from the next Φ2 on, on both boards alike. An
+interrupt that becomes pending during the instruction is taken after the
+access, as on the real CPU. A RAM arm first stops Twin *at* the instruction's
+fetch, so an interrupt already pending there nests before the access.
+
+| | I/O (`io.*`) | RAM (`mem.*`, Linked) |
 |---|---|---|
-| Fence | Twin walked to the fetch *after* the instruction, so Twin's chip access is known | Twin parked *at* the instruction's fetch, so a pending accept nests first |
+| Fence | Twin walked to the fetch *after* the instruction, so Twin's chip access is known | Twin parked at the instruction's fetch (a pending accept nests first), then walked through it to the next fetch |
 | armed `.read()` returns | Twin's operand (Main's own read is logged if different) | Main's byte |
 | armed `.write()` checks | SoftQuit if Twin stored a different value | Nothing (a wrong value surfaces at kb) |
 | armed RMW | Twin's read→write must match the op; Main's too | Main applies the op after the fence |
 | `FenceSlack` | none (VBLANK crossings retried internally) | `AllowOneVSync` default / `Exact` |
+| Wrong `pc` | not a 2/3-byte opcode: SoftQuit | not a memory-access opcode: SoftQuit; Twin's instruction does not touch the byte: check failure |
 | `--no-twin` | ordinary access | ordinary access |
 
 `WriteIoAtPc value mismatch … twin=$XX main=$YY` is the earliest, most
@@ -515,6 +525,12 @@ local translation check you have. Treat it as a gift.
   update as its own timed access on `io.vic.msigx`, matching the opcode:
   armed `.inc()` for `INC $D010`, `.write()` for `STA $D010`, `.read()` for the
   `LDA`/`ORA`/`EOR` that reads it. Never rewrite an RMW as read + write.
+- **Same PC again.** An arm whose instruction Twin has just completed (Twin
+  stands at the fetch after it) does not walk Twin: it counts as the same
+  instruction. A loop that stores at one PC on every pass therefore needs a
+  per-pass position claim (a `JoinAtPc` at that PC before the arm; a `None()`
+  mask needs its `stage3-lint.json` entry, S3-003), or every pass lands on the
+  first pass's cycle.
 - **Do not AtPc speculatively.** Each AtPc is a claim about a specific
   instruction; a wrong PC (e.g. the operand address, or the next opcode)
   SoftQuits with `AtPc I/O: not an I/O-sized opcode` or a miss.
@@ -815,6 +831,14 @@ the listing; typical: missing carry, wrong table index, register reused.
 **`AtPc I/O: not an I/O-sized opcode pc=$P`** / `I/O cache addr mismatch`
 Wrong `pc`: not the opcode of the instruction that touches `A`.
 
+**`WriteRamAtPc: $P is not a memory-access instruction`** /
+**`…AtPc: the instruction at $P did not write $A on Twin`** (check failure)
+Wrong `pc` for a RAM or Linked arm: name the load, store or RMW itself, not
+the instruction after it. It can also mean Main and
+Twin are in different passes of the same code (another index), or that the
+arm was consumed by a different operation than the one meant (a `.read()`
+evaluated inside the armed `.write(...)` expression: read it first).
+
 **`kb-check: FAIL frame F cycle C: <name> $A: main=$M twin=$T`**
 - Find the *last* store to `$A` in your translation before this fence and
   the same in the listing. Missing store, wrong value, or a store the
@@ -987,7 +1011,7 @@ history.
 | Pattern | File |
 |---|---|
 | Entry join then ordinary body; `goto` with PC labels | `play_move.cpp` (`entity_clip`, `rand_mix`) |
-| Same-PC RAM AtPc as the fence, then `Compare` | `play.cpp` (`play_tick`, `$EC3C`) |
+| Same-PC RAM AtPc as the fence, then `Compare` (Twin has executed that instruction) | `play.cpp` (`play_tick`, `$EC3C`) |
 | Sprite X RMW with MSB fixup via AtPc | `play.cpp` (`player_input`, `$EA26`), `play_move.cpp` (`$EECD`) |
 | IRQ body: ordinary bookkeeping, ACK, `ReturnIrq` | `play.cpp` (`irq_game`) |
 | NMI music driver | `music.cpp` |

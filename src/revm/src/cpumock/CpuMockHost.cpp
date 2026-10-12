@@ -503,6 +503,69 @@ void CpuMockHost::SetMainPcAfter(uint16_t pc) {
 	SetMainPc(uint16_t(pc + length));
 }
 
+namespace {
+
+// Twin CPU data-path hook used only while an armed RAM/Linked instruction
+// executes (CpuMockHost::TwinAccessProbeBegin/End).
+void twin_access_probe_thunk(uint16_t adr, bool is_write,
+                             MOS6510::CoverSpace /*space*/, void * userdata) {
+	auto * probe = static_cast<TwinAccessProbe *>(userdata);
+	if (adr == probe->addr && is_write == probe->want_write)
+		probe->seen = true;
+}
+
+} // namespace
+
+void CpuMockHost::TwinAccessProbeBegin(uint16_t addr, bool write) {
+	// An armed access inside an interrupt handler dispatched while an outer
+	// probe runs is not checked itself; the outer probe keeps going.
+	++twin_access_probe_depth_;
+	if (twin_access_probe_depth_ > 1)
+		return;
+	twin_access_probe_ = TwinAccessProbe{addr, write, false, false};
+	if (NoTwin())
+		return;
+	C64 * c64 = twin_->board().Machine();
+	if (!c64 || !c64->TheCPU)
+		return;
+	// The hook slot is shared with coverage recording; never take it over.
+	if (!twin_->board().GetConfig().coverage_path.empty())
+		return;
+	twin_access_probe_.active = true;
+	c64->TheCPU->SetMemAccessHook(&twin_access_probe_thunk,
+	                              &twin_access_probe_);
+}
+
+bool CpuMockHost::TwinAccessProbeEnd() {
+	if (twin_access_probe_depth_ > 0)
+		--twin_access_probe_depth_;
+	if (twin_access_probe_depth_ > 0)
+		return true;  // an inner (unchecked) access ended
+	if (!twin_access_probe_.active)
+		return true;
+	twin_access_probe_.active = false;
+	C64 * c64 = twin_->board().Machine();
+	if (c64 && c64->TheCPU)
+		c64->TheCPU->SetMemAccessHook(nullptr, nullptr);
+	return twin_access_probe_.seen;
+}
+
+void CpuMockHost::FailArmedAccessMiss(const char * tag, uint16_t pc,
+                                      uint16_t addr, bool write) {
+	// With --ignore-checks the run goes on; report each PC once then.
+	for (uint16_t reported : armed_access_failed_pcs_) {
+		if (reported == pc)
+			return;
+	}
+	armed_access_failed_pcs_.push_back(pc);
+	REVM_EVENT("armed_access_miss", "pc", revm::event::Hex{pc}, "addr",
+	           revm::event::Hex{addr}, "write", write ? 1 : 0);
+	QuitOnCheck("%s: the instruction at $%04X did not %s $%04X on Twin; the "
+	            "arm names the wrong instruction, or Main and Twin are in "
+	            "different passes of the code",
+	            tag, pc, write ? "write" : "read", addr);
+}
+
 uint16_t CpuMockHost::MainPc() const {
 	const C64 * c64 = board_.Machine();
 	if (!c64 || !c64->TheCPU)
