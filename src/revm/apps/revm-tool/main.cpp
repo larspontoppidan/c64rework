@@ -9,6 +9,7 @@
  *   revm-tool ram RAMBIN [OPTIONS]         64K RAM dump show mode
  *   revm-tool merge-cov INPUT … MERGED     Merge REVMCOV2 coverage files
  *   revm-tool sort-kb INPUT OUTPUT         Sort *.kb.json by bank, then addr
+ *   revm-tool hash-compare A B             Compare two --state-hashes records
  *   revm-tool selftest                     Run self-tests
  */
 
@@ -18,6 +19,7 @@
 #include "debug/Coverage.hpp"
 #include "cpumock/Linked.hpp"
 #include "cpumock/LinkedRegistry.hpp"
+#include "goldens/StateHashes.hpp"
 #include "snapshot/Snapshot.hpp"
 #include "roms/Roms.hpp"
 
@@ -46,6 +48,9 @@ void usage(const char * argv0) {
 		"  %s ram RAMBIN [OPTIONS]  Show mode using 64k RAM dump\n"
 		"  %s merge-cov INPUT INPUT ... MERGED   Merge coverage files\n"
 		"  %s sort-kb INPUT OUTPUT  Sort *.kb.json file\n"
+		"  %s hash-compare A B      Compare two --state-hashes files: per channel the\n"
+		"                           first differing frame and the count; exit 0 when\n"
+		"                           identical over the common frame range\n"
 		"  %s selftest              Run selftest routines of revm project\n"
 		"  %s --version             Print the C64 Rework framework version\n"
 		"\n"
@@ -80,7 +85,7 @@ void usage(const char * argv0) {
 		"  --hot-undoc-top N   Cap hot-undoc rows (default 80)\n"
 		"  --watch-diff SNAP   Diff KB watch vars vs other FullSnapshot (snap mode)\n"
 		"  --watch-diff-all    Include unchanged watch slots in --watch-diff\n",
-		argv0, argv0, argv0, argv0, argv0, argv0);
+		argv0, argv0, argv0, argv0, argv0, argv0, argv0);
 }
 
 bool parse_u16_hex(const char * text, uint16_t & out, std::string & error) {
@@ -2380,6 +2385,71 @@ int cmd_selftest(const std::string & rom_dir) {
 }
 
 
+// revm-tool hash-compare A B: per channel, the first frame that differs and
+// how many frames differ, over the frames both records cover.
+int cmd_hash_compare(int argc, char ** argv) {
+	if (argc != 2) {
+		std::fprintf(stderr, "Usage: revm-tool hash-compare A B\n");
+		return 2;
+	}
+	revm::StateHashFile a;
+	revm::StateHashFile b;
+	std::string error;
+	if (!revm::ReadStateHashFile(argv[0], a, error) ||
+	    !revm::ReadStateHashFile(argv[1], b, error)) {
+		std::fprintf(stderr, "hash-compare: %s\n", error.c_str());
+		return 2;
+	}
+	if (a.channels != b.channels) {
+		std::fprintf(stderr, "hash-compare: the files have different channels\n");
+		return 2;
+	}
+
+	const uint64_t a_end = uint64_t(a.start_frame) + a.FrameCount();
+	const uint64_t b_end = uint64_t(b.start_frame) + b.FrameCount();
+	const uint64_t first = std::max<uint64_t>(a.start_frame, b.start_frame);
+	const uint64_t end = std::min(a_end, b_end);
+	std::printf("A: frames %u..%llu (%zu)\n", a.start_frame,
+	            static_cast<unsigned long long>(a_end) - 1, a.FrameCount());
+	std::printf("B: frames %u..%llu (%zu)\n", b.start_frame,
+	            static_cast<unsigned long long>(b_end) - 1, b.FrameCount());
+	if (a.start_frame != b.start_frame || a_end != b_end)
+		std::printf("note: the frame ranges differ; comparing the common range only\n");
+	if (first >= end) {
+		std::printf("no common frames\n");
+		return 1;
+	}
+	std::printf("common: frames %llu..%llu\n", static_cast<unsigned long long>(first),
+	            static_cast<unsigned long long>(end) - 1);
+
+	const size_t channels = a.channels.size();
+	bool identical = true;
+	for (size_t channel = 0; channel < channels; ++channel) {
+		uint64_t differing = 0;
+		uint64_t first_difference = 0;
+		for (uint64_t frame = first; frame < end; ++frame) {
+			const size_t ia = size_t(frame - a.start_frame) * channels + channel;
+			const size_t ib = size_t(frame - b.start_frame) * channels + channel;
+			if (a.records[ia] == b.records[ib])
+				continue;
+			if (differing == 0)
+				first_difference = frame;
+			++differing;
+		}
+		if (differing == 0) {
+			std::printf("%-8s identical\n", a.channels[channel].c_str());
+		} else {
+			identical = false;
+			std::printf("%-8s first difference at frame %llu, %llu frame(s) differ\n",
+			            a.channels[channel].c_str(),
+			            static_cast<unsigned long long>(first_difference),
+			            static_cast<unsigned long long>(differing));
+		}
+	}
+	std::printf("%s\n", identical ? "IDENTICAL" : "DIFFERENT");
+	return identical ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char ** argv) {
@@ -2395,6 +2465,7 @@ int main(int argc, char ** argv) {
 	if (std::strcmp(cmd, "snap") == 0) return cmd_inspect(true, argc - 2, argv + 2);
 	if (std::strcmp(cmd, "ram") == 0) return cmd_inspect(false, argc - 2, argv + 2);
 	if (std::strcmp(cmd, "sort-kb") == 0) return cmd_sort_kb(argc - 2, argv + 2);
+	if (std::strcmp(cmd, "hash-compare") == 0) return cmd_hash_compare(argc - 2, argv + 2);
 	if (std::strcmp(cmd, "merge-cov") == 0 || std::strcmp(cmd, "merge-coverage") == 0)
 		return cmd_merge_cov(argc - 2, argv + 2);
 	if (std::strcmp(cmd, "selftest") == 0) {

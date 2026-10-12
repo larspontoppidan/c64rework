@@ -37,6 +37,16 @@ such plays are not export evidence.
 (joins and armed accesses), not at the BEGIN PC. The VIC reads the byte at
 the CPU's PC for its DMA-delay "garbage" fetch, so Main now draws the same
 bytes there as the original. Not with `--main-blank`.
+- New `--state-hashes FILE` on REVM, the Stage 3/4 builds and the standalone
+export: one CRC32 per frame of the screen, the SID writes (with their timing
+in the frame), VIC, CIA1 and CIA2, about 20 bytes per frame.
+`./rework hash-compare A B` shows the first differing frame per channel.
+Records are made to prove something and thrown away, never stored or gated.
+- The standalone export's parity check now compares state hashes of the
+export and Stage 4.5 `--main-blank --no-twin` over whole plays, sound
+included, instead of PNGs at sampled frames.
+- `--save-screen FRAME FILE` can be given several times (REVM, Stage 3/4 and
+the standalone export); before, only the last one was kept.
 - Stage 3/4: new CPU-flag compare channel. `CompareMask::Flags(bits, main)`
 or `.WithFlags(bits, main)` compares the flags the translation models (D, C,
 ...) with Twin's P at a fence and fails with `CPU flag FAIL ... C main=0

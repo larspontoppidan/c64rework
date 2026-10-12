@@ -560,7 +560,7 @@ int GameHost::run_entry() {
 	board_.StopWallClockLimit();
 	{
 		std::string screen_err;
-		if (!board_.FinishSaveScreen(screen_err) && !screen_err.empty()) {
+		if (!board_.FinishOutputs(screen_err) && !screen_err.empty()) {
 			REVM_LOG(REVM_ERROR, "%s", screen_err.c_str());
 			if (board_.ExitCode() == 0)
 				board_.RequestQuit(1);

@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace revm {
 
@@ -30,10 +31,16 @@ struct Config {
 	std::optional<double> max_seconds;
 	unsigned rand_seed = 42;
 
-	// --save-screen FRAME FILE: indexed Pepto PNG at VBLANK FRAME (same counter
-	// as --max-frames). Unset = disabled.
-	std::optional<uint32_t> save_screen_frame;
-	std::string save_screen_path;
+	// --save-screen FRAME FILE (repeatable): indexed Pepto PNG at VBLANK FRAME
+	// (same counter as --max-frames). Empty = disabled.
+	struct SaveScreen {
+		uint32_t frame = 0;
+		std::string path;
+	};
+	std::vector<SaveScreen> save_screens;
+	// --state-hashes FILE: per-frame CRC32 of screen, SID writes, VIC and CIA
+	// state (goldens/StateHashes.hpp). Empty = disabled.
+	std::string state_hashes_path;
 };
 
 } // namespace revm

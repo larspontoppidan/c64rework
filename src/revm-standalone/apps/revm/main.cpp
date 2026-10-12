@@ -38,6 +38,9 @@ void print_usage(const char * program) {
 	             "  --headless       Hidden; requires --max-frames N or --use-play FILE\n"
 	             "  --max-frames N   Stop at frame N (test convenience)\n"
 	             "  --save-screen FRAME FILE  Indexed Pepto PNG of Main at VBLANK FRAME\n"
+	             "                   (repeatable)\n"
+	             "  --state-hashes FILE  Per-frame CRC32 of screen, SID writes, VIC, CIA1,\n"
+	             "                   CIA2 (compare with REVM's revm-tool hash-compare)\n"
 	             "  --no-audio       Disable SID audio\n"
 	             "  --resid          Use reSID with interpolated sampling\n"
 	             "  --resid-hq       Use reSID with FastMem resampling (HQ wins)\n"
@@ -108,8 +111,18 @@ bool parse_options(int argc, char ** argv, Options & options, std::string & erro
 				error = "--save-screen requires FRAME FILE";
 				return false;
 			}
-			options.config.save_screen_frame = frame;
-			options.config.save_screen_path = file;
+			revm::Config::SaveScreen request;
+			request.frame = frame;
+			request.path = file;
+			options.config.save_screens.push_back(request);
+		} else if (std::strcmp(argument, "--state-hashes") == 0) {
+			const char * value = value_after(argument);
+			if (!value) return false;
+			if (!*value) {
+				error = "--state-hashes requires a file path";
+				return false;
+			}
+			options.config.state_hashes_path = value;
 		} else if (std::strcmp(argument, "--no-audio") == 0) {
 			options.no_audio = true;
 			options.config.sid = revm::SidMode::None;

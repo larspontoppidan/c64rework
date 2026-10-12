@@ -157,7 +157,7 @@ void Board::Configure(const Config & cfg) {
 	mod_mirror_ = nullptr;
 	coverage_active_ = !cfg_.coverage_path.empty();
 	save_snapshot_done_ = false;
-	save_screen_done_ = false;
+	save_screens_done_.assign(cfg_.save_screens.size(), false);
 	add_play_snapshot_done_ = false;
 	snapshot_capture_pending_ =
 		(!cfg_.save_snapshot_path.empty() && cfg_.save_snapshot_cycle) ||
@@ -176,6 +176,11 @@ void Board::Configure(const Config & cfg) {
 			REVM_LOG(REVM_ERROR, "%s", observation_error.c_str());
 			frame_observations_.reset();
 		}
+	}
+	state_hashes_.reset();
+	if (!cfg_.state_hashes_path.empty()) {
+		state_hashes_ = std::make_unique<StateHashRecorder>();
+		state_hashes_->Configure(cfg_.state_hashes_path);
 	}
 	pc_watches_.clear();
 	for (uint16_t pc : cfg_.watch_main_pcs)
@@ -399,6 +404,9 @@ bool Board::init_machine(std::string & error, BoardInitRole role) {
 	}
 	machine_owned_ = true;
 	clock_.Reset();
+	// State hashes are Main's output only (Twin is the oracle, not the product).
+	if (state_hashes_ && !secondary)
+		state_hashes_->Attach(c64_);
 
 	if (secondary) {
 		// Restore primary prefs so twin construction does not stick.
@@ -720,26 +728,38 @@ void Board::maybe_save_snapshot() {
 }
 
 void Board::maybe_save_screen() {
-	if (save_screen_done_ || secondary_ || cfg_.save_screen_path.empty() ||
-	    !cfg_.save_screen_frame) {
+	if (secondary_)
 		return;
-	}
 	const uint32_t frame = FrameCounter();
-	if (frame != *cfg_.save_screen_frame) return;
-	save_screen_done_ = true;
+	for (size_t i = 0; i < cfg_.save_screens.size(); ++i) {
+		const Config::SaveScreen & request = cfg_.save_screens[i];
+		if (save_screens_done_[i] || request.frame != frame)
+			continue;
+		save_screens_done_[i] = true;
 
-	ScreenSnapshot screen{};
-	std::string err;
-	if (!CaptureScreenSnapshot(*this, screen) ||
-	    !WriteScreenPng(cfg_.save_screen_path, screen, err)) {
-		REVM_LOG(REVM_ERROR, "save-screen failed: %s",
-		         err.empty() ? "capture failed" : err.c_str());
-		RequestQuit(1);
-		return;
+		ScreenSnapshot screen{};
+		std::string err;
+		if (!CaptureScreenSnapshot(*this, screen) ||
+		    !WriteScreenPng(request.path, screen, err)) {
+			REVM_LOG(REVM_ERROR, "save-screen failed: %s",
+			         err.empty() ? "capture failed" : err.c_str());
+			RequestQuit(1);
+			return;
+		}
+		REVM_LOG(REVM_INFO, "save-screen → %s (frame=%u)",
+		         request.path.c_str(), frame);
+		std::fflush(stderr);
 	}
-	REVM_LOG(REVM_INFO, "save-screen → %s (frame=%u)",
-	         cfg_.save_screen_path.c_str(), frame);
-	std::fflush(stderr);
+}
+
+void Board::record_state_hashes(uint32_t frame, uint32_t cycle) {
+	if (!state_hashes_ || secondary_)
+		return;
+	std::string error;
+	if (!state_hashes_->OnFrame(frame, cycle, error)) {
+		REVM_LOG(REVM_ERROR, "%s", error.c_str());
+		RequestQuit(1);
+	}
 }
 
 void Board::save_live_screenshot() {
@@ -1142,6 +1162,7 @@ void Board::on_frame_boundary() {
 	arm_audio_if_needed();
 	capture_video_frame();
 	maybe_save_screen();
+	record_state_hashes(frame, cycle);
 	if (frame_observations_ || frame_observer_) {
 		FrameSnapshot snap;
 		if (!CaptureFrameSnapshot(*this, snap)) {
@@ -1398,6 +1419,15 @@ void Board::capture_video_frame() {
 
 bool Board::FinishMedia(std::string & error) {
 	error.clear();
+	if (state_hashes_) {
+		std::string hash_error;
+		const bool ok = state_hashes_->Finish(hash_error);
+		state_hashes_.reset();
+		if (!ok) {
+			error = hash_error;
+			return false;
+		}
+	}
 	if (audio_armed_ && c64_ && c64_->TheSID) {
 		c64_->TheSID->SetSampleTap(nullptr, nullptr);
 		wav_.SetArmed(false);
@@ -1474,9 +1504,11 @@ bool Board::FinishMedia(std::string & error) {
 		media_wav_path_.clear();
 		media_wav_is_temp_ = false;
 	}
-	if (!cfg_.save_screen_path.empty() && !save_screen_done_) {
+	for (size_t i = 0; i < cfg_.save_screens.size(); ++i) {
+		if (save_screens_done_[i])
+			continue;
 		error = "save-screen: frame " +
-		        std::to_string(*cfg_.save_screen_frame) +
+		        std::to_string(cfg_.save_screens[i].frame) +
 		        " never reached (ended at frame " +
 		        std::to_string(FrameCounter()) + ")";
 		return false;

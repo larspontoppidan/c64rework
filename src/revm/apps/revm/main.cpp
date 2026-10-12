@@ -88,8 +88,10 @@ void print_usage(const char * argv0) {
 		"  --save-video FILE     MP4 via ffmpeg: 2× nearest-neighbor RGB,\n"
 		"                        H.264 + reSID AAC. Requires --resid[-hq].\n"
 		"  --save-screen FRAME FILE  Indexed Pepto PNG of Main at VBLANK FRAME\n"
-		"                        (same frame counter as --max-frames)\n"
+		"                        (same frame counter as --max-frames; repeatable)\n"
 		"  --frame-observations FILE  Per-frame indexed pixels + public SID bytes\n"
+		"  --state-hashes FILE   Per-frame CRC32 of Main's screen, SID writes, VIC,\n"
+		"                        CIA1, CIA2 (compare: revm-tool hash-compare A B)\n"
 		"\n"
 		"Common:\n"
 		"  --version             Print the C64 Rework framework version\n"
@@ -407,8 +409,10 @@ bool parse_args(int argc, char ** argv, Opts & o, std::string & error) {
 				error = "--save-screen requires FRAME FILE";
 				return false;
 			}
-			o.cfg.save_screen_frame = uint32_t(std::strtoul(fr, nullptr, 10));
-			o.cfg.save_screen_path = file;
+			revm::Config::SaveScreen request;
+			request.frame = uint32_t(std::strtoul(fr, nullptr, 10));
+			request.path = file;
+			o.cfg.save_screens.push_back(request);
 		} else if (std::strcmp(a, "--frame-observations") == 0) {
 			const char * v = need_i("--frame-observations");
 			if (!v) return false;
@@ -417,6 +421,14 @@ bool parse_args(int argc, char ** argv, Opts & o, std::string & error) {
 				return false;
 			}
 			o.cfg.frame_observations_path = v;
+		} else if (std::strcmp(a, "--state-hashes") == 0) {
+			const char * v = need_i("--state-hashes");
+			if (!v) return false;
+			if (!*v) {
+				error = "--state-hashes requires a file path";
+				return false;
+			}
+			o.cfg.state_hashes_path = v;
 		} else if (std::strcmp(a, "--config") == 0) {
 			const char * v = need_i("--config");
 			if (!v) return false;
@@ -623,10 +635,6 @@ bool validate(Opts & o, std::string & error) {
 	}
 	if (!o.cfg.save_snapshot_path.empty() && !o.cfg.save_snapshot_cycle) {
 		error = "--save-snapshot requires CYCLE and FILE";
-		return false;
-	}
-	if (!o.cfg.save_screen_path.empty() && !o.cfg.save_screen_frame) {
-		error = "--save-screen requires FRAME and FILE";
 		return false;
 	}
 	const bool intrinsic_cpumock_start =

@@ -118,7 +118,8 @@ void Board::Configure(const Config & cfg) {
 	last_vblank_cycle_ = 0;
 	vblank_period_ = kCyclesPerFrame;
 	have_last_vblank_ = false;
-	save_screen_done_ = false;
+	save_screens_done_.assign(cfg_.save_screens.size(), false);
+	state_hashes_.Configure(cfg_.state_hashes_path);
 }
 
 bool Board::Init(std::string & error) {
@@ -173,6 +174,8 @@ bool Board::init_machine(std::string & error) {
 	c64_ = new C64();
 	TheC64 = c64_;
 	machine_owned_ = true;
+	if (state_hashes_.Enabled())
+		state_hashes_.Attach(c64_);
 
 	log::SetClockSource([this] {
 		log::BoardClock clock;
@@ -403,6 +406,7 @@ void Board::on_frame_boundary() {
 	c64_->TheCIA1->CountTOD();
 	c64_->TheCIA2->CountTOD();
 	maybe_save_screen();
+	record_state_hashes(frame, cycle);
 	if (!cfg_.headless && c64_->TheDisplay) {
 		if (!dynamic_cast<LiveInput *>(input_))
 			pump_host_events();
@@ -453,24 +457,33 @@ void Board::note_vblank() {
 }
 
 void Board::maybe_save_screen() {
-	if (save_screen_done_ || cfg_.save_screen_path.empty() ||
-	    !cfg_.save_screen_frame) {
-		return;
-	}
 	const uint32_t frame = FrameCounter();
-	if (frame != *cfg_.save_screen_frame)
-		return;
-	save_screen_done_ = true;
+	for (size_t i = 0; i < cfg_.save_screens.size(); ++i) {
+		const Config::SaveScreen & request = cfg_.save_screens[i];
+		if (save_screens_done_[i] || request.frame != frame)
+			continue;
+		save_screens_done_[i] = true;
 
-	std::string err;
-	if (!write_display_png(cfg_.save_screen_path, err)) {
-		REVM_LOG(REVM_ERROR, "save-screen failed: %s", err.c_str());
-		RequestQuit(1);
-		return;
+		std::string err;
+		if (!write_display_png(request.path, err)) {
+			REVM_LOG(REVM_ERROR, "save-screen failed: %s", err.c_str());
+			RequestQuit(1);
+			return;
+		}
+		REVM_LOG(REVM_INFO, "save-screen → %s (frame=%u)",
+		         request.path.c_str(), frame);
+		std::fflush(stderr);
 	}
-	REVM_LOG(REVM_INFO, "save-screen → %s (frame=%u)",
-	         cfg_.save_screen_path.c_str(), frame);
-	std::fflush(stderr);
+}
+
+void Board::record_state_hashes(uint32_t frame, uint32_t cycle) {
+	if (!state_hashes_.Enabled())
+		return;
+	std::string error;
+	if (!state_hashes_.OnFrame(frame, cycle, error)) {
+		REVM_LOG(REVM_ERROR, "%s", error.c_str());
+		RequestQuit(1);
+	}
 }
 
 bool Board::write_display_png(const std::string & path, std::string & error) {
@@ -507,15 +520,20 @@ void Board::poll_host_screenshot() {
 	screenshot_chord_was_down_ = chord;
 }
 
-bool Board::FinishSaveScreen(std::string & error) {
+bool Board::FinishOutputs(std::string & error) {
 	error.clear();
-	if (cfg_.save_screen_path.empty() || save_screen_done_)
-		return true;
-	error = "save-screen: frame " +
-	        std::to_string(*cfg_.save_screen_frame) +
-	        " never reached (ended at frame " +
-	        std::to_string(FrameCounter()) + ")";
-	return false;
+	if (!state_hashes_.Finish(error))
+		return false;
+	for (size_t i = 0; i < cfg_.save_screens.size(); ++i) {
+		if (save_screens_done_[i])
+			continue;
+		error = "save-screen: frame " +
+		        std::to_string(cfg_.save_screens[i].frame) +
+		        " never reached (ended at frame " +
+		        std::to_string(FrameCounter()) + ")";
+		return false;
+	}
+	return true;
 }
 
 void Board::RequestQuit(int exit_code) {

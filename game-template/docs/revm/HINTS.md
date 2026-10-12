@@ -61,7 +61,21 @@ and diagnostics are options rather than subcommands.
   speakers. `--save-video` writes 2× nearest-neighbor H.264 and muxes reSID
   PCM as 192 kbit/s AAC. `--no-audio` cannot be combined with either media
   flag. `--save-screen FRAME FILE` writes an indexed Pepto PNG of Main at that
-  VBLANK (same frame counter as `--max-frames`).
+  VBLANK (same frame counter as `--max-frames`). Give it several times for
+  several frames, in REVM and in the standalone export.
+- `--state-hashes FILE` (REVM, Stage 3/4 builds and the standalone export)
+  writes one CRC32 per frame for each of five channels of what the player
+  sees and hears: `screen` (the pixels `--save-screen` writes), `sid` (the
+  frame's SID writes with their cycle in the frame), `vic` (registers as a
+  program reads them), `cia1`, `cia2` (register state, without port input
+  pins). With Twin it records Main. About 20 bytes per frame; the format is
+  described in `src/revm/src/goldens/StateHashes.hpp`.
+  `./rework hash-compare A B` (or `revm-tool hash-compare`) prints, per
+  channel, the first differing frame and how many frames differ over the
+  frames both files cover; exit 0 means identical. Use it to prove that two
+  runs are the same (the export against Stage 4.5, a refactor) or to find
+  where a no-twin replay drifts. Records are made on demand and thrown away:
+  never store them in plays and never use them as a gate.
 - Record further canonical plays from the BEGIN snapshot with
   `--load-snapshot` and `--record-play`. There is no separate BEGIN-cycle
   option.

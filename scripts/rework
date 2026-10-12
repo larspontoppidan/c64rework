@@ -31,6 +31,7 @@ Commands:
   lint TARGET                TARGET: stage3 or stage4
   revm [options...]
   revm-tool [options...]
+  hash-compare A B           Compare two --state-hashes records (revm-tool)
   test-play TARGET PLAY [options...]  Headless replay of a recording
   show-play TARGET PLAY [options...]  On-screen replay of a recording
   play-game TARGET [options...]       Live interactive play
@@ -772,6 +773,15 @@ case "$command" in
 		;;
 	revm) run_revm "$@" ;;
 	revm-tool) run_revm_tool "$@" ;;
+	hash-compare)
+		[[ $# -eq 2 ]] || die "hash-compare requires two state-hash files"
+		hash_rc=0
+		run_revm_tool hash-compare "$@" || hash_rc=$?
+		if [[ $hash_rc -eq 2 ]]; then
+			echo "rework: if revm-tool said \"Unknown command\", it predates hash-compare; rebuild it with ./rework build revm" >&2
+		fi
+		exit "$hash_rc"
+		;;
 	test-play)
 		[[ $# -ge 1 ]] || die "test-play requires a target"
 		invoke_play test "$@"

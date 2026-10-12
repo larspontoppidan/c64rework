@@ -1312,9 +1312,9 @@ void CpuMockHost::apply_user_cfg(Config & cfg, const Config * user_cfg) {
 	cfg.play_path = user_cfg->play_path.empty() ? cfg.play_path : user_cfg->play_path;
 	cfg.save_audio_path = user_cfg->save_audio_path;
 	cfg.save_video_path = user_cfg->save_video_path;
-	cfg.save_screen_frame = user_cfg->save_screen_frame;
-	cfg.save_screen_path = user_cfg->save_screen_path;
+	cfg.save_screens = user_cfg->save_screens;
 	cfg.frame_observations_path = user_cfg->frame_observations_path;
+	cfg.state_hashes_path = user_cfg->state_hashes_path;
 	cfg.max_cycles = user_cfg->max_cycles;
 	cfg.max_seconds = user_cfg->max_seconds;
 	cfg.log_verbose_from_cycle = user_cfg->log_verbose_from_cycle;

@@ -6,6 +6,7 @@
 
 #include "core/Clock.hpp"
 #include "core/Config.hpp"
+#include "goldens/StateHashes.hpp"
 #include "input/IInputSource.hpp"
 #include "input/InputState.hpp"
 
@@ -74,8 +75,8 @@ public:
 	void StartWallClockLimit();
 	void StopWallClockLimit();
 
-	// Error if --save-screen was requested but FRAME was never reached.
-	bool FinishSaveScreen(std::string & error);
+	// Close --state-hashes; error if a --save-screen FRAME was never reached.
+	bool FinishOutputs(std::string & error);
 
 	using FrameCallback = std::function<void(uint32_t frame, uint32_t cycle)>;
 	void SetFrameCallback(FrameCallback cb) { frame_cb_ = std::move(cb); }
@@ -90,6 +91,7 @@ private:
 	bool finish_cycle(bool vblank);
 	void pump_host_events();
 	void maybe_save_screen();
+	void record_state_hashes(uint32_t frame, uint32_t cycle);
 	void poll_host_screenshot();
 	void save_live_screenshot();
 	bool write_display_png(const std::string & path, std::string & error);
@@ -125,7 +127,8 @@ private:
 	std::atomic<uint64_t> vblank_generation_{0};
 	std::atomic<uint32_t> supervisor_last_vblank_frame_{0};
 	std::atomic<uint32_t> supervisor_last_vblank_cycle_{0};
-	bool save_screen_done_ = false;
+	std::vector<bool> save_screens_done_; // one per cfg_.save_screens entry
+	StateHashRecorder state_hashes_;
 	bool screenshot_chord_was_down_ = false;
 };
 

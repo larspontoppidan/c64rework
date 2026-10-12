@@ -210,8 +210,14 @@ Game export from the game root, after Stage 4.5 is accepted:
    gameplay events (pickups, collect, level clear, death) are required
    evidence that standalone is the same machine. Logs still omit video/audio
    state, so they do not replace play-feel or SID/frame checks.
-7. compare frame observations and public SID traces with the accepted Stage 4
-   no-Twin run
+7. prove parity with state hashes for each export play P: record
+   `./rework test-play stage4 P --main-blank --no-twin --state-hashes s45.hsh`
+   and `StandaloneExport/bin/game --headless --use-play plays/P.json
+   --state-hashes exp.hsh`, then `./rework hash-compare s45.hsh exp.hsh`.
+   Every channel (screen, SID writes with their timing, VIC, CIA1, CIA2)
+   must be identical over the whole play. A difference is an export defect:
+   the first differing frame and channel say where to look. Delete the
+   records afterwards; they are evidence for this check, not goldens.
 8. ask the user for the final interactive play-feel check
 
 Framework tool fixtures (lint, tree-sitter lowering analyzer, ownership auditor)

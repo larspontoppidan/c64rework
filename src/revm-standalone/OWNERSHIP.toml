@@ -39,6 +39,9 @@ mirrored_files = [
   "src/vendor/nlohmann/json.hpp",
   "src/util/Png.hpp",
   "src/util/Png.cpp",
+  "src/util/Crc32.hpp",
+  "src/goldens/StateHashes.hpp",
+  "src/goldens/StateHashes.cpp",
 ]
 
 standalone_only = [
@@ -58,13 +61,13 @@ reason = "Standalone extracts the shared AdvanceResult enum and name helper from
 
 [[forked]]
 path = "src/core/Board.cpp"
-base_sha256 = "c9dff35b457b469a9fd48d38a948a70fad2ebf7cb7f6f9d21b92c6e4d68ec8b0"
-reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write an indexed Pepto PNG from the VIC bitmap without the full media/snapshot stack. Optional PlayRecorder captures sticky C64 input at VSYNC; the supervisor salvages it (SaveTruncated) before a watchdog hard abort, as upstream does. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
+base_sha256 = "7bf171ff5caa847f4defa3811e7e8910584ead730af40ac701debdabee13b840"
+reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write an indexed Pepto PNG from the VIC bitmap without the full media/snapshot stack; --state-hashes uses the shared StateHashRecorder, closed by FinishOutputs. Optional PlayRecorder captures sticky C64 input at VSYNC; the supervisor salvages it (SaveTruncated) before a watchdog hard abort, as upstream does. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
 
 [[forked]]
 path = "src/core/Board.hpp"
-base_sha256 = "6bd3bdb0653673e14b2b7144f98f6abe26374a1d0009cf20d158466545b365e8"
-reason = "Standalone Board API omits secondary/Twin, snapshots, playback-oracle callbacks, debug, coverage, analysis, unused Reset/Run/hook surfaces, the shadow Clock object, and EmulateCycleInjectCpu. --save-screen and Ctrl+F9 are Main-only PNG captures. SetPlayRecorder is the slim input recorder, not the FullSnapshot oracle. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
+base_sha256 = "450cb68516e832ddfa108ad2001d9d716bb434859a4139f11a13351fe91e40d5"
+reason = "Standalone Board API omits secondary/Twin, snapshots, playback-oracle callbacks, debug, coverage, analysis, unused Reset/Run/hook surfaces, the shadow Clock object, and EmulateCycleInjectCpu. --save-screen and Ctrl+F9 are Main-only PNG captures; --state-hashes is the shared StateHashRecorder. SetPlayRecorder is the slim input recorder, not the FullSnapshot oracle. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
 
 [[forked]]
 path = "src/core/Clock.hpp"
@@ -83,8 +86,8 @@ reason = "Standalone timed logs format only the Main clock; Twin suffixes and Sa
 
 [[forked]]
 path = "src/core/Config.hpp"
-base_sha256 = "8fb992e787960b26ccf5ff4fa26ec32e4af198eec5625b58330e18137837176d"
-reason = "Standalone configuration is blank-Main only and uses one SidMode instead of overlapping audio flags. --save-screen FRAME FILE is retained."
+base_sha256 = "e1cffdb6fd6bd279b13f4140dbd17ea2d09dcedf04ea2c037535fe8063ce3a39"
+reason = "Standalone configuration is blank-Main only and uses one SidMode instead of overlapping audio flags. --save-screen FRAME FILE (repeatable) and --state-hashes FILE are retained."
 
 [[forked]]
 path = "src/input/JoystickConfig.cpp"
@@ -185,12 +188,12 @@ reason = "Standalone VIC removes its stale cartridge reference while preserving 
 
 [[forked]]
 path = "apps/revm/main.cpp"
-base_sha256 = "e3a19d048e85ed7e9118230d9ad4e3a49778d5b57895f216407d8ab5a03cfaab"
-reason = "Standalone entry point omits REVM CLI, oracle, Twin, and analysis startup; launch uses StandaloneRunner and one SidMode for interactive play, --record-play, and replay. Prints a live key sheet (including Ctrl+F9) on windowed launches. --save-screen FRAME FILE is retained."
+base_sha256 = "b48bf84b8487363a8614cc508d6b650fa9eebc41788cac810757def6752ba0cc"
+reason = "Standalone entry point omits REVM CLI, oracle, Twin, and analysis startup; launch uses StandaloneRunner and one SidMode for interactive play, --record-play, and replay. Prints a live key sheet (including Ctrl+F9) on windowed launches. --save-screen FRAME FILE (repeatable) and --state-hashes FILE are retained."
 
 [[forked]]
 path = "cmake/RevmCommon.cmake"
-base_sha256 = "4de63bbb8d1fa24f8ad40e94df4946b78d2a96ef21d8822fbd8d9b0ecc06ffcd"
+base_sha256 = "f211b2776a5e0dcd22392d57d2c7b5290e23f4842e50f9b2990e24ca59f8b2ba"
 reason = "Standalone build always produces one executable and one cpu-mock game object set; reSID remains a runtime SidMode, not a second build graph. The runtime compiles GameHost plus StandaloneRunner instead of CpuMockHost, including the slim PlayRecorder. reSID is vendored at export src/resid/ (not a git submodule); CMake requires those sources and perl to generate wave tables."
 
 [[forked]]

@@ -56,6 +56,14 @@ public:
 	int GetSampleRate() const { return sample_rate_; }
 	void SetSampleRate(int hz) { sample_rate_ = hz; }
 
+	// Optional tap of every register write, before the renderer sees it.
+	// Used by REVM state-hash records (the frame's SID writes in order).
+	using WriteTap = void (*)(uint16_t adr, uint8_t byte, void * userdata);
+	void SetWriteTap(WriteTap tap, void * userdata) {
+		write_tap_ = tap;
+		write_tap_ud_ = userdata;
+	}
+
 	// Owning C64 (for CycleCounter). Set by C64 after construction.
 	void SetC64(C64 * c64) { the_c64_ = c64; }
 	C64 * GetC64() const { return the_c64_; }
@@ -92,6 +100,9 @@ private:
 	SampleTap sample_tap_ = nullptr;
 	void * sample_tap_ud_ = nullptr;
 	int sample_rate_ = 0;
+
+	WriteTap write_tap_ = nullptr;
+	void * write_tap_ud_ = nullptr;
 
 	C64 * the_c64_ = nullptr;	// Owning machine (CycleCounter for osc3)
 
@@ -294,6 +305,10 @@ inline void MOS6581::WriteRegister(uint16_t adr, uint8_t byte)
 				fake_v3_eg_state = EG_RELEASE;
 			}
 		}
+	}
+
+	if (write_tap_ != nullptr) {
+		write_tap_(adr, byte, write_tap_ud_);
 	}
 
 	// Keep a local copy of the register values

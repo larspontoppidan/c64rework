@@ -199,6 +199,7 @@ set(REVM_SOURCES
   ${REVM_DIR}/util/Png.cpp
   ${REVM_DIR}/goldens/RamCompareMask.cpp
   ${REVM_DIR}/goldens/FrameObservation.cpp
+  ${REVM_DIR}/goldens/StateHashes.cpp
   ${REVM_DIR}/goldens/CompareReport.cpp
   ${REVM_DIR}/goldens/WavWriter.cpp
   ${REVM_DIR}/core/RunSetup.cpp

@@ -179,6 +179,7 @@ set(REVM_SOURCES
   ${REVM_DIR}/input/JoystickConfig.cpp
   ${REVM_DIR}/goldens/PlayInput.cpp
   ${REVM_DIR}/goldens/PlayRecorder.cpp
+  ${REVM_DIR}/goldens/StateHashes.cpp
   ${REVM_DIR}/util/Log.cpp
   ${REVM_DIR}/util/Png.cpp
   ${REVM_DIR}/gamehost/GameHost.cpp
