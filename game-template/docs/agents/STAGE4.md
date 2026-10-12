@@ -126,7 +126,8 @@ applies to Stage 4.5 with `--main-blank`. No-twin plays must keep running
 without failures and feel the same, but need not replay frame-identically:
 Stage 4 may change no-twin timing (for example a shorter boot). Before
 standalone export, record no-twin plays without `mod_events` on Stage 4.5
-(`--main-blank --no-twin`); they are the export's evidence.
+(`--main-blank --no-twin`, stored as `recorded_on` `no_twin` and
+`main_blank` true); they are the export's evidence.
 
 Note that stage 4 will fail recordings with `mod_events` if the modified 
 addresses are not registered Linked values.
@@ -153,6 +154,11 @@ Live changes may use the surface's timed write API with original `Sync::AtPc`:
 Sync::AtPc(host_, 0x4567);
 video.charset.glyph(ch).row(row).write(value);
 ```
+
+`video.charset` follows the character page the live `$D018` selects. When the
+original stores to an absolute glyph page while a raster IRQ flips `$D018`
+(a split screen), name the page instead: `video.charset.page(n)` (0..7, bank
+offset `n * $800`) is the same surface fixed to that page.
 
 Do not call `install()` more than necessary.
 
@@ -338,7 +344,10 @@ Run `./rework stage4-diag` alongside lint. It is the standalone exporter's
 preflight over `Stage4/` and stops at the first construct the export cannot
 lower; it is cheaper to fix those during Stage 4 than to discover them at
 export time. Its C++ parser does not accept an attribute between `enum class`
-and the name (`enum class [[nodiscard]] Flow`); write `enum class Flow`.
+and the name (`enum class [[nodiscard]] Flow`); write `enum class Flow`. A
+function template must receive the same kind of Linked state at every call:
+the export makes a Linked argument a plain byte or array, so one body cannot
+also serve plain or other state.
 
 The rule fixtures are part of the tool and must remain green:
 

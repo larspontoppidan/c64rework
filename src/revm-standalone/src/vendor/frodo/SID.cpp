@@ -205,6 +205,12 @@ uint8_t MOS6581::v3_random()
 }
 
 
+void MOS6581::SetResidAdsr(int mode)
+{
+	if (the_renderer != nullptr)
+		the_renderer->SetAdsrMode(mode);
+}
+
 void MOS6581::RebaseRendererClock()
 {
 	if (the_renderer != nullptr)

@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "sid/ResidOptions.hpp"
 #include "cpumock/LinkedRegistry.hpp"
 #include "core/Board.hpp"
 #include "core/Config.hpp"
@@ -23,6 +24,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace revm { class PlayRecorder; }
 
@@ -51,10 +53,29 @@ struct SoftQuitException {
 	int code = 1;
 };
 
+// 6510 status register bits (P = NV-BDIZC), for CompareMask::Flags.
+// B and bit 5 are not flags (they exist only in a pushed P) and cannot be
+// compared.
+struct CpuFlag {
+	static constexpr uint8_t C = 0x01;
+	static constexpr uint8_t Z = 0x02;
+	static constexpr uint8_t I = 0x04;
+	static constexpr uint8_t D = 0x08;
+	static constexpr uint8_t V = 0x40;
+	static constexpr uint8_t N = 0x80;
+};
+
 // Main↔Twin compare mask at a join fence (or Sync::Compare).
 // All flags default false: CompareMask{} / None() is PC-only (no compare).
 // JoinAtPc / Sync::Compare default to Kb(). All() is screen + sid + vic +
 // cia1 + cia2 + kb. vic_state is opt-in (SC internals / raster pipeline).
+//
+// CPU flags: Main's mock 6510 has no P register. Where a translation models
+// a flag itself (a decimal-mode window, a carry kept across routines), it
+// passes the values it models and the compare checks them against Twin's P:
+// `flags` selects the bits (CpuFlag::...), `flags_main` holds Main's values
+// for them. Flags(...) builds a flags-only mask; WithFlags(...) adds the
+// channel to another mask, e.g. CompareMask::Kb().WithFlags(CpuFlag::C, c).
 struct CompareMask {
 	bool screen = false;
 	bool sid = false;
@@ -63,10 +84,12 @@ struct CompareMask {
 	bool cia1 = false;
 	bool cia2 = false;
 	bool kb = false;
+	uint8_t flags = 0;
+	uint8_t flags_main = 0;
 
-	static CompareMask None() { return {}; }
-	static CompareMask Kb() { return {.kb = true}; }
-	static CompareMask All() {
+	static constexpr CompareMask None() { return {}; }
+	static constexpr CompareMask Kb() { return {.kb = true}; }
+	static constexpr CompareMask All() {
 		return {.screen = true,
 		        .sid = true,
 		        .vic = true,
@@ -74,8 +97,20 @@ struct CompareMask {
 		        .cia2 = true,
 		        .kb = true};
 	}
-	bool any() const {
-		return screen || sid || vic || vic_state || cia1 || cia2 || kb;
+	// `which`: the CpuFlag bits to compare. `main_p`: Main's value for them,
+	// laid out as in P (bits outside `which` are ignored).
+	static constexpr CompareMask Flags(uint8_t which, uint8_t main_p) {
+		return CompareMask{}.WithFlags(which, main_p);
+	}
+	constexpr CompareMask WithFlags(uint8_t which, uint8_t main_p) const {
+		CompareMask out = *this;
+		out.flags = which;
+		out.flags_main = uint8_t(main_p & which);
+		return out;
+	}
+	constexpr bool any() const {
+		return screen || sid || vic || vic_state || cia1 || cia2 || kb ||
+		       flags != 0;
 	}
 };
 
@@ -128,6 +163,14 @@ struct CpuMockStart {
 	bool interrupts_disabled = true;
 	std::optional<CiaLivePhase> cia1;
 	std::optional<CiaLivePhase> cia2;
+};
+
+// What CpuMockHost::TwinAccessProbeBegin/End watch for on Twin's CPU.
+struct TwinAccessProbe {
+	uint16_t addr = 0;
+	bool want_write = false;
+	bool active = false;
+	bool seen = false;
 };
 
 // Stage-3/4 cpumock host: normally restore BEGIN; Stage 4.5 may start Main
@@ -207,11 +250,22 @@ public:
 	                            VSyncPolicy vsync_policy = VSyncPolicy::Cross);
 	AdvanceResult AdvanceToVSync();
 	uint32_t AdvanceFrames(uint32_t frames);
+	// --no-twin: the interrupted main line resumes only after the handler's
+	// time (ReturnIrq: 7 + body_cycles + 8 Φ2; ReturnNmi: cycles), as on the
+	// real CPU. AdvanceCycles counts main-line Φ2 only.
 	void ReturnIrq(uint32_t body_cycles);
 	void ReturnNmi(uint32_t cycles);
 	// Main's own simulation clock: the cycle count of Main's board. Use it
 	// for --no-twin pacing; the standalone GameHost has the same method.
 	uint32_t MainCycle() const { return board_.CycleCounter(); }
+	// Game code may choose how Main's sound is made; these override the
+	// command line. Sound only (Twin compares SID registers). SetResid
+	// switches to reSID with that quality and chip model (as --resid or
+	// --resid-hq with --sid-model); it does nothing when sound is off
+	// (--no-audio, or a headless run without --resid). SetResidAdsr chooses
+	// how reSID emulates the SID's ADSR delay bug (--resid-adsr).
+	void SetResid(ResidQuality quality, SidModel model);
+	void SetResidAdsr(ResidAdsr mode);
 
 	Board & MainBoard() { return board_; }
 	const Board & MainBoard() const { return board_; }
@@ -396,6 +450,31 @@ private:
 	void FinishMockNmi(uint32_t cycles);
 	void AddMockIrqHold(uint32_t cycles);
 	bool IrqHoldActive() const;
+	// Main's mock 6510 fetches no opcodes, but its VIC still reads the byte
+	// at the CPU's PC: a DMA-delay matrix access draws colour ram[pc] & $F
+	// (Frodo VIC_SC.cpp matrix_access). Sync moves the PC to where the
+	// original CPU stands at each declared-PC meeting, so Main draws the
+	// same bytes as Twin. No-op with --main-blank: Main's RAM holds no code
+	// then, and the standalone export (no declared PCs) must keep matching it.
+	void SetMainPc(uint16_t pc);
+	// The PC of the instruction after the one at `pc` (its length read from
+	// Main's RAM): where the CPU stands once an I/O access has completed.
+	void SetMainPcAfter(uint16_t pc);
+	uint16_t MainPc() const;
+
+	// Armed RAM/Linked access check: while Twin executes the armed
+	// instruction, note whether its CPU reads (or writes) `addr`. A miss
+	// means the arm names an instruction that does not touch the byte Main
+	// accesses (for example the instruction after the store). Reported as a
+	// check failure (QuitOnCheck), so --ignore-checks can run past it.
+	void TwinAccessProbeBegin(uint16_t addr, bool write);
+	// Returns false only when the probe ran and did not see the access.
+	bool TwinAccessProbeEnd();
+	void FailArmedAccessMiss(const char * tag, uint16_t pc, uint16_t addr,
+	                         bool write);
+	TwinAccessProbe twin_access_probe_{};
+	int twin_access_probe_depth_ = 0;
+	std::vector<uint16_t> armed_access_failed_pcs_;
 
 	// C64 map through Main's mock 6510 (RAM/ROM/IO banking). Plugins use
 	// Mem / Mem16 / Io; raw Read/Write from a replica is a compile error.
@@ -444,6 +523,7 @@ private:
 	void compare_vic(uint32_t frame, RitualCheck & out);
 	void compare_vic_state(uint32_t frame, RitualCheck & out);
 	void compare_cia(int which, uint32_t frame, RitualCheck & out);
+	void compare_flags(CompareMask mask, RitualCheck & out);
 	void print_compare_tallies() const;
 	void report_linked_pending() const;
 	void finish_media();
@@ -456,6 +536,10 @@ private:
 	// Raw Main-only advance (Twin untouched; inject catch-up, --no-twin).
 	// Tracks Main line edges; yields Hit* only without Twin.
 	AdvanceResult main_advance(uint64_t cycles, bool run_past_vsync = true);
+	// --no-twin: run Main until the handler's post-interrupt hold has
+	// elapsed (the interrupted main line does not run meanwhile). True when
+	// a VSYNC passed.
+	bool run_handler_time();
 	// EnterInterrupt: Twin is parked at its accept boundary. Burn Main to
 	// the steal cycle, take the skew verdict (K_EARLY / K_LATE, type match),
 	// consume the pending flag and bind the sequence to this dispatch.
@@ -540,17 +624,20 @@ private:
 	IgnoreTally vic_state_tally_{};
 	IgnoreTally cia1_tally_{};
 	IgnoreTally cia2_tally_{};
+	IgnoreTally flags_tally_{};
 	RitualCheck last_screen_{};
 	RitualCheck last_sid_{};
 	RitualCheck last_vic_{};
 	RitualCheck last_vic_state_{};
 	RitualCheck last_cia1_{};
 	RitualCheck last_cia2_{};
+	RitualCheck last_flags_{};
 	std::string last_screen_summary_;
 	char last_sid_detail_[96]{};
 	char last_vic_detail_[96]{};
 	char last_cia1_detail_[96]{};
 	char last_cia2_detail_[96]{};
+	char last_flags_detail_[128]{};
 	unsigned dump_images_written_ = 0;
 	// Screen-fail context state for net_fail / fail_context records; reset
 	// at the top of every CompareNow. The bbox is canvas coordinates

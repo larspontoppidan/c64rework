@@ -20,85 +20,21 @@
 
 #include <algorithm>
 #include <chrono>
-#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 #include <thread>
 
-#include <pthread.h>
-#include <unistd.h>
 
 #include <SDL.h>
 
 namespace revm {
 
-namespace {
-
-void supervisor_diagnostic(const char * reason, uint32_t frame,
-                           uint32_t cycle, uint64_t generation) {
-	char message[320];
-	const int length = std::snprintf(
-		message, sizeof message,
-		"revm: supervisor: %s; last VBlank frame=%u cycle=%u generation=%llu\n",
-		reason, frame, cycle, static_cast<unsigned long long>(generation));
-	if (length > 0) {
-		const size_t count = std::min<size_t>(static_cast<size_t>(length),
-		                                      sizeof message - 1);
-		const ssize_t written = ::write(STDERR_FILENO, message, count);
-		(void)written;
-	}
-}
-
-// A recording in progress would otherwise be lost with the process: save
-// what was captured so far (no end hash) so the hang can be replayed.
-void supervisor_salvage_play(PlayRecorder * recorder) {
-	if (!recorder || !recorder->Started()) return;
-	std::string error;
-	char message[1024];
-	int length;
-	uint32_t end_frame = 0;
-	if (recorder->SaveTruncated(error, &end_frame)) {
-		length = std::snprintf(message, sizeof message,
-			"revm: supervisor: play recording saved TRUNCATED up to "
-			"end_frame=%u\n", end_frame);
-	} else {
-		length = std::snprintf(message, sizeof message,
-			"revm: supervisor: play recording could not be saved: %s\n",
-			error.c_str());
-	}
-	if (length > 0) {
-		const size_t count = std::min<size_t>(static_cast<size_t>(length),
-		                                      sizeof message - 1);
-		const ssize_t written = ::write(STDERR_FILENO, message, count);
-		(void)written;
-	}
-}
-
-[[noreturn]] void supervisor_hard_abort(pthread_t supervised_thread,
-                                        const char * reason,
-                                        uint32_t frame, uint32_t cycle,
-                                        uint64_t generation,
-                                        PlayRecorder * recorder) {
-	supervisor_diagnostic(reason, frame, cycle, generation);
-	supervisor_salvage_play(recorder);
-	static constexpr char message[] =
-		"revm: supervisor: sending SIGABRT to the emulation thread for a "
-		"core/stack trace\n";
-	const ssize_t written = ::write(STDERR_FILENO, message, sizeof message - 1);
-	(void)written;
-	if (::pthread_kill(supervised_thread, SIGABRT) == 0)
-		std::this_thread::sleep_for(std::chrono::milliseconds(250));
-	std::_Exit(124);
-}
-
-} // namespace
 
 Board::Board() = default;
 
 Board::~Board() {
-	StopWallClockLimit();
 	log::ClearClockSource();
 	if (machine_owned_ && c64_) {
 		if (TheC64 == c64_)
@@ -118,7 +54,8 @@ void Board::Configure(const Config & cfg) {
 	last_vblank_cycle_ = 0;
 	vblank_period_ = kCyclesPerFrame;
 	have_last_vblank_ = false;
-	save_screen_done_ = false;
+	save_screens_done_.assign(cfg_.save_screens.size(), false);
+	state_hashes_.Configure(cfg_.state_hashes_path);
 }
 
 bool Board::Init(std::string & error) {
@@ -152,6 +89,7 @@ bool Board::init_machine(std::string & error) {
 	ThePrefs.LimitSpeed = cfg_.limit_speed;
 	ThePrefs.TestBench = cfg_.headless;
 	ThePrefs.ResidHQ = cfg_.sid_resid_hq;
+	ThePrefs.ResidAdsr = cfg_.sid_resid_adsr;
 	switch (cfg_.sid) {
 	case SidMode::Resid:
 		ThePrefs.SIDType = cfg_.sid_8580 ? SIDTYPE_RESID_8580 : SIDTYPE_RESID_6581;
@@ -173,6 +111,8 @@ bool Board::init_machine(std::string & error) {
 	c64_ = new C64();
 	TheC64 = c64_;
 	machine_owned_ = true;
+	if (state_hashes_.Enabled())
+		state_hashes_.Attach(c64_);
 
 	log::SetClockSource([this] {
 		log::BoardClock clock;
@@ -192,14 +132,8 @@ void Board::ApplyInput(const InputFrame & in) {
 }
 
 bool Board::finish_cycle(bool vblank) {
-	const int supervisor_code =
-		supervisor_quit_code_.exchange(0, std::memory_order_acq_rel);
-	if (supervisor_code != 0)
-		RequestQuit(supervisor_code);
 	if (cfg_.max_cycles)
 		check_max_cycles();
-	if (wall_deadline_)
-		check_max_seconds();
 	if (vblank) {
 		note_vblank();
 		on_frame_boundary();
@@ -218,126 +152,6 @@ void Board::check_max_cycles() {
 		         CycleCounter(), FrameCounter());
 		RequestQuit(0);
 	}
-}
-
-void Board::check_max_seconds() {
-	// Polling every 65536 cycles keeps the hot emulation path cheap. The
-	// watchdog thread handles a mock C++ loop that never ticks.
-	if ((++wall_check_counter_ & 0xffffu) != 0)
-		return;
-	if (wall_deadline_ && std::chrono::steady_clock::now() >= *wall_deadline_) {
-		const double limit = cfg_.max_seconds ? *cfg_.max_seconds : 0.0;
-		REVM_LOG(REVM_DEBUG,
-		         "max-seconds reached (%.3fs wall): cycle=%u frame=%u",
-		         limit, CycleCounter(), FrameCounter());
-		RequestQuit(124);
-	}
-}
-
-void Board::StopWallClockLimit() {
-	supervisor_stop_.store(true, std::memory_order_release);
-	supervisor_wake_.notify_all();
-	if (supervisor_.joinable())
-		supervisor_.join();
-	const int supervisor_code =
-		supervisor_quit_code_.exchange(0, std::memory_order_acq_rel);
-	if (supervisor_code != 0)
-		RequestQuit(supervisor_code);
-	wall_deadline_.reset();
-	wall_check_counter_ = 0;
-}
-
-void Board::StartWallClockLimit() {
-	StopWallClockLimit();
-	using steady = std::chrono::steady_clock;
-	constexpr auto kPoll = std::chrono::seconds(1);
-	constexpr auto kGrace = std::chrono::seconds(2);
-
-	if (cfg_.max_seconds && *cfg_.max_seconds > 0.0) {
-		const double seconds = *cfg_.max_seconds;
-		wall_deadline_ = steady::now() +
-		                 std::chrono::duration_cast<steady::duration>(
-		                     std::chrono::duration<double>(seconds));
-		REVM_LOG(REVM_DEBUG, "Will stop after %.3fs wall-clock (--max-seconds)",
-		         seconds);
-	}
-
-	const auto supervisor_start = steady::now();
-	supervised_thread_ = ::pthread_self();
-	const uint64_t initial_generation =
-		vblank_generation_.load(std::memory_order_acquire);
-	supervisor_quit_code_.store(0, std::memory_order_release);
-	supervisor_stop_.store(false, std::memory_order_release);
-	supervisor_ = std::thread([this, supervisor_start, initial_generation] {
-		using steady = std::chrono::steady_clock;
-		constexpr auto kPoll = std::chrono::seconds(1);
-		constexpr auto kGrace = std::chrono::seconds(2);
-
-		uint64_t observed_generation = initial_generation;
-		auto next_poll = supervisor_start + kPoll;
-		auto previous_wake = supervisor_start;
-		std::optional<steady::time_point> hard_deadline;
-
-		while (!supervisor_stop_.load(std::memory_order_acquire)) {
-			auto wake = next_poll;
-			if (wall_deadline_ && *wall_deadline_ < wake)
-				wake = *wall_deadline_;
-			if (hard_deadline && *hard_deadline < wake)
-				wake = *hard_deadline;
-			if (steady::now() < wake) {
-				std::unique_lock lock(supervisor_mutex_);
-				supervisor_wake_.wait_until(lock, wake, [this] {
-					return supervisor_stop_.load(std::memory_order_acquire);
-				});
-			}
-			if (supervisor_stop_.load(std::memory_order_acquire)) return;
-
-			const auto now = steady::now();
-			const bool process_was_suspended = now - previous_wake > 2 * kPoll;
-			previous_wake = now;
-
-			if (!hard_deadline && wall_deadline_ && now >= *wall_deadline_) {
-				supervisor_quit_code_.store(124, std::memory_order_release);
-				supervisor_diagnostic(
-					"--max-seconds elapsed; cooperative quit requested",
-					supervisor_last_vblank_frame_.load(std::memory_order_acquire),
-					supervisor_last_vblank_cycle_.load(std::memory_order_acquire),
-					vblank_generation_.load(std::memory_order_acquire));
-				hard_deadline = now + kGrace;
-			}
-
-			if (hard_deadline && now >= *hard_deadline) {
-				supervisor_hard_abort(
-					supervised_thread_,
-					"--max-seconds soft quit was ignored for two seconds",
-					supervisor_last_vblank_frame_.load(std::memory_order_acquire),
-					supervisor_last_vblank_cycle_.load(std::memory_order_acquire),
-					vblank_generation_.load(std::memory_order_acquire),
-					play_recorder_);
-			}
-
-			if (now < next_poll) continue;
-			next_poll = now + kPoll;
-
-			if (process_was_suspended) {
-				observed_generation =
-					vblank_generation_.load(std::memory_order_acquire);
-				continue;
-			}
-
-			const uint64_t generation =
-				vblank_generation_.load(std::memory_order_acquire);
-			if (!paused_.load(std::memory_order_acquire) &&
-			    generation == observed_generation) {
-				supervisor_hard_abort(
-					supervised_thread_, "no Main VBlank for one second",
-					supervisor_last_vblank_frame_.load(std::memory_order_acquire),
-					supervisor_last_vblank_cycle_.load(std::memory_order_acquire),
-					generation, play_recorder_);
-			}
-			observed_generation = generation;
-		}
-	});
 }
 
 void Board::apply_input(const InputFrame & in) {
@@ -403,6 +217,7 @@ void Board::on_frame_boundary() {
 	c64_->TheCIA1->CountTOD();
 	c64_->TheCIA2->CountTOD();
 	maybe_save_screen();
+	record_state_hashes(frame, cycle);
 	if (!cfg_.headless && c64_->TheDisplay) {
 		if (!dynamic_cast<LiveInput *>(input_))
 			pump_host_events();
@@ -442,35 +257,40 @@ void Board::pump_host_events() {
 
 void Board::note_vblank() {
 	const uint32_t cycle = CycleCounter();
-	const uint32_t frame = FrameCounter();
 	if (have_last_vblank_)
 		vblank_period_ = cycle - last_vblank_cycle_;
 	last_vblank_cycle_ = cycle;
 	have_last_vblank_ = true;
-	supervisor_last_vblank_frame_.store(frame, std::memory_order_relaxed);
-	supervisor_last_vblank_cycle_.store(cycle, std::memory_order_relaxed);
-	vblank_generation_.fetch_add(1, std::memory_order_release);
 }
 
 void Board::maybe_save_screen() {
-	if (save_screen_done_ || cfg_.save_screen_path.empty() ||
-	    !cfg_.save_screen_frame) {
-		return;
-	}
 	const uint32_t frame = FrameCounter();
-	if (frame != *cfg_.save_screen_frame)
-		return;
-	save_screen_done_ = true;
+	for (size_t i = 0; i < cfg_.save_screens.size(); ++i) {
+		const Config::SaveScreen & request = cfg_.save_screens[i];
+		if (save_screens_done_[i] || request.frame != frame)
+			continue;
+		save_screens_done_[i] = true;
 
-	std::string err;
-	if (!write_display_png(cfg_.save_screen_path, err)) {
-		REVM_LOG(REVM_ERROR, "save-screen failed: %s", err.c_str());
-		RequestQuit(1);
-		return;
+		std::string err;
+		if (!write_display_png(request.path, err)) {
+			REVM_LOG(REVM_ERROR, "save-screen failed: %s", err.c_str());
+			RequestQuit(1);
+			return;
+		}
+		REVM_LOG(REVM_INFO, "save-screen → %s (frame=%u)",
+		         request.path.c_str(), frame);
+		std::fflush(stderr);
 	}
-	REVM_LOG(REVM_INFO, "save-screen → %s (frame=%u)",
-	         cfg_.save_screen_path.c_str(), frame);
-	std::fflush(stderr);
+}
+
+void Board::record_state_hashes(uint32_t frame, uint32_t cycle) {
+	if (!state_hashes_.Enabled())
+		return;
+	std::string error;
+	if (!state_hashes_.OnFrame(frame, cycle, error)) {
+		REVM_LOG(REVM_ERROR, "%s", error.c_str());
+		RequestQuit(1);
+	}
 }
 
 bool Board::write_display_png(const std::string & path, std::string & error) {
@@ -507,15 +327,20 @@ void Board::poll_host_screenshot() {
 	screenshot_chord_was_down_ = chord;
 }
 
-bool Board::FinishSaveScreen(std::string & error) {
+bool Board::FinishOutputs(std::string & error) {
 	error.clear();
-	if (cfg_.save_screen_path.empty() || save_screen_done_)
-		return true;
-	error = "save-screen: frame " +
-	        std::to_string(*cfg_.save_screen_frame) +
-	        " never reached (ended at frame " +
-	        std::to_string(FrameCounter()) + ")";
-	return false;
+	if (!state_hashes_.Finish(error))
+		return false;
+	for (size_t i = 0; i < cfg_.save_screens.size(); ++i) {
+		if (save_screens_done_[i])
+			continue;
+		error = "save-screen: frame " +
+		        std::to_string(cfg_.save_screens[i].frame) +
+		        " never reached (ended at frame " +
+		        std::to_string(FrameCounter()) + ")";
+		return false;
+	}
+	return true;
 }
 
 void Board::RequestQuit(int exit_code) {

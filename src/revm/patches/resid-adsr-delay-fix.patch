@@ -1,0 +1,130 @@
+diff --git a/envelope.cc b/envelope.cc
+index 48af17a..ec52212 100644
+--- a/envelope.cc
++++ b/envelope.cc
+@@ -158,6 +158,9 @@ unsigned short EnvelopeGenerator::model_dac[2][1 << 8] = {
+ // ----------------------------------------------------------------------------
+ EnvelopeGenerator::EnvelopeGenerator()
+ {
++  adsr_mode = 0;
++  adsr_soft_remaining = 0;
++
+   static bool class_init;
+ 
+   if (!class_init) {
+diff --git a/envelope.h b/envelope.h
+index ab4d7e8..7b9f276 100644
+--- a/envelope.h
++++ b/envelope.h
+@@ -74,6 +74,28 @@ protected:
+   bool hold_zero;
+   bool reset_rate_counter;
+ 
++  // C64 Rework: the real chip's "ADSR delay bug". When a rate counter is
++  // already past a newly selected (shorter) rate period, it counts up to
++  // 0x8000 and wraps before the envelope steps: up to ~33 ms late.
++  //   0 = real chip (default)
++  //   1 = fix-attack: no delay when entering attack (note-ons on time;
++  //       releases keep the chip's delay)
++  //   2 = fix: no delay anywhere
++  //   3 = fix-attack-soft: as 1, but a note-on keeps the chip's delay divided
++  //       by adsr_soft_divisor, so attacks keep a little of their natural spread
++  // Set at init time (SID::set_adsr_mode).
++  int adsr_mode;
++  // Cycles left of a divided attack delay (mode 3); 0 = none running.
++  cycle_count adsr_soft_remaining;
++  static const int adsr_soft_divisor = 5;
++
++  bool adsr_skip_now() const {
++    return adsr_mode == 2 || (adsr_mode == 1 && state == ATTACK);
++  }
++  bool adsr_soft_now() const {
++    return adsr_mode == 3 && state == ATTACK;
++  }
++
+   reg4 attack;
+   reg4 decay;
+   reg4 sustain;
+@@ -184,12 +206,32 @@ void EnvelopeGenerator::clock()
+   // This has been verified by sampling ENV3.
+   //
+   if (likely(rate_counter != rate_period)) {
+-    if (unlikely(++rate_counter & 0x8000)) {
+-      ++rate_counter &= 0x7fff;
++    if (unlikely(rate_counter > rate_period && adsr_skip_now())) {
++      // C64 Rework: step as if the period was reached (see adsr_mode).
++      reset_rate_counter = true;
++    }
++    else if (unlikely(rate_counter > rate_period && adsr_soft_now())) {
++      // C64 Rework: the chip's delay (counting up to 0x8000, wrapping and
++      // reaching the period again) divided by adsr_soft_divisor.
++      if (adsr_soft_remaining == 0) {
++        adsr_soft_remaining =
++          (0x8000 - rate_counter + rate_period) / adsr_soft_divisor + 1;
++      }
++      if (--adsr_soft_remaining == 0) {
++        reset_rate_counter = true;
++      }
++    }
++    else {
++      adsr_soft_remaining = 0;
++      if (unlikely(++rate_counter & 0x8000)) {
++        ++rate_counter &= 0x7fff;
++      }
+     }
+   }
+-  else
++  else {
++    adsr_soft_remaining = 0;
+     reset_rate_counter = true;
++  }
+ }
+ 
+ 
+@@ -227,7 +269,13 @@ void EnvelopeGenerator::clock(cycle_count delta_t)
+   // NB! This requires two's complement integer.
+   int rate_step = rate_period - rate_counter;
+   if (unlikely(rate_step <= 0)) {
+-    rate_step += 0x7fff;
++    // C64 Rework: skip or divide the chip's delay (see adsr_mode).
++    if (adsr_skip_now())
++      rate_step = 1;
++    else if (adsr_soft_now())
++      rate_step = (rate_step + 0x7fff) / adsr_soft_divisor + 1;
++    else
++      rate_step += 0x7fff;
+   }
+ 
+   while (delta_t) {
+diff --git a/sid.cc b/sid.cc
+index cf90da6..fce7e4b 100644
+--- a/sid.cc
++++ b/sid.cc
+@@ -102,6 +102,14 @@ SID::~SID()
+ // ----------------------------------------------------------------------------
+ // Set chip model.
+ // ----------------------------------------------------------------------------
++void SID::set_adsr_mode(int mode)
++{
++  for (int i = 0; i < 3; i++) {
++    voice[i].envelope.adsr_mode = mode;
++    voice[i].envelope.adsr_soft_remaining = 0;
++  }
++}
++
+ void SID::set_chip_model(chip_model model)
+ {
+   sid_model = model;
+diff --git a/sid.h b/sid.h
+index 5d2c730..4f19925 100644
+--- a/sid.h
++++ b/sid.h
+@@ -42,6 +42,8 @@ public:
+   ~SID();
+ 
+   void set_chip_model(chip_model model);
++  // C64 Rework: ADSR delay bug, 0 real, 1 fix-attack, 2 fix, 3 fix-attack-soft.
++  void set_adsr_mode(int mode);
+   void set_voice_mask(reg4 mask);
+   void enable_filter(bool enable);
+   void adjust_filter_bias(double dac_bias);

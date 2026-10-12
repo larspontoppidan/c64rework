@@ -42,6 +42,7 @@ struct Config {
 	bool no_audio = false;   // --no-audio: force SIDTYPE_NONE (wins over reSID flags)
 	bool sid_resid = false;  // --resid / --resid-hq: use reSID on Main
 	bool sid_resid_hq = false; // FastMem resampling; otherwise interpolate
+	int sid_resid_adsr = 0; // --resid-adsr real|fix|fix-attack|fix-attack-soft (ResidAdsr)
 	bool sid_8580 = false; // --sid-model; default 6581
 	bool headless = false;
 	// --main-blank: CpuMock Main starts from fresh chips and zero memory instead
@@ -83,12 +84,18 @@ struct Config {
 	// --save-audio / --save-video / --save-screen (Main board)
 	std::string save_audio_path;
 	std::string save_video_path;
-	// --save-screen FRAME FILE: indexed Pepto PNG at VBLANK FRAME (same counter
-	// as --max-frames). Unset = disabled.
-	std::optional<uint32_t> save_screen_frame;
-	std::string save_screen_path;
+	// --save-screen FRAME FILE (repeatable): indexed Pepto PNG at VBLANK FRAME
+	// (same counter as --max-frames). Empty = disabled.
+	struct SaveScreen {
+		uint32_t frame = 0;
+		std::string path;
+	};
+	std::vector<SaveScreen> save_screens;
 	// --frame-observations FILE: per-VSYNC indexed pixels + public SID bytes.
 	std::string frame_observations_path;
+	// --state-hashes FILE: per-frame CRC32 of screen, SID writes, VIC and CIA
+	// state of Main (goldens/StateHashes.hpp). Empty = disabled.
+	std::string state_hashes_path;
 
 	std::string begin_snap_path;
 	unsigned rand_seed = 42;

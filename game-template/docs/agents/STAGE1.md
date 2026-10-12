@@ -81,3 +81,6 @@ Ask user to record representative plays from BEGIN, then verify stored snapshot 
 ./rework play-game begin --record-play plays/original1.json
 ./rework test-play begin original1
 ```
+
+Every play notes how it was made in `recorded_on` (`no_twin`, `main_blank`,
+free-text `details`); the four recording classes are in `AGENTS.md`.

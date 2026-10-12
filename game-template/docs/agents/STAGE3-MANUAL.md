@@ -65,7 +65,8 @@ Twin executes the original binary. Twin is used for exactly two things:
 Twin is never a source of *values*. Reading Twin RAM, Twin registers or Twin
 chip state into Main's computation makes Main a puppet that cannot run under
 `--no-twin` and is rejected at review. The one door to Twin values is
-`host.diag()`, and it is for log messages only (§6.3, lint S3-014).
+`host.diag()`, and it is for log messages only (§6.3, lint S3-014). To check
+a flag Main models against Twin's P, use the CPU-flag compare (§10.2).
 
 ### 2.2 Twin leads
 
@@ -375,7 +376,8 @@ void     Sync::ExpectWatchDelta(host, uint16_t pc, uint64_t mark,
 
 `CompareMask`: `None()` (fence only), `Kb()` (default), `All()` (kb + sid +
 screen + vic + cia1 + cia2). `.vic_state` is opt-in (§10.1). Designated
-initialiser e.g. `CompareMask{.vic_state = true, .kb = true}`.
+initialiser e.g. `CompareMask{.vic_state = true, .kb = true}`. CPU flags are
+the `Flags(...)` / `.WithFlags(...)` channel (§10.2).
 `FenceSlack::AllowOneVSync` tolerates one silent extra Main VBLANK if Twin misses the
 fence in this frame; `FenceSlack::Exact` makes that a failure. Prefer `Exact`
 once a fence is understood; the default will become `Exact`.
@@ -491,13 +493,23 @@ destination write.
 
 `pc` is the **opcode address of that one instruction** in the listing. One
 armed operation per original instruction. Surrounding ALU stays plain C++.
-| | I/O (`io.*`) | RAM (`mem.*`) |
+
+Both kinds land Main's access on the original's own bus cycle. Twin executes
+the instruction and stops at the fetch after it; Main's read or write happens
+there. A 6510 load reads, and a store writes, on the instruction's last cycle,
+and the VIC sees the result from the next Φ2 on, on both boards alike. An
+interrupt that becomes pending during the instruction is taken after the
+access, as on the real CPU. A RAM arm first stops Twin *at* the instruction's
+fetch, so an interrupt already pending there nests before the access.
+
+| | I/O (`io.*`) | RAM (`mem.*`, Linked) |
 |---|---|---|
-| Fence | Twin walked to the fetch *after* the instruction, so Twin's chip access is known | Twin parked *at* the instruction's fetch, so a pending accept nests first |
+| Fence | Twin walked to the fetch *after* the instruction, so Twin's chip access is known | Twin parked at the instruction's fetch (a pending accept nests first), then walked through it to the next fetch |
 | armed `.read()` returns | Twin's operand (Main's own read is logged if different) | Main's byte |
 | armed `.write()` checks | SoftQuit if Twin stored a different value | Nothing (a wrong value surfaces at kb) |
 | armed RMW | Twin's read→write must match the op; Main's too | Main applies the op after the fence |
 | `FenceSlack` | none (VBLANK crossings retried internally) | `AllowOneVSync` default / `Exact` |
+| Wrong `pc` | not a 2/3-byte opcode: SoftQuit | not a memory-access opcode: SoftQuit; Twin's instruction does not touch the byte: check failure |
 | `--no-twin` | ordinary access | ordinary access |
 
 `WriteIoAtPc value mismatch … twin=$XX main=$YY` is the earliest, most
@@ -515,11 +527,21 @@ local translation check you have. Treat it as a gift.
   update as its own timed access on `io.vic.msigx`, matching the opcode:
   armed `.inc()` for `INC $D010`, `.write()` for `STA $D010`, `.read()` for the
   `LDA`/`ORA`/`EOR` that reads it. Never rewrite an RMW as read + write.
+- **Same PC again.** An arm whose instruction Twin has just completed (Twin
+  stands at the fetch after it) does not walk Twin: it counts as the same
+  instruction. A loop that stores at one PC on every pass therefore needs a
+  per-pass position claim (a `JoinAtPc` at that PC before the arm; a `None()`
+  mask needs its `stage3-lint.json` entry, S3-003), or every pass lands on the
+  first pass's cycle.
 - **Do not AtPc speculatively.** Each AtPc is a claim about a specific
   instruction; a wrong PC (e.g. the operand address, or the next opcode)
   SoftQuits with `AtPc I/O: not an I/O-sized opcode` or a miss.
 - **Handler bodies**: AtPc inside an installed IRQ/NMI body is allowed but
-  reviewed (lint S3-012 warning) — see §8.3.
+  reviewed (lint S3-012 warning) — see §8.3. Lint knows a handler only as the
+  function called from the `InstallIrqHandler`/`InstallNmiHandler` lambda. A
+  body reached through it (a dispatch function, a table of phase handlers) is
+  not checked, and neither is any routine a handler calls: review those AtPcs
+  by hand.
 
 ---
 
@@ -561,8 +583,13 @@ void Game::nmi_music() {
 - `ReturnIrq` needs the original RTI PC so Twin can be walked to it.
   `ReturnNmi` does not chase Twin (the NMI body's duration is owned by later
   fences).
-- `no_twin_cycles` is the handler's original body length used only under
-  `--no-twin`; `0` is acceptable until timing under `--no-twin` matters.
+- `no_twin_cycles` is the handler's original body length in Φ2, used only
+  under `--no-twin` (§11): the Φ2 of the handler's own instructions up to,
+  not including, the RTI. Declare a constant when the body is fixed, or
+  compute it for the path taken (a delay count, a loop trip count). `0`
+  means "not declared": the main line then loses only the interrupt
+  sequence and RTI. Record what is counted and what is not modelled
+  (data-dependent paths) at the `ReturnIrq`.
 - Inside a handler you may use `JoinAtPc` (same frame), armed accesses, `Compare`,
   `Return*`. You may **not** use `JoinAtPcBounded`, `AdvanceCycles` or
   `AdvanceToVSync` (lint
@@ -731,6 +758,27 @@ Sync::Compare(host_, CompareMask{.vic_state = true, .kb = true});
 
 A KB watch over the I/O window is DRAM or color RAM, not a chip compare.
 
+### 10.2 CPU flags versus Twin
+
+Main's mock 6510 has no P register. Where the translation models a flag
+itself (a decimal-mode window, a carry that a later `SBC` without `SEC`
+reads), compare it against Twin's P at a fence: pass the bits and the
+values Main models.
+
+```cpp
+// D at a handler entry: flags only.
+Sync::Compare(host_, CompareMask::Flags(CpuFlag::D, irq_d_ ? CpuFlag::D : 0));
+// C at a routine entry, together with the usual kb compare.
+Sync::JoinAtPc(host_, 0x0CB4,
+               CompareMask::Kb().WithFlags(CpuFlag::C, cpu_c_ ? CpuFlag::C : 0));
+```
+
+`CpuFlag` names C, Z, I, D, V, N (B and bit 5 are not flags). Twin stands at
+the fence's opcode fetch, so its P is the original's flags at that
+instruction boundary. A mismatch fails like any channel: `CPU flag FAIL
+frame N at join $0CB4: C main=0 twin=1 (Twin P=$A1)`. `--no-twin` it no-ops.
+This replaces reading `host.diag().TwinCpu().p` under an S3-014 allow.
+
 ---
 
 ## 11. `--no-twin`
@@ -743,7 +791,7 @@ fence degrades:
 | `JoinAtPc` | no-op (no compare) |
 | `JoinAtPcBounded` | `no_twin_frames` Main VBLANKs |
 | armed explicit bag access | the same explicit operation, ordinary Main-only |
-| `ReturnIrq/Nmi` | `no_twin_cycles` then teardown |
+| `ReturnIrq/Nmi` | teardown; the interrupted code waits for the handler's time (below) |
 | `AdvanceCycles` / `AdvanceToVSync` | same (Main-only) |
 | `WatchMark/ExpectWatchDelta` | no-op |
 | `diag().*` | hard quit — keep it out of paths that run without Twin |
@@ -751,6 +799,18 @@ fence degrades:
 Where an original wait is data-dependent and you cannot give a frame count,
 write the `host_.NoTwin()` sibling explicitly (poll the same Main register
 the original polls).
+
+**Handler time.** A translated handler body runs in zero time, but on the
+real CPU it takes the interrupted code's time. Under `--no-twin` the host
+holds I and the interrupted main line after `ReturnIrq` for 7 Φ2 (the
+interrupt sequence) + `no_twin_cycles` + 8 Φ2 (RTI and the CIA IR-clear),
+counted like the CPU: not while the VIC holds BA low. `ReturnNmi` holds for
+its `no_twin_cycles` (0: no hold). `AdvanceCycles(n)` therefore means `n`
+Φ2 of main-line time, and `AdvanceToVSync` returns after a handler that runs
+over the VSYNC. Code after a spin that an IRQ releases runs when the
+original's does, with no game-side release bookkeeping. Calibrate
+`--no-twin` pacing constants as main-line time only: a figure measured as
+Twin wall time includes the interrupts, which the host now charges again.
 
 Original-game recordings are authoritative only with Twin attached. Without
 Twin, changed fence timing can alter CIA samples, collisions and RNG; the game
@@ -761,7 +821,9 @@ Once no-Twin recordings exists, they are the identity contract for all stages
 going forward in the `--no-twin` mode and for the standalone export.
 
 Name Twin-backed recordings `plays/originalN.json`. Name `--no-twin`
-recordings `plays/no-twinN.json`; those files store `"no-twin": true`.
+recordings `plays/no-twinN.json`; those files store
+`"recorded_on": {"no_twin": true, …}` (see the recordings section of
+`AGENTS.md`).
 
 Run bounded `--no-twin` smokes every slice even with Twin-backed recordings.
 They check that Main starts, accepts input, advances hardware, renders and 
@@ -812,6 +874,14 @@ the listing; typical: missing carry, wrong table index, register reused.
 
 **`AtPc I/O: not an I/O-sized opcode pc=$P`** / `I/O cache addr mismatch`
 Wrong `pc`: not the opcode of the instruction that touches `A`.
+
+**`WriteRamAtPc: $P is not a memory-access instruction`** /
+**`…AtPc: the instruction at $P did not write $A on Twin`** (check failure)
+Wrong `pc` for a RAM or Linked arm: name the load, store or RMW itself, not
+the instruction after it. It can also mean Main and
+Twin are in different passes of the same code (another index), or that the
+arm was consumed by a different operation than the one meant (a `.read()`
+evaluated inside the armed `.write(...)` expression: read it first).
 
 **`kb-check: FAIL frame F cycle C: <name> $A: main=$M twin=$T`**
 - Find the *last* store to `$A` in your translation before this fence and
@@ -985,7 +1055,7 @@ history.
 | Pattern | File |
 |---|---|
 | Entry join then ordinary body; `goto` with PC labels | `play_move.cpp` (`entity_clip`, `rand_mix`) |
-| Same-PC RAM AtPc as the fence, then `Compare` | `play.cpp` (`play_tick`, `$EC3C`) |
+| Same-PC RAM AtPc as the fence, then `Compare` (Twin has executed that instruction) | `play.cpp` (`play_tick`, `$EC3C`) |
 | Sprite X RMW with MSB fixup via AtPc | `play.cpp` (`player_input`, `$EA26`), `play_move.cpp` (`$EECD`) |
 | IRQ body: ordinary bookkeeping, ACK, `ReturnIrq` | `play.cpp` (`irq_game`) |
 | NMI music driver | `music.cpp` |

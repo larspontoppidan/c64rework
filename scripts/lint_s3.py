@@ -191,6 +191,19 @@ def bag_kind(node) -> str | None:
     return None
 
 
+def armed_receiver_kind(recv) -> str | None:
+    """'mem'/'io' if recv is the receiver of an explicit bag operation: a bag
+    chain (mem.x, io.vic.sp[0].x) or a Mem16 indirect byte (mem.ptr.at(y))."""
+    kind = bag_kind(recv)
+    if kind is not None:
+        return kind
+    if recv.type == "call_expression":
+        parts = call_parts(recv)
+        if parts is not None and parts[0] == "at" and parts[2] is not None:
+            return bag_kind(parts[2])
+    return None
+
+
 def bag_read_expr(val) -> str | None:
     """Location text if val is an ordinary bag read, optionally uint8_t()-wrapped."""
     if bag_kind(val):
@@ -334,9 +347,10 @@ class FileScan:
                     if not in_revm_log_args(node):
                         self.add("S3-014", node,
                                  "host.diag() is the oracle door — only "
-                                 "inside a REVM_LOG* argument list, or "
-                                 "suppress with // s3lint:allow S3-014 — "
-                                 "reason")
+                                 "inside a REVM_LOG* argument list; to check "
+                                 "a CPU flag against Twin use "
+                                 "CompareMask::Flags; otherwise suppress "
+                                 "with // s3lint:allow S3-014 — reason")
             elif node.type == "subscript_expression":
                 arg = node.child_by_field_name("argument")
                 idx = node.child_by_field_name("indices")
@@ -528,7 +542,7 @@ class FileScan:
                          "the opcode PC from the listing")
 
         elif name in ARMED_METHODS and recv is not None:
-            kind = bag_kind(recv)
+            kind = armed_receiver_kind(recv)
             if kind is not None and fs.pending_atpc is not None:
                 self.check_armed_operation(node, name, recv, args, kind, fs)
 
@@ -740,6 +754,22 @@ void Game::armed() {
 	io.vic.sp[0].y.inc();
 }
 """}, set(), None),
+        ("armed Mem16::at(y) access is fine", {"game.cpp": """
+void Game::copy() {
+	Sync::AtPc(host_, 0x158D);
+	a = mem.src20.at(y).read();
+	Sync::AtPc(host_, 0x158F);
+	mem.dst22.at(y).write(a);
+	Sync::AtPc(host_, 0x1591);
+	mem.dst22.at(y).inc();
+}
+"""}, set(), None),
+        ("armed Mem16::at(y) write evaluates source first", {"game.cpp": """
+void Game::copy() {
+	Sync::AtPc(host_, 0x158F);
+	mem.dst22.at(y).write(mem.src20.at(y).read());
+}
+"""}, {"S3-013"}, None),
         ("armed same-PC RAM join", {"game.cpp": """
 void Game::tick() {
 	Sync::JoinAtPc(host_, 0xEC3C);
@@ -946,6 +976,12 @@ void Game::w() {
         ("diag inside REVM_LOG is fine", {"game.cpp": """
 void Game::w() {
 	REVM_LOG(REVM_INFO, "twin_pc=$%04X", unsigned(host_.diag().TwinCpu().pc));
+}
+"""}, set(), None),
+        ("CPU-flag compare needs no allow", {"game.cpp": """
+void Game::w() {
+	Sync::JoinAtPc(host_, 0x2922, CompareMask::Kb().WithFlags(CpuFlag::D, irq_d_ ? CpuFlag::D : 0));
+	Sync::Compare(host_, CompareMask::Flags(CpuFlag::C, cpu_c_ ? CpuFlag::C : 0));
 }
 """}, set(), None),
         ("diag suppressed inline", {"game.cpp": """

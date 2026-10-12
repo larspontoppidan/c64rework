@@ -55,13 +55,31 @@ and diagnostics are options rather than subcommands.
   reSID with FastMem resampling, using more memory for higher audio quality.
   HQ wins if both flags are given, regardless of order. `--sid-model 6581|8580`
   selects the chip model for both Frodo and reSID (default: 6581).
+  `--resid-adsr real|fix|fix-attack|fix-attack-soft` sets how reSID emulates
+  the SID's ADSR delay bug. Game code can override all three with
+  `host.SetResid(...)` and `host.SetResidAdsr(...)`. See `SOUND.md`.
   `--no-audio` overrides both reSID flags. `--save-video` always requires
   `--resid` or `--resid-hq` (Frodo SID is not used for MP4 audio). Headless
   `--save-audio` also requires one of those flags; Frodo SID only emits the sample tap through SDL
   speakers. `--save-video` writes 2× nearest-neighbor H.264 and muxes reSID
   PCM as 192 kbit/s AAC. `--no-audio` cannot be combined with either media
   flag. `--save-screen FRAME FILE` writes an indexed Pepto PNG of Main at that
-  VBLANK (same frame counter as `--max-frames`).
+  VBLANK (same frame counter as `--max-frames`). Give it several times for
+  several frames, in REVM and in the standalone export.
+- `--state-hashes FILE` (REVM, Stage 3/4 builds and the standalone export)
+  writes one CRC32 per frame for each of five channels of what the player
+  sees and hears: `screen` (the pixels `--save-screen` writes), `sid` (the
+  frame's SID writes with their cycle in the frame), `vic` (registers as a
+  program reads them), `cia1`, `cia2` (register state, without port input
+  pins, except that CIA 2's port A latch counts whole: it keeps the IEC
+  bits a `$DD00` read-modify-write stores). With Twin it records Main. About 20 bytes per frame; the format is
+  described in `src/revm/src/goldens/StateHashes.hpp`.
+  `./rework hash-compare A B` (or `revm-tool hash-compare`) prints, per
+  channel, the first differing frame and how many frames differ over the
+  frames both files cover; exit 0 means identical. Use it to prove that two
+  runs are the same (the export against Stage 4.5, a refactor) or to find
+  where a no-twin replay drifts. Records are made on demand and thrown away:
+  never store them in plays and never use them as a gate.
 - Record further canonical plays from the BEGIN snapshot with
   `--load-snapshot` and `--record-play`. There is no separate BEGIN-cycle
   option.
@@ -71,10 +89,15 @@ and diagnostics are options rather than subcommands.
   and play hashes. It validates Main as a standalone execution path; it does
   not promise the same later trajectory as a Twin-backed recording.
 - Twin-backed recordings are `plays/originalN.json`. `--no-twin` recordings
-  are `plays/no-twinN.json` and store `"no-twin": true`. Replaying a play on
-  the other kind of system prints a warning; playback is not expected to
-  match. Stage 4 does not support `mod_events` and warns if a play contains
-  them.
+  are `plays/no-twinN.json`. Every recorder writes `"recorded_on":
+  {"no_twin", "main_blank", "details"}` after `source`, plus `"git"` (game
+  HEAD, from `--record-git`) for no-twin plays (pre-0.9.4 plays may
+  have a root `"no-twin": true` instead). Replaying a play on another kind of
+  system (no_twin differs, or both no-twin and main_blank differs) prints a
+  warning and continues; playback is not expected to match. On a stage
+  build, `--record-play` without `--no-twin` records the full 6510 from
+  BEGIN (an original recording). Stage 4 does not support `mod_events` and
+  warns if a play contains them.
 - `--dump-fail DIR` writes expected, actual, and diff PNG files for screen
   mismatches. `--dump-fail-limit N` caps how many mismatch sets are written:
   the default `1` matches the legacy aborting-run behavior; `0` writes every

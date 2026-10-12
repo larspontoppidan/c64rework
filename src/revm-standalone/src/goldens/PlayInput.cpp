@@ -119,7 +119,15 @@ bool PlayInput::Load(const std::string & path, std::string & error) {
 	*this = PlayInput{};
 	try {
 		if (j.contains("rand_seed")) rand_seed_ = j["rand_seed"].get<unsigned>();
-		if (j.contains("no-twin")) no_twin_ = j["no-twin"].get<bool>();
+		if (j.contains("recorded_on") && j["recorded_on"].is_object()) {
+			const auto & r = j["recorded_on"];
+			recorded_on_known_ = true;
+			no_twin_ = r.value("no_twin", false);
+			main_blank_ = r.value("main_blank", false);
+		} else if (j.contains("no-twin")) {
+			// Legacy (pre-0.9.4) root field.
+			no_twin_ = j["no-twin"].get<bool>();
+		}
 		if (j.contains("start_frame")) start_frame_ = j["start_frame"].get<uint32_t>();
 		if (j.contains("start_cycle")) start_cycle_ = j["start_cycle"].get<uint64_t>();
 		if (!j.contains("end_frame")) {
@@ -164,15 +172,23 @@ bool PlayInput::Load(const std::string & path, std::string & error) {
 		}
 		if (has_mod_events) {
 			REVM_LOG(REVM_INFO,
-			         "Play contains mod_events, standalone does not support them, playback will not be faithful");
+			         "Play contains mod_events, standalone ignores them, playback will not be faithful");
 		}
 	} catch (const json::exception & ex) {
 		error = std::string("JSON schema error: ") + ex.what();
 		return false;
 	}
+	if (!recorded_on_known_) {
+		REVM_LOG(REVM_INFO,
+		         "Play has no recorded_on (older than C64 Rework 0.9.4), assuming it was recorded %s",
+		         no_twin_ ? "no-twin" : "original");
+	}
 	if (!no_twin_) {
 		REVM_LOG(REVM_INFO,
 		         "Play was recorded original, this system is no-twin, playback will not be faithful");
+	} else if (recorded_on_known_ && !main_blank_) {
+		REVM_LOG(REVM_INFO,
+		         "Play was recorded no-twin from BEGIN, this system is no-twin blank (--main-blank), playback will not be faithful");
 	}
 	return true;
 }

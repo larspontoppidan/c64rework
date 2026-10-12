@@ -98,6 +98,7 @@ public:
 	std::string TapePath;		// Path for drive 1
 
 	bool ResidHQ = false; // reSID FastMem resampling
+	int ResidAdsr = 0; // reSID ADSR delay bug: a ResidAdsr value (sid/ResidOptions.hpp)
 	int SIDType;				// SID emulation type
 	int REUType;				// Type of RAM expansion
 	int DisplayType;			// Display type (windowed or full-screen)

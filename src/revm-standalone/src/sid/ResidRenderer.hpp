@@ -30,6 +30,7 @@ public:
 	void Pause() override;
 	void Resume() override;
 	void RebaseCycleClock() override;
+	void SetAdsrMode(int mode) override;
 
 private:
 	void sync_cycle_base();
@@ -39,6 +40,7 @@ private:
 	void open_speakers_if_needed();
 	void close_speakers();
 	void try_start_audio();
+	size_t target_fill() const;
 
 	static void sdl_callback(void * userdata, uint8_t * stream, int len);
 
@@ -50,9 +52,11 @@ private:
 	bool ready_ = false;
 	bool high_quality_ = false;
 
-	// Standing speaker latency in PAL frames (1.0 ≈ 20 ms). Raise if --resid
-	// underruns; 3.0 was the original conservative fill.
-	static constexpr double kStartFrames = 1.0;
+	// Speaker latency in PAL frames (1.0 ≈ 20 ms): playback starts at this
+	// fill, and drift control (push_samples) keeps the ring near it.
+	static constexpr double kTargetFrames = 1.5;
+	// Largest rate change drift control may apply (±0.5% is inaudible).
+	static constexpr double kMaxRateAdjust = 0.005;
 	static constexpr int kSampleRate = 48000;
 	static constexpr size_t kRingSamples = 8192;
 
@@ -64,6 +68,12 @@ private:
 	size_t ring_w_ = 0;
 	size_t ring_count_ = 0;
 	int16_t last_sample_ = 0;
+	// Drift-control resampler state (emulation thread only).
+	double resample_pos_ = 0.0;
+	int16_t resample_prev_ = 0;
+	// Ring fill averaged over about a second: the emulator delivers PCM in
+	// per-frame bursts, so the instant fill swings 50 times a second.
+	double smoothed_fill_ = 0.0;
 
 	SDL_AudioDeviceID device_id_ = 0;
 	bool paused_ = false;

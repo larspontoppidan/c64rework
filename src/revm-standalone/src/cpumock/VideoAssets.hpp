@@ -10,6 +10,9 @@
 // VIC bank and does not walk Twin or advance the emulated clock.  The objects
 // returned by glyph()/row()/byte() are ordinary RAM byte views, so subsequent
 // writes remain visible to the VIC and can be made live by the game.
+//
+// `video.charset` follows the page the live $D018 selects;
+// `video.charset.page(n)` names one page and ignores $D018.
 
 #include "gamehost/GameHost.hpp"
 #include "cpumock/Mem.hpp"
@@ -48,6 +51,14 @@ inline uint16_t vic_address(gamehost::GameHost & host, uint16_t bank_offset) {
 	return uint16_t(vic_bank(host) | (bank_offset & 0x3FFFu));
 }
 
+// $D018 bits 1..3 select one of the eight 2 KiB character pages of the VIC
+// bank.  A negative page means "the page $D018 selects right now".
+inline uint16_t charset_offset(gamehost::GameHost & host, int page) {
+	if (page >= 0)
+		return uint16_t(page * 0x800);
+	return uint16_t((uint16_t(HostAccess::read(host, 0xD018)) & 0x0Eu) << 10);
+}
+
 template <std::size_t Expected>
 inline void install_asset(gamehost::GameHost & host, std::span<const uint8_t> asset,
                           const char *kind, uint16_t bank_offset) {
@@ -72,8 +83,22 @@ public:
 		static constexpr std::size_t kBytes = 2048;
 		static constexpr std::size_t kGlyphs = 256;
 		static constexpr std::size_t kRows = 8;
+		static constexpr std::size_t kPages = 8;
 
-		explicit Charset(gamehost::GameHost & host) : host_(host) {}
+		explicit Charset(gamehost::GameHost & host) : host_(host), page_(kLivePage) {}
+
+		// The same surface pinned to one character page (0..7, bank offset
+		// page * $800) instead of the page the live $D018 selects.  Use it when
+		// the original stores to an absolute glyph address while a raster IRQ
+		// flips $D018 (a split screen): video.charset would follow whichever
+		// page the VIC shows at the moment of the store.
+		Charset page(int page) const {
+			if (unsigned(page) >= kPages) {
+				host_.Fail(1, "video.charset.page(%d) not in 0..7", page);
+				return Charset{host_, 0};
+			}
+			return Charset{host_, page};
+		}
 
 		template <std::size_t N>
 		void install(const std::array<uint8_t, N> &asset) const {
@@ -104,7 +129,8 @@ public:
 
 		class Glyph {
 		public:
-			Glyph(gamehost::GameHost &host, uint8_t glyph) : host_(host), glyph_(glyph) {}
+			Glyph(gamehost::GameHost &host, uint8_t glyph, int page)
+				: host_(host), glyph_(glyph), page_(page) {}
 
 			Byte row(int row) const {
 				if (unsigned(row) >= kRows) {
@@ -118,21 +144,20 @@ public:
 
 		private:
 			uint16_t charset_offset() const {
-				return uint16_t((uint16_t(video_detail::HostAccess::read(host_, 0xD018)) &
-				                 0x0Eu)
-				                << 10);
+				return video_detail::charset_offset(host_, page_);
 			}
 
 			gamehost::GameHost &host_;
 			uint8_t glyph_;
+			int page_;
 		};
 
 		Glyph glyph(int glyph) const {
 			if (unsigned(glyph) >= kGlyphs) {
 				host_.Fail(1, "video.charset.glyph(%d) not in 0..255", glyph);
-				return Glyph{host_, 0};
+				return Glyph{host_, 0, page_};
 			}
-			return Glyph{host_, uint8_t(glyph)};
+			return Glyph{host_, uint8_t(glyph), page_};
 		}
 
 		// Direct character-page byte view for remastering tools and bulk
@@ -147,13 +172,16 @@ public:
 		}
 
 	private:
+		static constexpr int kLivePage = -1;
+
+		Charset(gamehost::GameHost & host, int page) : host_(host), page_(page) {}
+
 		uint16_t charset_offset() const {
-			return uint16_t((uint16_t(video_detail::HostAccess::read(host_, 0xD018)) &
-			                 0x0Eu)
-			                << 10);
+			return video_detail::charset_offset(host_, page_);
 		}
 
 		gamehost::GameHost &host_;
+		int page_; // kLivePage, or the fixed page 0..7
 	};
 
 	class SpriteSlot {

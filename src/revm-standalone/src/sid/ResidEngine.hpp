@@ -20,6 +20,8 @@ public:
 
 	void Reset();
 	void SetChipModel(bool is8580);
+	// ADSR delay bug emulation, a ResidAdsr value (C64 Rework reSID patch).
+	void SetAdsrMode(int mode);
 	bool SetSampling(double clock_hz, double sample_hz, bool high_quality = false);
 
 	void Write(uint8_t reg, uint8_t value);

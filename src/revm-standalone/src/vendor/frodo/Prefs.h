@@ -37,6 +37,7 @@ public:
 	ButtonMapping SelectedButtonMapping() const { return {}; }
 
 	bool ResidHQ = false; // reSID FastMem resampling
+	int ResidAdsr = 0; // reSID ADSR delay bug: a ResidAdsr value (sid/ResidOptions.hpp)
 	int SIDType;
 	int DisplayType;
 	int Palette;

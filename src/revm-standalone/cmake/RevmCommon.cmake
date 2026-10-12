@@ -17,6 +17,16 @@ string(STRIP "${C64REWORK_VERSION}" C64REWORK_VERSION)
 if(NOT C64REWORK_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
   message(FATAL_ERROR "Invalid C64 Rework VERSION: ${C64REWORK_VERSION}")
 endif()
+# Optional: the game repository's short HEAD (+ "-dirty") at export time,
+# written by ./rework export; recordings carry it as recorded_on.git.
+set(GAME_GIT "")
+if(EXISTS "${_C64REWORK_ROOT}/game-git.version")
+  file(READ "${_C64REWORK_ROOT}/game-git.version" GAME_GIT)
+  string(STRIP "${GAME_GIT}" GAME_GIT)
+  if(NOT GAME_GIT MATCHES "^[0-9a-f]+(-dirty)?$")
+    message(FATAL_ERROR "Invalid game-git.version: ${GAME_GIT}")
+  endif()
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -169,6 +179,7 @@ set(REVM_SOURCES
   ${REVM_DIR}/input/JoystickConfig.cpp
   ${REVM_DIR}/goldens/PlayInput.cpp
   ${REVM_DIR}/goldens/PlayRecorder.cpp
+  ${REVM_DIR}/goldens/StateHashes.cpp
   ${REVM_DIR}/util/Log.cpp
   ${REVM_DIR}/util/Png.cpp
   ${REVM_DIR}/gamehost/GameHost.cpp
@@ -177,6 +188,13 @@ set(REVM_SOURCES
 add_library(revm_standalone_runtime STATIC ${REVM_SOURCES})
 target_include_directories(revm_standalone_runtime PUBLIC ${REVM_DIR} ${REVM_DIR}/vendor)
 target_link_libraries(revm_standalone_runtime PUBLIC frodo_sc PNG::PNG)
+# Recordings note the framework version (PlayRecorder recorded_on.details).
+target_compile_definitions(revm_standalone_runtime PRIVATE
+  C64REWORK_VERSION="${C64REWORK_VERSION}")
+if(GAME_GIT)
+  target_compile_definitions(revm_standalone_runtime PRIVATE
+    REVM_GAME_GIT="${GAME_GIT}")
+endif()
 
 add_executable(revm "${_REVM_ROOT}/apps/revm/main.cpp")
 target_compile_definitions(revm PRIVATE C64REWORK_VERSION="${C64REWORK_VERSION}")

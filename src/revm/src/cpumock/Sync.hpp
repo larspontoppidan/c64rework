@@ -131,17 +131,20 @@ struct Sync {
 
 	// Fence a timed operation on Stage-4 local state.  Unlike ReadRamAtPc /
 	// WriteRamAtPc / RmwRamAtPc these helpers never touch Main RAM: the caller
-	// performs the local read/write/RMW after the fence.  The original address
-	// is retained for diagnostics and migration provenance only.
+	// performs the local read/write/RMW after the fence, which is the same
+	// two-step fence as RAM (Twin has executed the instruction).  The original
+	// address is used for diagnostics only: the check that Twin's instruction
+	// touched it, and logs.
 	static inline void LinkedReadAtPc(Host &host, uint16_t pc, uint16_t addr,
 	                                 FenceSlack slack = FenceSlack::AllowOneVSync) {
 		if (host.NoTwin()) {
+			host.SetMainPcAfter(pc);
 			REVM_LOG_M("sync", REVM_VERBOSE,
 			           "LinkedReadAtPc pc=$%04X addr=$%04X (no-twin)", pc, addr);
 			return;
 		}
-		const bool extra = ramFence(host, pc, "LinkedReadAtPc", "linked_read",
-		                            slack);
+		const bool extra = ramAccessFence(host, pc, addr, false, "LinkedReadAtPc",
+		                                  "linked_read", slack);
 		ev_fence(host, "linked_read", pc, extra ? "hit_vsync" : "ok", extra);
 		REVM_LOG_M("sync", REVM_VERBOSE,
 		           "LinkedReadAtPc pc=$%04X addr=$%04X", pc, addr);
@@ -151,13 +154,14 @@ struct Sync {
 	                                  uint8_t value,
 	                                  FenceSlack slack = FenceSlack::AllowOneVSync) {
 		if (host.NoTwin()) {
+			host.SetMainPcAfter(pc);
 			REVM_LOG_M("sync", REVM_VERBOSE,
 			           "LinkedWriteAtPc pc=$%04X addr=$%04X val=$%02X (no-twin)",
 			           pc, addr, value);
 			return;
 		}
-		const bool extra = ramFence(host, pc, "LinkedWriteAtPc", "linked_write",
-		                            slack);
+		const bool extra = ramAccessFence(host, pc, addr, true, "LinkedWriteAtPc",
+		                                  "linked_write", slack);
 		ev_fence(host, "linked_write", pc, extra ? "hit_vsync" : "ok", extra);
 		REVM_LOG_M("sync", REVM_VERBOSE,
 		           "LinkedWriteAtPc pc=$%04X addr=$%04X val=$%02X", pc, addr,
@@ -169,13 +173,14 @@ struct Sync {
 	                                FenceSlack slack = FenceSlack::AllowOneVSync) {
 		rmw_check_carry(host, op, carry);
 		if (host.NoTwin()) {
+			host.SetMainPcAfter(pc);
 			REVM_LOG_M("sync", REVM_VERBOSE,
 			           "LinkedRmwAtPc pc=$%04X addr=$%04X op=%s (no-twin)", pc,
 			           addr, rmw_op_name(op));
 			return;
 		}
-		const bool extra = ramFence(host, pc, "LinkedRmwAtPc", "linked_rmw",
-		                            slack);
+		const bool extra = ramAccessFence(host, pc, addr, true, "LinkedRmwAtPc",
+		                                  "linked_rmw", slack);
 		ev_fence(host, "linked_rmw", pc, extra ? "hit_vsync" : "ok", extra);
 		REVM_LOG_M("sync", REVM_VERBOSE,
 		           "LinkedRmwAtPc %s pc=$%04X addr=$%04X", rmw_op_name(op), pc,
@@ -650,8 +655,13 @@ private:
 	// UNOWNED accept boundary surfacing mid-residue is NOT stepped over —
 	// Twin parks there and the boundary surfaces at the next walk /
 	// follow-up dispatch (kind-checked, NMI before IRQ).
+	// `stop_at_fetch` (armed RAM access): the residue never carries Twin past
+	// that opcode fetch, the end of the armed instruction. Main then stays
+	// ahead by what is left; the next fence's arrival closes it.
 	static inline void align_after_arrival(Host & host, const char * tag,
-	                                       uint16_t pc) {
+	                                       uint16_t pc,
+	                                       bool has_stop = false,
+	                                       uint16_t stop_at_fetch = 0) {
 		if (host.NoTwin())
 			return;
 		if (MainRunToTwinCycle(host) == AdvanceResult::Ok)
@@ -674,6 +684,13 @@ private:
 				           "twin_pc=$%04X main=%u twin=%u",
 				           tag, pc, host.TwinCpu().pc,
 				           host.board_.CycleCounter(),
+				           host.twin_->CycleCounter());
+				break;
+			}
+			if (has_stop && host.twin_->AtPc(stop_at_fetch)) {
+				REVM_LOG_M("sync", REVM_VERBOSE,
+				           "%s residue stops at $%04X main=%u twin=%u", tag,
+				           stop_at_fetch, host.board_.CycleCounter(),
 				           host.twin_->CycleCounter());
 				break;
 			}
@@ -708,8 +725,10 @@ public:
 			              src_file(loc), loc.line());
 		};
 
-		if (host.NoTwin())
+		if (host.NoTwin()) {
+			host.SetMainPc(pc);
 			return;
+		}
 
 		bool extra = false;
 		if (slack == FenceSlack::Exact) {
@@ -748,6 +767,7 @@ public:
 		}
 
 		align_after_arrival(host, "JoinAtPc", pc);
+		host.SetMainPc(pc);  // Twin stands at pc's opcode fetch
 
 		ev_fence(host, "join", pc, extra ? "hit_vsync" : "ok", extra);
 		host.CompareNow(mask);
@@ -785,7 +805,9 @@ public:
 		};
 
 		if (host.NoTwin()) {
-			return host.AdvanceFrames(b.no_twin_frames);
+			const uint32_t frames = host.AdvanceFrames(b.no_twin_frames);
+			host.SetMainPc(pc);
+			return frames;
 		}
 
 		uint64_t lap0 = 0;
@@ -818,6 +840,7 @@ public:
 		}
 
 		align_after_arrival(host, "JoinAtPcBounded", pc);
+		host.SetMainPc(pc);
 
 		ev_fence(host, "bounded", pc, n > 0 ? "hit_vsync" : "ok", n > 0);
 		REVM_LOG_M("sync", n == 0 ? REVM_VERBOSE : REVM_INFO,
@@ -835,9 +858,12 @@ public:
 	// joins). Twin still obligated by this accept token (not I)
 	// across VBLANK extra-VSYNCs once (silent). Twin already RTI'd /
 	// LeftNest is success — unlike nested JoinAtPc, which SoftQuits.
-	// --no-twin / calendar off: FinishMockIrq
-	// (`cycles` + 8 Φ2 IR-clear). Do not chase Twin PC when the calendar is
-	// off (Twin may be in interval 6510, not this handler).
+	// --no-twin: `cycles` is the handler body's own Φ2 as the translation
+	// declares it (a constant, or computed for the path taken). The host
+	// holds I and the interrupted main line for 7 (interrupt sequence) +
+	// `cycles` + 8 (RTI/IR-clear) Φ2, so main-line code after the
+	// interrupt runs when the original's does. Under Twin `cycles` is unused
+	// for timing: Twin's RTI is the duration.
 	static inline void ReturnIrq(Host & host, uint16_t rti_pc, uint32_t cycles,
 	                             CompareMask mask = CompareMask::None()) {
 		RejectArmed(host, "ReturnIrq");
@@ -860,8 +886,9 @@ public:
 	// Twin already left the steal is success (do not chase the next RTI).
 	// Extra VSYNC while TwinInNmiSequence() across VBLANK is drain-trunc,
 	// not a body chase. NMI *body* spanning VBLANK is unpaid until body
-	// tracking exists. --no-twin / calendar off: FinishMockNmi(cycles);
-	// 0 is today's no-op (thunk restores I).
+	// tracking exists. --no-twin: `cycles` holds I and the interrupted
+	// code for that many Φ2 (the NMI's whole time); 0 is a no-op (thunk
+	// restores I). Under Twin `cycles` is ignored.
 	static inline void ReturnNmi(Host & host, uint32_t cycles,
 	                             CompareMask mask = CompareMask::None()) {
 		RejectArmed(host, "ReturnNmi");
@@ -873,7 +900,8 @@ public:
 				host.CompareNow(mask);
 			return;
 		}
-		host.FinishMockNmi(cycles);
+		// Under Twin `cycles` is unused for timing, as in ReturnIrq: the NMI's
+		// duration is Twin's own execution, drained by later fences.
 		if (mask.any())
 			host.CompareNow(mask);
 	}
@@ -1018,12 +1046,18 @@ private:
 		return cached.value;
 	}
 
+	// After an I/O access the instruction is complete: Main's PC moves to
+	// the next instruction, where Twin is parked (see SetMainPc).
 	static inline uint8_t ReadIoAtPc(Host & host, uint16_t pc, uint16_t io_addr) {
-		if (host.NoTwin())
-			return read_io_exact(host, pc, pc, io_addr);
+		if (host.NoTwin()) {
+			const uint8_t v = read_io_exact(host, pc, pc, io_addr);
+			host.SetMainPcAfter(pc);
+			return v;
+		}
 
 		const uint16_t pc_after = io_pc_after(host, pc);
 		const uint8_t v = read_io_exact(host, pc, pc_after, io_addr);
+		host.SetMainPc(pc_after);
 		ev_fence(host, "io_read", pc, "ok", false);
 		return v;
 	}
@@ -1032,6 +1066,7 @@ private:
 	                               uint8_t value) {
 		if (host.NoTwin()) {
 			host.Write(io_addr, value);
+			host.SetMainPcAfter(pc);
 			REVM_LOG_M("sync", REVM_VERBOSE,
 			         "WriteIoAtPc pc=$%04X addr=$%04X val=$%02X (no-twin)",
 			         pc, io_addr, value);
@@ -1084,6 +1119,7 @@ private:
 		}
 
 		host.Write(io_addr, value);
+		host.SetMainPc(pc_after);
 		ev_fence(host, "io_write", pc, "ok", false);
 		REVM_LOG_M("sync", REVM_VERBOSE,
 		         "WriteIoAtPc pc=$%04X addr=$%04X val=$%02X", pc, io_addr,
@@ -1191,30 +1227,120 @@ private:
 
 	static inline uint8_t RmwIoAtPc(Host & host, uint16_t pc, uint16_t io_addr,
 	                                RmwOp op, bool *carry) {
-		if (host.NoTwin())
-			return rmw_io_exact(host, pc, pc, io_addr, op, carry);
+		if (host.NoTwin()) {
+			const uint8_t v = rmw_io_exact(host, pc, pc, io_addr, op, carry);
+			host.SetMainPcAfter(pc);
+			return v;
+		}
 
 		const uint16_t pc_after = io_pc_after(host, pc);
 		const uint8_t v = rmw_io_exact(host, pc, pc_after, io_addr, op, carry);
+		host.SetMainPc(pc_after);
 		ev_fence(host, "io_rmw", pc, "ok", false);
 		return v;
 	}
 
-	// --- RAM at Twin's opcode. Yield-at-target; Main's byte (not TwinPeek). ---
-	// `pc` is the opcode of the load/ALU/store that touches `addr`.
-	// TwinRunToPc yields a pending accept at that fetch so the
-	// handler can JoinAtPc / nest before the sample or store. Returns/writes
-	// host.Read/Write — Main's RAM after that steal. Not a compare. IRQ/NMI
-	// bodies may call these via mem.*. Same one-VSYNC contract as
+	// --- RAM (and Linked) armed accesses: on the instruction's own cycle. ---
+	// `pc` is the opcode of the load/ALU/store/RMW that touches `addr`.
+	// The fence has two steps:
+	//  1. Twin is walked to the opcode FETCH of `pc` with yield-at-target, so
+	//     an interrupt pending at that fetch nests first (the handler can
+	//     JoinAtPc / nest before the sample or store). This step carries the
+	//     FenceSlack rules (one silent extra VSYNC, or Exact).
+	//  2. Twin (paired with Main) executes that one instruction and parks at
+	//     the fetch of the next one. A 6510 load reads, and a store writes,
+	//     on the instruction's LAST bus cycle (an RMW writes twice, the
+	//     unchanged byte first, then the result on the last cycle). Each
+	//     Φ2 the VIC runs before the CPU, so Main's access made now, between
+	//     that last cycle and the next fetch, is seen by Main's VIC exactly
+	//     when Twin's own access is seen by Twin's VIC. A BA stall of the
+	//     next fetch is not walked: Twin is parked on that stalled fetch.
+	// The access itself is Main's own byte (host.Read/Write), never a copy
+	// of Twin's; a wrong value surfaces at the next kb compare. This is the
+	// same instant I/O AtPc uses. An IRQ that became pending during the
+	// instruction is taken after Main's access, as on the real CPU.
+	// IRQ/NMI bodies may call these via mem.*. Same one-VSYNC contract as
 	// JoinAtPc (nested HitVSync extra-VSYNCs once if Twin is still in the
 	// nest), except the I/O-on-VBLANK-Φ2 case is silent for RAM fences.
-	// FenceSlack::Exact: extra VSYNC is a failure.
-	// --no-twin: host.Read / host.Write.
-	static inline void ramFenceExact(Host & host, uint16_t pc,
-	                                 const char * tag, const char * op) {
-		if (host.NoTwin())
-			return;
+	// FenceSlack::Exact: an extra VSYNC before the fetch is a failure.
+	// --no-twin: host.Read / host.Write; Main's PC moves past the instruction.
 
+	// The instruction at `pc` must read or write memory through an operand:
+	// a 2- or 3-byte documented opcode that is neither an immediate (no
+	// memory operand) nor control flow (the next fetch would not follow it).
+	// Anything else means the arm names the wrong instruction, typically the
+	// one after the access.
+	static inline bool ram_access_opcode(uint8_t op) {
+		const unsigned n = revm::InsnBytes6502(op);
+		if (n < 2 || n > 3)
+			return false;  // implied, accumulator, stack, undocumented
+		if ((op & 0x1F) == 0x10)
+			return false;  // Bxx
+		if (op == 0x20 || op == 0x4C || op == 0x6C)
+			return false;  // JSR, JMP abs, JMP (ind)
+		if ((op & 0x1F) == 0x09)
+			return false;  // ORA/AND/EOR/ADC/LDA/CMP/SBC #imm
+		if (op == 0xA0 || op == 0xA2 || op == 0xC0 || op == 0xE0)
+			return false;  // LDY/LDX/CPY/CPX #imm
+		return true;
+	}
+
+	// The fetch after the armed instruction, read from Twin's code.
+	static inline uint16_t ram_pc_after(Host & host, uint16_t pc,
+	                                    const char * tag) {
+		const uint8_t op = host.TwinPeekMem(pc);
+		if (!ram_access_opcode(op)) {
+			host.SoftQuit(1,
+			              "%s: $%04X is not a memory-access instruction "
+			              "(op=$%02X); arm the opcode PC of the load, store "
+			              "or RMW itself",
+			              tag, pc, op);
+			return pc;
+		}
+		return uint16_t(pc + revm::InsnBytes6502(op));
+	}
+
+	// One armed RAM/Linked access: the instruction, the fetch after it, and
+	// the byte Main reads or writes (for the Twin-side check).
+	struct RamArm {
+		uint16_t pc;
+		uint16_t pc_after;
+		uint16_t addr;
+		bool write;
+	};
+
+	// Step 2 above: Twin (paired) from the fetch of `pc` through its
+	// instruction to the fetch of `pc_after`. The instruction itself may
+	// cross VBLANK; the boards cross it together, so the walk continues.
+	static inline void run_through_instruction(Host & host, const RamArm & arm,
+	                                           const char * tag,
+	                                           const char * op) {
+		AdvanceResult r = AdvanceResult::Timeout;
+		for (int attempt = 0; attempt < 3; ++attempt) {
+			r = TwinRunToPc(host, arm.pc_after, true, false, true);
+			if (r != AdvanceResult::HitVSync)
+				break;
+		}
+		if (r != AdvanceResult::Ok) {
+			ev_fence(host, op, arm.pc,
+			         r == AdvanceResult::Timeout ? "timeout" : "miss", false);
+			REVM_LOG_M("sync", REVM_ERROR,
+			           "%s instruction walk failed pc=$%04X pc_after=$%04X "
+			           "twin_pc=$%04X result=%s",
+			           tag, arm.pc, arm.pc_after, host.TwinCpu().pc,
+			           revm::AdvanceResultName(r));
+			host.SoftQuit(1, "%s instruction walk $%04X -> $%04X failed", tag,
+			              arm.pc, arm.pc_after);
+		}
+		align_after_arrival(host, tag, arm.pc_after, true, arm.pc_after);
+	}
+
+	// Step 1 at the exact frame. The Twin-side access check starts on
+	// arrival at the fetch: Φ2 alignment may already step Twin into the
+	// instruction (never past it).
+	static inline void ramFenceExact(Host & host, const RamArm & arm,
+	                                 const char * tag, const char * op) {
+		const uint16_t pc = arm.pc;
 		const AdvanceResult r = TwinRunToPc(host, pc, false, true);
 		if (r != AdvanceResult::Ok) {
 			check_nested_walk(host, tag, pc, r, false);
@@ -1230,20 +1356,21 @@ private:
 			host.SoftQuit(1, "%s Exact TwinRunToPc $%04X failed", tag, pc);
 		}
 
-		align_after_arrival(host, tag, pc);
+		host.TwinAccessProbeBegin(arm.addr, arm.write);
+		align_after_arrival(host, tag, pc, true, arm.pc_after);
+		host.SetMainPc(pc);  // the CPU stands at the armed instruction's fetch
 	}
 
-	// Returns true when the fence crossed a VBLANK (extra-VSYNC path).
-	static inline bool ramFence(
-		Host & host, uint16_t pc, const char * tag, const char * op,
-		FenceSlack slack = FenceSlack::AllowOneVSync) {
-		if (host.NoTwin())
-			return false;
+	// Step 1 above. Returns true when it crossed a VBLANK (extra-VSYNC path).
+	static inline bool ramFence(Host & host, const RamArm & arm,
+	                            const char * tag, const char * op,
+	                            FenceSlack slack) {
 		if (slack == FenceSlack::Exact) {
-			ramFenceExact(host, pc, tag, op);
+			ramFenceExact(host, arm, tag, op);
 			return false;
 		}
 
+		const uint16_t pc = arm.pc;
 		const AdvanceResult r = TwinRunToPc(host, pc, true, true);
 		bool extra = false;
 		if (r != AdvanceResult::Ok) {
@@ -1275,7 +1402,32 @@ private:
 			         int(in_handler(host)));
 			run_extra_main_vsync(host, tag, "ram");
 		}
-		ramFenceExact(host, pc, tag, op);
+		ramFenceExact(host, arm, tag, op);
+		return extra;
+	}
+
+	// The whole armed RAM/Linked fence (steps 1 and 2). Afterwards Main
+	// makes its access to `addr` (`write`: a store or RMW). While Twin runs
+	// the instruction, the host notes whether Twin's CPU touched the same
+	// byte; a miss is a warning that the arm names the wrong instruction.
+	// Returns true when step 1 crossed a VBLANK.
+	static inline bool ramAccessFence(
+		Host & host, uint16_t pc, uint16_t addr, bool write, const char * tag,
+		const char * op, FenceSlack slack) {
+		const RamArm arm{pc, ram_pc_after(host, pc, tag), addr, write};
+		// Twin already parked right after this instruction: an earlier armed
+		// access of the same instruction completed it (the I/O path behaves
+		// the same way, as its walk target is already reached).
+		if (host.twin_->AtPc(arm.pc_after)) {
+			align_after_arrival(host, tag, arm.pc_after, true, arm.pc_after);
+			host.SetMainPc(arm.pc_after);
+			return false;
+		}
+		const bool extra = ramFence(host, arm, tag, op, slack);
+		run_through_instruction(host, arm, tag, op);
+		if (!host.TwinAccessProbeEnd())
+			host.FailArmedAccessMiss(tag, pc, addr, write);
+		host.SetMainPc(arm.pc_after);
 		return extra;
 	}
 
@@ -1284,12 +1436,15 @@ private:
 		FenceSlack slack = FenceSlack::AllowOneVSync) {
 		if (host.NoTwin()) {
 			const uint8_t v = host.Read(addr);
+			host.SetMainPcAfter(pc);
 			REVM_LOG_M("sync", REVM_VERBOSE,
 			         "ReadRamAtPc pc=$%04X addr=$%04X -> $%02X (no-twin)",
 			         pc, addr, v);
 			return v;
 		}
-		const bool extra = ramFence(host, pc, "ReadRamAtPc", "ram_read", slack);
+		const bool extra =
+			ramAccessFence(host, pc, addr, false, "ReadRamAtPc", "ram_read",
+			               slack);
 		const uint8_t v = host.Read(addr);
 		ev_fence(host, "ram_read", pc, extra ? "hit_vsync" : "ok", extra);
 		REVM_LOG_M("sync", REVM_VERBOSE,
@@ -1302,6 +1457,7 @@ private:
 		FenceSlack slack = FenceSlack::AllowOneVSync) {
 		if (host.NoTwin()) {
 			host.Write(addr, value);
+			host.SetMainPcAfter(pc);
 			REVM_LOG_M("sync", REVM_VERBOSE,
 			         "WriteRamAtPc pc=$%04X addr=$%04X val=$%02X "
 			         "(no-twin)",
@@ -1309,7 +1465,8 @@ private:
 			return;
 		}
 		const bool extra =
-			ramFence(host, pc, "WriteRamAtPc", "ram_write", slack);
+			ramAccessFence(host, pc, addr, true, "WriteRamAtPc", "ram_write",
+			               slack);
 		host.Write(addr, value);
 		ev_fence(host, "ram_write", pc, extra ? "hit_vsync" : "ok", extra);
 		REVM_LOG_M("sync", REVM_VERBOSE,
@@ -1317,10 +1474,11 @@ private:
 		         value);
 	}
 
-	// Official memory RMW on RAM. Yield at the opcode fetch so IRQ/NMI can
-	// nest *before* the RMW. Then Main
-	// apply(op). Do not TwinPeek or SoftQuit on Twin's byte — later kb.
-	// ASL/LSR/ROL/ROR require bool *carry. --no-twin: ordinary apply.
+	// Official memory RMW on RAM. An IRQ/NMI pending at the opcode fetch
+	// nests *before* the RMW; Main then applies op once the instruction is
+	// done (its dummy write stores the unchanged byte, so only the final
+	// value is visible). Do not TwinPeek or SoftQuit on Twin's byte — later
+	// kb. ASL/LSR/ROL/ROR require bool *carry. --no-twin: ordinary apply.
 	static inline uint8_t RmwRamAtPc(
 		Host & host, uint16_t pc, uint16_t addr, RmwOp op, bool *carry,
 		FenceSlack slack = FenceSlack::AllowOneVSync) {
@@ -1331,12 +1489,15 @@ private:
 			host.Write(addr, a.value);
 			if (carry)
 				*carry = a.cout;
+			host.SetMainPcAfter(pc);
 			REVM_LOG_M("sync", REVM_VERBOSE,
 			         "RmwRamAtPc %s pc=$%04X addr=$%04X -> $%02X (no-twin)",
 			         rmw_op_name(op), pc, addr, a.value);
 			return a.value;
 		}
-		const bool extra = ramFence(host, pc, "RmwRamAtPc", "ram_rmw", slack);
+		const bool extra =
+			ramAccessFence(host, pc, addr, true, "RmwRamAtPc", "ram_rmw",
+			               slack);
 		const uint8_t old = host.Read(addr);
 		const RmwApply a = apply_rmw(old, op, cin);
 		host.Write(addr, a.value);

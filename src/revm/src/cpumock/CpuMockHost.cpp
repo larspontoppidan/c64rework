@@ -6,6 +6,7 @@
 #include "cpumock/LinkedRegistry.hpp"
 
 #include "cpumock/ScreenContext.hpp"
+#include "debug/InsnBytes6502.hpp"
 #include "goldens/CompareReport.hpp"
 #include "goldens/PlayLog.hpp"
 #include "goldens/PlayPlayer.hpp"
@@ -21,6 +22,7 @@
 #include "C64.h"
 #include "CIA.h"
 #include "CPUC64.h"
+#include "Prefs.h"
 #include "SID.h"
 
 #include <cstdarg>
@@ -446,7 +448,12 @@ void CpuMockHost::MockNmiThunk(void * userdata) {
 	--self->nmi_depth_;
 
 	if (self->nmi_finish_called_ && self->nmi_hold_cycles_ > 0) {
-		if (self->irq_depth_ > 0 && self->IrqHoldActive())
+		// An NMI inside an IRQ handler's time lengthens it. --no-twin pays
+		// that time after the IRQ body has returned (run_handler_time), so
+		// there the hold alone says the IRQ handler is still running.
+		const bool in_irq_time =
+			self->irq_depth_ > 0 || self->NoTwin();
+		if (in_irq_time && self->IrqHoldActive())
 			self->AddMockIrqHold(self->nmi_hold_cycles_);
 		else
 			hw->SetCpuMockPostIrqHold(self->nmi_hold_cycles_, i_before);
@@ -464,7 +471,11 @@ void CpuMockHost::dispatch_irq() {
 		}
 		return;
 	}
+	// The body moves Main's PC through its own declared PCs; the original's
+	// RTI returns to the interrupted instruction, so put the PC back.
+	const uint16_t interrupted_pc = MainPc();
 	irq_handler_();
+	SetMainPc(interrupted_pc);
 }
 
 void CpuMockHost::dispatch_nmi() {
@@ -476,7 +487,96 @@ void CpuMockHost::dispatch_nmi() {
 		}
 		return;
 	}
+	const uint16_t interrupted_pc = MainPc();  // as dispatch_irq
 	nmi_handler_();
+	SetMainPc(interrupted_pc);
+}
+
+void CpuMockHost::SetMainPc(uint16_t pc) {
+	C64 * c64 = board_.Machine();
+	if (!c64 || !c64->TheCPU)
+		return;
+	if (board_.GetConfig().main_blank)
+		return;
+	c64->TheCPU->SetCpuMockPc(pc);
+}
+
+void CpuMockHost::SetMainPcAfter(uint16_t pc) {
+	C64 * c64 = board_.Machine();
+	if (!c64 || !c64->TheCPU)
+		return;
+	const unsigned length = revm::InsnBytes6502(c64->RAM[pc]);
+	SetMainPc(uint16_t(pc + length));
+}
+
+namespace {
+
+// Twin CPU data-path hook used only while an armed RAM/Linked instruction
+// executes (CpuMockHost::TwinAccessProbeBegin/End).
+void twin_access_probe_thunk(uint16_t adr, bool is_write,
+                             MOS6510::CoverSpace /*space*/, void * userdata) {
+	auto * probe = static_cast<TwinAccessProbe *>(userdata);
+	if (adr == probe->addr && is_write == probe->want_write)
+		probe->seen = true;
+}
+
+} // namespace
+
+void CpuMockHost::TwinAccessProbeBegin(uint16_t addr, bool write) {
+	// An armed access inside an interrupt handler dispatched while an outer
+	// probe runs is not checked itself; the outer probe keeps going.
+	++twin_access_probe_depth_;
+	if (twin_access_probe_depth_ > 1)
+		return;
+	twin_access_probe_ = TwinAccessProbe{addr, write, false, false};
+	if (NoTwin())
+		return;
+	C64 * c64 = twin_->board().Machine();
+	if (!c64 || !c64->TheCPU)
+		return;
+	// The hook slot is shared with coverage recording; never take it over.
+	if (!twin_->board().GetConfig().coverage_path.empty())
+		return;
+	twin_access_probe_.active = true;
+	c64->TheCPU->SetMemAccessHook(&twin_access_probe_thunk,
+	                              &twin_access_probe_);
+}
+
+bool CpuMockHost::TwinAccessProbeEnd() {
+	if (twin_access_probe_depth_ > 0)
+		--twin_access_probe_depth_;
+	if (twin_access_probe_depth_ > 0)
+		return true;  // an inner (unchecked) access ended
+	if (!twin_access_probe_.active)
+		return true;
+	twin_access_probe_.active = false;
+	C64 * c64 = twin_->board().Machine();
+	if (c64 && c64->TheCPU)
+		c64->TheCPU->SetMemAccessHook(nullptr, nullptr);
+	return twin_access_probe_.seen;
+}
+
+void CpuMockHost::FailArmedAccessMiss(const char * tag, uint16_t pc,
+                                      uint16_t addr, bool write) {
+	// With --ignore-checks the run goes on; report each PC once then.
+	for (uint16_t reported : armed_access_failed_pcs_) {
+		if (reported == pc)
+			return;
+	}
+	armed_access_failed_pcs_.push_back(pc);
+	REVM_EVENT("armed_access_miss", "pc", revm::event::Hex{pc}, "addr",
+	           revm::event::Hex{addr}, "write", write ? 1 : 0);
+	QuitOnCheck("%s: the instruction at $%04X did not %s $%04X on Twin; the "
+	            "arm names the wrong instruction, or Main and Twin are in "
+	            "different passes of the code",
+	            tag, pc, write ? "write" : "read", addr);
+}
+
+uint16_t CpuMockHost::MainPc() const {
+	const C64 * c64 = board_.Machine();
+	if (!c64 || !c64->TheCPU)
+		return 0;
+	return c64->TheCPU->GetPC();
 }
 
 void CpuMockHost::InstallIrqHandler(IrqHandler handler) {
@@ -1213,9 +1313,9 @@ void CpuMockHost::apply_user_cfg(Config & cfg, const Config * user_cfg) {
 	cfg.play_path = user_cfg->play_path.empty() ? cfg.play_path : user_cfg->play_path;
 	cfg.save_audio_path = user_cfg->save_audio_path;
 	cfg.save_video_path = user_cfg->save_video_path;
-	cfg.save_screen_frame = user_cfg->save_screen_frame;
-	cfg.save_screen_path = user_cfg->save_screen_path;
+	cfg.save_screens = user_cfg->save_screens;
 	cfg.frame_observations_path = user_cfg->frame_observations_path;
+	cfg.state_hashes_path = user_cfg->state_hashes_path;
 	cfg.max_cycles = user_cfg->max_cycles;
 	cfg.max_seconds = user_cfg->max_seconds;
 	cfg.log_verbose_from_cycle = user_cfg->log_verbose_from_cycle;
@@ -1224,6 +1324,9 @@ void CpuMockHost::apply_user_cfg(Config & cfg, const Config * user_cfg) {
 	cfg.report_path = user_cfg->report_path;
 	cfg.no_audio = user_cfg->no_audio;
 	cfg.sid_resid = user_cfg->sid_resid;
+	cfg.sid_resid_hq = user_cfg->sid_resid_hq;
+	cfg.sid_8580 = user_cfg->sid_8580;
+	cfg.sid_resid_adsr = user_cfg->sid_resid_adsr;
 	cfg.main_blank = user_cfg->main_blank;
 	if (cfg.no_audio) {
 		cfg.audio_enabled = false;
@@ -1322,10 +1425,12 @@ void CpuMockHost::emit_fail_context(CompareMask mask,
 	add_mask(mask.cia1, "cia1");
 	add_mask(mask.cia2, "cia2");
 	add_mask(mask.kb, "kb");
+	add_mask(mask.flags != 0, "flags");
 
 	const bool compare_ran = last_screen_.ran || last_sid_.ran ||
 	                         last_vic_.ran || last_vic_state_.ran ||
-	                         last_cia1_.ran || last_cia2_.ran || kb_check.ran;
+	                         last_cia1_.ran || last_cia2_.ran ||
+	                         last_flags_.ran || kb_check.ran;
 	auto fmt_channel = [](const RitualCheck & c) {
 		return c.ran ? (c.ok ? "ok" : "fail") : "off";
 	};
@@ -1333,11 +1438,11 @@ void CpuMockHost::emit_fail_context(CompareMask mask,
 	std::snprintf(chans, sizeof chans,
 	              "{\"screen\":\"%s\",\"sid\":\"%s\",\"vic\":\"%s\","
 	              "\"vic_state\":\"%s\",\"cia1\":\"%s\",\"cia2\":\"%s\","
-	              "\"kb\":\"%s\"}",
+	              "\"flags\":\"%s\",\"kb\":\"%s\"}",
 	              fmt_channel(last_screen_), fmt_channel(last_sid_),
 	              fmt_channel(last_vic_), fmt_channel(last_vic_state_),
 	              fmt_channel(last_cia1_), fmt_channel(last_cia2_),
-	              fmt_channel(kb_check));
+	              fmt_channel(last_flags_), fmt_channel(kb_check));
 
 	// kb diff detail, pre-serialized (null when the kb compare did not run
 	// or found nothing).
@@ -1382,6 +1487,7 @@ void CpuMockHost::emit_fence_miss_context(CompareMask mask) {
 	last_vic_state_ = {};
 	last_cia1_ = {};
 	last_cia2_ = {};
+	last_flags_ = {};
 	last_screen_summary_.clear(); // no screen data at a fence miss
 	emit_fail_context(mask, none, "fence");
 }
@@ -1634,6 +1740,45 @@ void CpuMockHost::compare_cia(int which, uint32_t frame, RitualCheck & out) {
 	(which == 0 ? cia1_tally_ : cia2_tally_).Note(false, ok);
 }
 
+// Main's mock 6510 has no P register: the mask carries the flag values the
+// translation models (flags_main) and this checks them against Twin's P.
+// Twin stands at the fence's opcode fetch, so its P is the flags the
+// original has at that instruction boundary.
+// CompareNow reports a failure ("CPU flag FAIL frame ...") from the detail.
+void CpuMockHost::compare_flags(CompareMask mask, RitualCheck & out) {
+	static const char kNames[8] = {'C', 'Z', 'I', 'D', 'B', '-', 'V', 'N'};
+	last_flags_detail_[0] = 0;
+	if ((mask.flags & 0x30) != 0) {
+		SoftQuit(1, "CompareMask flags $%02X selects B or bit 5, which are "
+		            "not CPU flags (use CpuFlag::C/Z/I/D/V/N)",
+		         mask.flags);
+	}
+	const uint8_t twin_p = TwinCpu().p;
+	const uint8_t diff = uint8_t((twin_p ^ mask.flags_main) & mask.flags);
+	const bool ok = diff == 0;
+	if (!ok) {
+		// "at join $2922: D main=1 twin=0 (Twin P=$24)", one name per bit.
+		size_t used = size_t(std::snprintf(
+			last_flags_detail_, sizeof last_flags_detail_, "at %s $%04X:",
+			last_fence_op_, last_fence_pc_));
+		for (int bit = 0; bit < 8; ++bit) {
+			const uint8_t m = uint8_t(1u << bit);
+			if ((diff & m) == 0 || used >= sizeof last_flags_detail_)
+				continue;
+			used += size_t(std::snprintf(
+				last_flags_detail_ + used, sizeof last_flags_detail_ - used,
+				" %c main=%d twin=%d", kNames[bit],
+				(mask.flags_main & m) ? 1 : 0, (twin_p & m) ? 1 : 0));
+		}
+		if (used < sizeof last_flags_detail_)
+			std::snprintf(last_flags_detail_ + used,
+			              sizeof last_flags_detail_ - used,
+			              " (Twin P=$%02X)", twin_p);
+	}
+	out = {true, false, ok};
+	flags_tally_.Note(false, ok);
+}
+
 void CpuMockHost::CompareNow(CompareMask mask) {
 	ThrowIfQuitRequested();
 	if (NoTwin() || !mask.any())
@@ -1658,6 +1803,7 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 	last_vic_state_ = {};
 	last_cia1_ = {};
 	last_cia2_ = {};
+	last_flags_ = {};
 	last_screen_summary_.clear();
 	last_screen_pixels_ = 0;
 	last_screen_x0_ = 0;
@@ -1669,6 +1815,7 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 	last_vic_detail_[0] = 0;
 	last_cia1_detail_[0] = 0;
 	last_cia2_detail_[0] = 0;
+	last_flags_detail_[0] = 0;
 	RitualCheck kb{};
 	bool abort_check = false;
 
@@ -1702,6 +1849,11 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 		if (!last_cia2_.ok)
 			abort_check = true;
 	}
+	if (mask.flags != 0) {
+		compare_flags(mask, last_flags_);
+		if (!last_flags_.ok)
+			abort_check = true;
+	}
 	if (mask.kb && kb_check_.Active()) {
 		const bool twin_ok =
 			kb_check_.OnFrame(board_, *twin_, frame, cycle,
@@ -1716,17 +1868,18 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 		return c.ran ? (c.ok ? 1 : 0) : -1;
 	};
 	if (last_screen_.ran || last_sid_.ran || last_vic_.ran ||
-	    last_vic_state_.ran || last_cia1_.ran || last_cia2_.ran || kb.ran) {
+	    last_vic_state_.ran || last_cia1_.ran || last_cia2_.ran ||
+	    last_flags_.ran || kb.ran) {
 		REVM_LOG(REVM_VERBOSE,
 		         "compare frame=%u cycle=%u screen=%s SID=%s vic=%s vic_state=%s "
-		         "cia1=%s cia2=%s kb=%s",
+		         "cia1=%s cia2=%s flags=%s kb=%s",
 		         frame, cycle, last_screen_.Format(), last_sid_.Format(),
 		         last_vic_.Format(), last_vic_state_.Format(), last_cia1_.Format(),
-		         last_cia2_.Format(), kb.Format());
+		         last_cia2_.Format(), last_flags_.Format(), kb.Format());
 	}
 	event::EmitCompareResult(ch(last_screen_), ch(last_sid_), ch(kb), ch(last_vic_),
 	                         ch(last_vic_state_), ch(last_cia1_), ch(last_cia2_),
-	                         int(RasterLine()));
+	                         ch(last_flags_), int(RasterLine()));
 
 	if (abort_check) {
 		++total_fails_;
@@ -1740,6 +1893,7 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 		else if (last_vic_state_.ran && !last_vic_state_.ok) plane = "vic_state";
 		else if (last_cia1_.ran && !last_cia1_.ok) plane = "cia1";
 		else if (last_cia2_.ran && !last_cia2_.ok) plane = "cia2";
+		else if (last_flags_.ran && !last_flags_.ok) plane = "flags";
 		else if (kb.ran && !kb.ok) plane = "kb";
 		emit_fail_context(mask, kb, plane);
 		static bool repro_hinted = false;
@@ -1786,6 +1940,8 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 			else
 				QuitOnCheck("CIA2 FAIL frame %u", frame);
 		}
+		if (!last_flags_.ok && last_flags_.ran)
+			QuitOnCheck("CPU flag FAIL frame %u %s", frame, last_flags_detail_);
 		if (kb_check_.HasFirstDiff())
 			QuitOnCheck("kb-check FAIL frame %u cycle %u %s $%04X main=$%02X "
 			            "twin=$%02X",
@@ -1841,6 +1997,8 @@ void CpuMockHost::print_compare_tallies() const {
 		cia1_tally_.LogLine(REVM_LOG_MODULE, "cia1");
 	if (cia2_tally_.compared > 0)
 		cia2_tally_.LogLine(REVM_LOG_MODULE, "cia2");
+	if (flags_tally_.compared > 0)
+		flags_tally_.LogLine(REVM_LOG_MODULE, "flags");
 	kb_check_.PrintTally();
 }
 
@@ -2568,35 +2726,40 @@ CpuMockHost::AdvanceResult CpuMockHost::AdvanceCycles(
 	if (cycles == 0)
 		return AdvanceResult::Ok;
 
+	// `cycles` is main-line time. A handler that interrupts the wait does
+	// not use it up: its time is paid by run_handler_time() and not counted.
+	const bool cross_vsync = vsync_policy == VSyncPolicy::Cross;
 	uint64_t left = cycles;
 	int no_progress = 0;
 	while (left > 0) {
 		const uint32_t c0 = board_.CycleCounter();
-		const bool cross_vsync = vsync_policy == VSyncPolicy::Cross;
 		const AdvanceResult r = main_advance(left, cross_vsync);
-		if (r == AdvanceResult::HitNmi || r == AdvanceResult::HitIrq) {
-			if (board_.CycleCounter() == c0) {
-				if (++no_progress > 128) {
-					SoftQuit(1,
-					         "Main dispatch: too many HitIrq/HitNmi retries (%d)",
-					         no_progress);
-					return AdvanceResult::Error;
-				}
-			} else {
-				no_progress = 0;
+		const uint32_t ran = board_.CycleCounter() - c0;
+		if (uint64_t(ran) >= left)
+			left = 0;
+		else
+			left -= ran;
+		if (r != AdvanceResult::HitNmi && r != AdvanceResult::HitIrq)
+			return r;
+		if (ran == 0) {
+			if (++no_progress > 128) {
+				SoftQuit(1,
+				         "Main dispatch: too many HitIrq/HitNmi retries (%d)",
+				         no_progress);
+				return AdvanceResult::Error;
 			}
-			if (r == AdvanceResult::HitNmi)
-				RunNmiHandler();
-			else
-				RunIrqHandler();
-			const uint32_t ran = board_.CycleCounter() - c0;
-			if (uint64_t(ran) >= left)
-				left = 0;
-			else
-				left -= ran;
-			continue;
+		} else {
+			no_progress = 0;
 		}
-		return r;
+		if (r == AdvanceResult::HitNmi)
+			RunNmiHandler();
+		else
+			RunIrqHandler();
+		// The main line resumes after the handler. If the handler ran over
+		// the VSYNC, the main line can only notice that afterwards.
+		const bool crossed = run_handler_time();
+		if (crossed && !cross_vsync)
+			return AdvanceResult::HitVSync;
 	}
 	return AdvanceResult::Ok;
 }
@@ -2618,7 +2781,43 @@ CpuMockHost::AdvanceResult CpuMockHost::AdvanceToVSync() {
 			RunNmiHandler();
 		else
 			RunIrqHandler();
+		// A handler still running at the VSYNC delays the main line past it.
+		if (run_handler_time())
+			return AdvanceResult::HitVSync;
 	}
+}
+
+// --no-twin: the translated handler body ran in zero time, but on the real
+// machine it occupies the CPU, and the interrupted main line only resumes
+// after its RTI. That time is the post-interrupt hold that ReturnIrq /
+// ReturnNmi set from the cycles the translation declares. Run the machine
+// until the hold has elapsed, so main-line code after the interrupt runs at
+// the original's time and not at the accept. IRQs stay masked during the
+// hold (I is set), so a following IRQ is dispatched by the caller once the
+// main line would resume; an NMI can still interrupt the handler, and its
+// own time is added to the hold. Returns true when a VSYNC passed.
+bool CpuMockHost::run_handler_time() {
+	C64 * c64 = board_.Machine();
+	if (!c64 || !c64->TheCPU)
+		return false;
+	MOS6510 * hw = c64->TheCPU;
+	bool crossed_vsync = false;
+	while (hw->CpuMockIrqHoldActive()) {
+		ThrowIfQuitRequested();
+		if (hw->CpuMockNmiPending() && nmi_depth_ == 0) {
+			RunNmiHandler();
+			continue;
+		}
+		track_main_lines();
+		const bool vb = board_.EmulateCycle();
+		track_main_lines();
+		if (vb) {
+			pace_after_vsync();
+			ThrowIfQuitRequested();
+			crossed_vsync = true;
+		}
+	}
+	return crossed_vsync;
 }
 
 uint32_t CpuMockHost::AdvanceFrames(uint32_t frames) {
@@ -2638,7 +2837,11 @@ void CpuMockHost::ReturnIrq(uint32_t body_cycles) {
 		SoftQuit(1, "CpuMockHost::ReturnIrq is Main-only; Twin IRQ teardown stays on Sync");
 	if (!InIrq())
 		SoftQuit(1, "ReturnIrq requires InIrq");
-	FinishMockIrq(body_cycles);
+	// The handler's time on the real CPU: the 7-Φ2 interrupt sequence, the
+	// body the translation declares, and FinishMockIrq's 8-Φ2 RTI/IR-clear.
+	// The interrupted main line waits for all of it (run_handler_time).
+	constexpr uint32_t kIrqSequencePhi2 = 7;
+	FinishMockIrq(kIrqSequencePhi2 + body_cycles);
 }
 
 void CpuMockHost::ReturnNmi(uint32_t cycles) {
@@ -2864,6 +3067,33 @@ void CpuMockHost::Quit(int code) {
 	event::EmitSoftquit(code, "Quit()");
 	board_.RequestQuit(code);
 	throw SoftQuitException{code};
+}
+
+void CpuMockHost::SetResid(ResidQuality quality, SidModel model) {
+	const bool high = quality == ResidQuality::High;
+	const bool is_8580 = model == SidModel::Mos8580;
+	C64 * c64 = board_.Machine();
+	if (ThePrefs.SIDType == SIDTYPE_NONE || !c64 || !c64->TheSID) {
+		REVM_LOG(REVM_INFO, "SID: sound is off; the game's reSID choice is not used");
+		return;
+	}
+	REVM_LOG(REVM_INFO, "SID: reSID %s (%s), set by the game",
+	         is_8580 ? "8580" : "6581", high ? "FastMem resampling" : "interpolate");
+	// MOS6581::NewPrefs compares against ThePrefs, so update ThePrefs after.
+	Prefs prefs = ThePrefs;
+	prefs.SIDType = is_8580 ? SIDTYPE_RESID_8580 : SIDTYPE_RESID_6581;
+	prefs.ResidHQ = high;
+	c64->TheSID->NewPrefs(&prefs);
+	ThePrefs = prefs;
+}
+
+void CpuMockHost::SetResidAdsr(ResidAdsr mode) {
+	static const char * const kNames[] = {"real", "fix-attack", "fix", "fix-attack-soft"};
+	REVM_LOG(REVM_INFO, "reSID ADSR: %s (set by the game)", kNames[int(mode)]);
+	ThePrefs.ResidAdsr = int(mode);
+	C64 * c64 = board_.Machine();
+	if (c64 && c64->TheSID)
+		c64->TheSID->SetResidAdsr(int(mode));
 }
 
 void CpuMockHost::WatchTwinPc(uint16_t pc, const char * label) {
@@ -3240,7 +3470,6 @@ bool CpuMockHost::PreparePlayback(const std::string & play_path, uint32_t max_fr
 	PlaybackCompareOpts cmp = compare;
 	playback_player_.SetCompareOpts(cmp);
 	compare_opts_ = cmp;
-	revm::WarnPlayUsage(playback_player_.Log(), cmp.no_twin);
 
 	Config cfg;
 	cfg.stage = Stage::Stage3;
@@ -3251,6 +3480,7 @@ bool CpuMockHost::PreparePlayback(const std::string & play_path, uint32_t max_fr
 	cfg.limit_speed = limit_speed;
 	cfg.play_path = play_path;
 	apply_user_cfg(cfg, user_cfg);
+	revm::WarnPlayUsage(playback_player_.Log(), cmp.no_twin, cfg.main_blank);
 	// A recording owns the deterministic machine seed. Keep this invariant in
 	// CpuMockHost rather than relying on a particular CLI caller to apply it.
 	cfg.rand_seed = playback_player_.Log().rand_seed;
@@ -3532,7 +3762,11 @@ int CpuMockHost::RunPlay(const std::string & prg_path, IInputSource * input,
 	}
 	if (recorder) {
 		recorder->Start(board_);
-		recorder->SetNoTwin(compare_opts_.no_twin);
+		PlayRecordedOn recorded_on;
+		recorded_on.no_twin = compare_opts_.no_twin;
+		recorded_on.main_blank = board_.GetConfig().main_blank;
+		recorded_on.details = RecordedOnDetails(RecordingProgram());
+		recorder->SetRecordedOn(std::move(recorded_on));
 		recorder->CaptureStartHash();
 	}
 

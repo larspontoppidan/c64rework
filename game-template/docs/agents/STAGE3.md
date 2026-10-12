@@ -72,9 +72,10 @@ of three pieces, which together we call the "fat slice". It consists of:
 - A. The slice mandated by the review. 
 - B. A push to solve debt mentioned in the review. Try to get as much done as
 possible.
-- C. A slice of the workers own choosing. Once A and B are done the worker
-usually knows what is the next obvious frontier to deal with. Encourage the 
-worker to do work a healthy slice on that as well.
+- C. A slice of the worker's own choosing. Once A and B are done the worker
+usually knows what is the next obvious frontier to deal with. Encourage the
+worker to do a healthy slice on that as well. When briefing a worker, do not
+pick C for it: leave the choice to the worker.
 
 3. Work hints: Use one function for each original routine and begin it with
 the corresponding `JoinAtPc`. Follow the principles laid out in the 

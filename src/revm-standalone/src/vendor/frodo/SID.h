@@ -44,6 +44,8 @@ public:
 	// After an untimed machine-counter relocation, retain audio state while
 	// rebasing the renderer clock. The skipped coordinate gap is not SID time.
 	void RebaseRendererClock();
+	// reSID only: how the ADSR delay bug is emulated (ResidAdsr).
+	void SetResidAdsr(int mode);
 	void GetState(MOS6581State * s) const;
 	void SetState(const MOS6581State * s);
 	void EmulateLine();
@@ -55,6 +57,14 @@ public:
 	void * GetSampleTapUserdata() const { return sample_tap_ud_; }
 	int GetSampleRate() const { return sample_rate_; }
 	void SetSampleRate(int hz) { sample_rate_ = hz; }
+
+	// Optional tap of every register write, before the renderer sees it.
+	// Used by REVM state-hash records (the frame's SID writes in order).
+	using WriteTap = void (*)(uint16_t adr, uint8_t byte, void * userdata);
+	void SetWriteTap(WriteTap tap, void * userdata) {
+		write_tap_ = tap;
+		write_tap_ud_ = userdata;
+	}
 
 	// Owning C64 (for CycleCounter). Set by C64 after construction.
 	void SetC64(C64 * c64) { the_c64_ = c64; }
@@ -93,6 +103,9 @@ private:
 	void * sample_tap_ud_ = nullptr;
 	int sample_rate_ = 0;
 
+	WriteTap write_tap_ = nullptr;
+	void * write_tap_ud_ = nullptr;
+
 	C64 * the_c64_ = nullptr;	// Owning machine (CycleCounter for osc3)
 
 	uint8_t regs[32];			// Copies of the 25 write-only SID registers
@@ -124,6 +137,7 @@ public:
 	virtual void Pause() = 0;
 	virtual void Resume() = 0;
 	virtual void RebaseCycleClock() {}
+	virtual void SetAdsrMode(int /*mode*/) {}
 };
 
 
@@ -294,6 +308,10 @@ inline void MOS6581::WriteRegister(uint16_t adr, uint8_t byte)
 				fake_v3_eg_state = EG_RELEASE;
 			}
 		}
+	}
+
+	if (write_tap_ != nullptr) {
+		write_tap_(adr, byte, write_tap_ud_);
 	}
 
 	// Keep a local copy of the register values

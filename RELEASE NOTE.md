@@ -1,5 +1,41 @@
 # c64rework releases
 
+## v0.9.4
+
+Breaking:
+- Armed RAM accesses (`Sync::AtPc`) now land on the instruction's own bus
+cycle, not at its opcode fetch. Arm the load/store itself; an arm that
+doesn't match Twin's access fails the run.
+- No-twin: interrupt handlers take the interrupted code's time
+(`ReturnIrq`/`ReturnNmi` `no_twin_cycles`).
+
+New:
+- Plays record how they were made (`recorded_on`); replaying on another kind
+of system warns.
+- State-hash records (`--state-hashes`) and `./rework hash-compare`: per-frame
+proof that two runs look and sound the same. The export parity check uses them.
+- CPU-flag compare at joins (`CompareMask::Flags`).
+- Stage 4 `video.charset.page(n)` for a fixed glyph page.
+- REVM now supports various fixes for the SID's ADSR delay bug when running
+reSID. It can be fully fixed, fixed only for attack, or fixed only 80% for the
+attacks, to keep some variability. Game code can configure reSID with 
+`host.SetResid(...)` and `host.SetResidAdsr(...)`. See: `docs/revm/SOUND.md`.
+
+Improved:
+- reSID speaker output: no crackle, latency ~180 ms → ~50 ms.
+- Watchdog counts CPU time, so load or a debugger no longer kills runs; the
+standalone has none.
+- `--save-screen` can be repeated; disk images hint at `--disk-auto-load`;
+`update-docs` refreshes all docs; lint understands armed `Mem16` accesses.
+- Docs: four recording classes, fat-slice rules, release workflow.
+
+Fixed:
+- Main's mock CPU stands at the translation's PC, so VIC garbage fetches match.
+- Stage 3/4 builds ignored `--resid-hq` and `--sid-model`.
+- Loading a disk-game snapshot with reSID could stall up to a minute.
+- Standalone export: `$DD00` IEC input bits, shared Linked names, leftover
+staging folders.
+
 ## v0.9.3
 
 - REVM performance: faster KB compares with Linked values and cheaper play

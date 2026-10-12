@@ -6,6 +6,7 @@
  * revm — unified REVM CLI (see newusage.txt / GUIDE.md)
  */
 
+#include "sid/ResidOptions.hpp"
 #include "core/Board.hpp"
 #include "core/Config.hpp"
 #include "core/RunSetup.hpp"
@@ -76,6 +77,8 @@ void print_usage(const char * argv0) {
 		"Play role (mutually exclusive):\n"
 		"  --record-play FILE    Record play JSON (inputs, rand_seed, snapshot hashes)\n"
 		"  --use-play FILE       Replay play (applies play rand_seed; verify hashes)\n"
+		"  --record-git REV      Game git revision for a no-twin recording's\n"
+		"                        recorded_on.git (./rework passes it)\n"
 		"\n"
 		"Snapshots (Stage 3 captures Twin):\n"
 		"  --save-snapshot CYCLE FILE  Write FullSnapshot at CYCLE\n"
@@ -86,8 +89,10 @@ void print_usage(const char * argv0) {
 		"  --save-video FILE     MP4 via ffmpeg: 2× nearest-neighbor RGB,\n"
 		"                        H.264 + reSID AAC. Requires --resid[-hq].\n"
 		"  --save-screen FRAME FILE  Indexed Pepto PNG of Main at VBLANK FRAME\n"
-		"                        (same frame counter as --max-frames)\n"
+		"                        (same frame counter as --max-frames; repeatable)\n"
 		"  --frame-observations FILE  Per-frame indexed pixels + public SID bytes\n"
+		"  --state-hashes FILE   Per-frame CRC32 of Main's screen, SID writes, VIC,\n"
+		"                        CIA1, CIA2 (compare: revm-tool hash-compare A B)\n"
 		"\n"
 		"Common:\n"
 		"  --version             Print the C64 Rework framework version\n"
@@ -102,6 +107,10 @@ void print_usage(const char * argv0) {
 		"  --no-audio            Disable SID\n"
 		"  --resid               Use reSID with interpolated sampling\n"
 		"  --resid-hq            Use reSID with FastMem resampling (HQ wins)\n"
+		"  --resid-adsr real|fix|fix-attack|fix-attack-soft\n"
+		"                        reSID's ADSR delay bug: real chip (default); fix = no\n"
+		"                        delay; fix-attack = note-ons on time, releases as the\n"
+		"                        chip; fix-attack-soft = note-on delay divided by 5\n"
 		"  --sid-model 6581|8580  SID model for Frodo/reSID (default 6581)\n"
 		"                        --no-audio overrides both reSID options\n"
 		"  --max-frames N        Quit after N frames\n"
@@ -283,6 +292,7 @@ struct Opts {
 	bool disk_auto_load = false;
 	bool disk_warp = false;
 	std::string record_play;
+	std::string record_git;
 	std::string use_play;
 	uint32_t max_frames = 0;
 	revm::PlaybackCompareOpts compare;
@@ -365,6 +375,10 @@ bool parse_args(int argc, char ** argv, Opts & o, std::string & error) {
 			const char * v = need_i("--record-play");
 			if (!v) return false;
 			o.record_play = v;
+		} else if (std::strcmp(a, "--record-git") == 0) {
+			const char * v = need_i("--record-git");
+			if (!v) return false;
+			o.record_git = v;
 		} else if (std::strcmp(a, "--use-play") == 0) {
 			const char * v = need_i("--use-play");
 			if (!v) return false;
@@ -400,8 +414,10 @@ bool parse_args(int argc, char ** argv, Opts & o, std::string & error) {
 				error = "--save-screen requires FRAME FILE";
 				return false;
 			}
-			o.cfg.save_screen_frame = uint32_t(std::strtoul(fr, nullptr, 10));
-			o.cfg.save_screen_path = file;
+			revm::Config::SaveScreen request;
+			request.frame = uint32_t(std::strtoul(fr, nullptr, 10));
+			request.path = file;
+			o.cfg.save_screens.push_back(request);
 		} else if (std::strcmp(a, "--frame-observations") == 0) {
 			const char * v = need_i("--frame-observations");
 			if (!v) return false;
@@ -410,6 +426,14 @@ bool parse_args(int argc, char ** argv, Opts & o, std::string & error) {
 				return false;
 			}
 			o.cfg.frame_observations_path = v;
+		} else if (std::strcmp(a, "--state-hashes") == 0) {
+			const char * v = need_i("--state-hashes");
+			if (!v) return false;
+			if (!*v) {
+				error = "--state-hashes requires a file path";
+				return false;
+			}
+			o.cfg.state_hashes_path = v;
 		} else if (std::strcmp(a, "--config") == 0) {
 			const char * v = need_i("--config");
 			if (!v) return false;
@@ -433,6 +457,21 @@ bool parse_args(int argc, char ** argv, Opts & o, std::string & error) {
 		} else if (std::strcmp(a, "--resid-hq") == 0) {
 			o.cfg.sid_resid = true;
 			o.cfg.sid_resid_hq = true;
+		} else if (std::strcmp(a, "--resid-adsr") == 0) {
+			const char * v = need_i("--resid-adsr");
+			if (!v) return false;
+			if (std::strcmp(v, "real") == 0) {
+				o.cfg.sid_resid_adsr = int(ResidAdsr::Real);
+			} else if (std::strcmp(v, "fix") == 0) {
+				o.cfg.sid_resid_adsr = int(ResidAdsr::Fix);
+			} else if (std::strcmp(v, "fix-attack") == 0) {
+				o.cfg.sid_resid_adsr = int(ResidAdsr::FixAttack);
+			} else if (std::strcmp(v, "fix-attack-soft") == 0) {
+				o.cfg.sid_resid_adsr = int(ResidAdsr::FixAttackSoft);
+			} else {
+				error = "--resid-adsr requires real, fix, fix-attack or fix-attack-soft";
+				return false;
+			}
 		} else if (std::strcmp(a, "--sid-model") == 0) {
 			const char * v = need_i("--sid-model");
 			if (!v) return false;
@@ -618,10 +657,6 @@ bool validate(Opts & o, std::string & error) {
 		error = "--save-snapshot requires CYCLE and FILE";
 		return false;
 	}
-	if (!o.cfg.save_screen_path.empty() && !o.cfg.save_screen_frame) {
-		error = "--save-screen requires FRAME and FILE";
-		return false;
-	}
 	const bool intrinsic_cpumock_start =
 		o.setup.primary == revm::BoardRole::CpuMock && o.cfg.main_blank &&
 		o.compare.no_twin;
@@ -740,6 +775,7 @@ int run_record_play(Opts & o) {
 		src.sha256 = revm::Sha256File(src.path);
 		revm::PlayRecorder play;
 		play.Configure(o.record_play, src);
+		play.SetRecordGit(o.record_git);
 
 		revm::cpumock::CpuMockHost host;
 		const int rc = host.RunPlay(o.cfg.prg_path, nullptr, &jcfg, o.max_frames,
@@ -816,6 +852,14 @@ int run_record_play(Opts & o) {
 
 	revm::PlayRecorder play;
 	play.Configure(o.record_play, src);
+	{
+		// The full 6510 records here, also in a stage build with Twin.
+		const std::string program = revm::RecordingProgram();
+		revm::PlayRecordedOn recorded_on;
+		recorded_on.details = revm::RecordedOnDetails(
+			program == "original" ? program : "original (" + program + " build)");
+		play.SetRecordedOn(std::move(recorded_on));
+	}
 	play.Start(board);
 	board.SetPlayRecorder(&play);
 
@@ -877,7 +921,8 @@ int run_use_play(Opts & o) {
 	}
 #endif
 
-	revm::WarnPlayUsage(player.Log(), /*system_no_twin=*/false);
+	revm::WarnPlayUsage(player.Log(), /*system_no_twin=*/false,
+	                    /*system_main_blank=*/false);
 
 	o.cfg.run_mode = revm::RunMode::Playback;
 	o.cfg.stage = revm::Stage::Stage1;

@@ -20,6 +20,9 @@ void video_assets_compile_probe(CpuMockHost &host) {
 	video.charset.install(charset);
 	video.sprites.slot(uint8_t{0x70}).install(sprite);
 	video.charset.glyph(0x41).row(0).write(0xFF);
+	video.charset.page(7).install(charset);
+	video.charset.page(7).glyph(0x41).row(7).write(0xFF);
+	video.charset.page(0).byte(2047).write(0xFF);
 	video.sprites.slot(0x70).byte(63).write(0xFF);
 }
 

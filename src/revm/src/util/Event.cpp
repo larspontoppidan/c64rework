@@ -55,6 +55,7 @@ struct State {
 	Chan vic_state;
 	Chan cia1;
 	Chan cia2;
+	Chan flags;
 	Chan kb;
 	SkewAgg skew[2] = {}; // [irq, nmi]
 	HandlerAgg handlers[2] = {};
@@ -201,6 +202,7 @@ std::string report_json() {
 	     ",\"sid\":" + chan_obj(s.sid) + ",\"vic\":" + chan_obj(s.vic) +
 	     ",\"vic_state\":" + chan_obj(s.vic_state) +
 	     ",\"cia1\":" + chan_obj(s.cia1) + ",\"cia2\":" + chan_obj(s.cia2) +
+	     ",\"flags\":" + chan_obj(s.flags) +
 	     ",\"kb\":" + chan_obj(s.kb) + "}";
 
 	auto skew_obj = [&](const SkewAgg & k) {
@@ -466,17 +468,17 @@ void EmitWatchHit(uint16_t pc, const char * label, uint64_t total) {
 
 void EmitCompareResult(int screen_ok, int sid_ok, int kb_ok, int vic_ok,
                        int vic_state_ok, int cia1_ok, int cia2_ok,
-                       int raster_line) {
+                       int flags_ok, int raster_line) {
 	if (!Enabled()) return;
 	if (raster_line >= 0) {
 		REVM_EVENT("compare", "screen", screen_ok, "sid", sid_ok, "vic",
 		           vic_ok, "vic_state", vic_state_ok, "cia1", cia1_ok,
-		           "cia2", cia2_ok, "kb", kb_ok, "raster_line",
-		           raster_line);
+		           "cia2", cia2_ok, "flags", flags_ok, "kb", kb_ok,
+		           "raster_line", raster_line);
 	} else {
 		REVM_EVENT("compare", "screen", screen_ok, "sid", sid_ok, "vic",
 		           vic_ok, "vic_state", vic_state_ok, "cia1", cia1_ok,
-		           "cia2", cia2_ok, "kb", kb_ok);
+		           "cia2", cia2_ok, "flags", flags_ok, "kb", kb_ok);
 	}
 	State & s = state();
 	auto note = [](Chan & c, int ok) {
@@ -490,6 +492,7 @@ void EmitCompareResult(int screen_ok, int sid_ok, int kb_ok, int vic_ok,
 	note(s.vic_state, vic_state_ok);
 	note(s.cia1, cia1_ok);
 	note(s.cia2, cia2_ok);
+	note(s.flags, flags_ok);
 	note(s.kb, kb_ok);
 }
 

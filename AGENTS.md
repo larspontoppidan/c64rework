@@ -20,3 +20,17 @@ as plays there can be used as test gates.
 When modifying files in revm source files, remember to check if it affects the
 hashes in standalone/OWNERSHIP.toml. From a game folder, run ./rework selftest
 to verify.
+
+Commit messages are short: a one-line subject a non-expert can follow, and at
+most a few lines of body.
+
+## Branches and releases
+
+Work for the next version happens on a version branch named after it, without
+a "v" (for example `0.9.4`). Its first commit sets `VERSION`,
+`game-template/rework.toml` and a new section in `RELEASE NOTE.md`, which is
+filled in as the work lands. There is no separate "Version X.Y.Z" commit.
+
+Releasing means merging the version branch into `main` with `git merge --no-ff`
+and tagging the merge commit `vX.Y.Z`. Games under development may pin the
+version branch's number before the release.

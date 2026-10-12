@@ -223,7 +223,7 @@ private:
 	bool load_snapshot_requested;	// Emulator shall load snapshot
 	std::string requested_snapshot;
 
-	uint32_t cycle_counter;			// Cycle counter (boot = 0)
+	uint32_t cycle_counter = 0;		// Cycle counter (boot = 0)
 	uint32_t frame_counter = 0;		// Video frame counter (boot = 0)
 	bool freeze_frame_counter_ = false;
 

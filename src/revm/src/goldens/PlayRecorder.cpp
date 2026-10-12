@@ -43,8 +43,10 @@ void PlayRecorder::Configure(const std::string & out_path, PlaySource source) {
 	finished_ = false;
 }
 
-void PlayRecorder::SetNoTwin(bool no_twin) {
-	log_.no_twin = no_twin;
+void PlayRecorder::SetRecordedOn(PlayRecordedOn recorded_on) {
+	recorded_on.known = true;
+	recorded_on.git = recorded_on.no_twin ? record_git_ : std::string();
+	log_.recorded_on = std::move(recorded_on);
 }
 
 void PlayRecorder::Start(Board & board) {

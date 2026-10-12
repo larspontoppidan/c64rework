@@ -14,6 +14,7 @@
 #include "cpumock/AdvanceResult.hpp"
 #include "core/Board.hpp"
 #include "core/Config.hpp"
+#include "sid/ResidOptions.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -119,6 +120,14 @@ public:
 	void ReturnNmi(uint32_t cycles);
 	// Main's simulation clock (CpuMockHost::MainCycle in Stage 4).
 	uint32_t MainCycle() const;
+	// Game code may choose how Main's sound is made; these override the
+	// command line. Sound only (Twin compares SID registers). SetResid
+	// switches to reSID with that quality and chip model (as --resid or
+	// --resid-hq with --sid-model); it does nothing when sound is off
+	// (--no-audio, or a headless run without --resid). SetResidAdsr chooses
+	// how reSID emulates the SID's ADSR delay bug (--resid-adsr).
+	void SetResid(ResidQuality quality, SidModel model);
+	void SetResidAdsr(ResidAdsr mode);
 
 private:
 	friend class revm::StandaloneRunner;
@@ -159,6 +168,9 @@ private:
 	void ThrowIfQuitRequested();
 	void pace_after_vsync();
 	AdvanceResult main_advance(uint64_t cycles, bool run_past_vsync = true);
+	// Run Main until the handler's post-interrupt hold has elapsed (the
+	// interrupted main line does not run meanwhile). True when a VSYNC passed.
+	bool run_handler_time();
 
 	revm::Board board_;
 	EntryHandler entry_handler_;

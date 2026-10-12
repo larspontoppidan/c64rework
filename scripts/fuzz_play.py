@@ -242,8 +242,11 @@ def main(argv: list[str]) -> int:
     for play in plays:
         path = resolve_play(play, game_root)
         base = json.loads(path.read_text())
-        if bool(base.get("no-twin")) != o["no_twin"]:
-            kind = "no-twin" if base.get("no-twin") else "original"
+        recorded_on = base.get("recorded_on")
+        play_no_twin = bool(recorded_on.get("no_twin") if isinstance(recorded_on, dict)
+                            else base.get("no-twin"))  # pre-0.9.4 root field
+        if play_no_twin != o["no_twin"]:
+            kind = "no-twin" if play_no_twin else "original"
             print(f"fuzz_play: warning: {path.name} is a {kind} recording", file=sys.stderr)
         for vname, data in make_variants(path.stem, base, o):
             if wanted and vname not in wanted:

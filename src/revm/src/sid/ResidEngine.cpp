@@ -26,6 +26,10 @@ void ResidEngine::SetChipModel(bool is8580) {
 	impl_->sid.set_chip_model(is8580 ? reSID::MOS8580 : reSID::MOS6581);
 }
 
+void ResidEngine::SetAdsrMode(int mode) {
+	impl_->sid.set_adsr_mode(mode);
+}
+
 bool ResidEngine::SetSampling(double clock_hz, double sample_hz, bool high_quality) {
 	const auto method = high_quality ? reSID::SAMPLE_RESAMPLE_FASTMEM
 	                                 : reSID::SAMPLE_INTERPOLATE;

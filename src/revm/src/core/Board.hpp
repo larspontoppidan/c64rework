@@ -13,6 +13,7 @@
 #include "debug/KbWatchWindow.hpp"
 #include "debug/KnowledgeBase.hpp"
 #include "goldens/FrameObservation.hpp"
+#include "goldens/StateHashes.hpp"
 #include "goldens/WavWriter.hpp"
 #include "input/IInputSource.hpp"
 #include "input/InputState.hpp"
@@ -180,6 +181,7 @@ private:
 	void check_watch_pc_before_cycle();
 	void maybe_save_snapshot();
 	void maybe_save_screen();
+	void record_state_hashes(uint32_t frame, uint32_t cycle);
 	void poll_host_screenshot();
 	void save_live_screenshot();
 	void maybe_check_play_hashes();
@@ -251,7 +253,7 @@ private:
 	Coverage coverage_;
 	bool coverage_active_ = false;
 	bool save_snapshot_done_ = false;
-	bool save_screen_done_ = false;
+	std::vector<bool> save_screens_done_; // one per cfg_.save_screens entry
 	bool screenshot_chord_was_down_ = false;
 	bool add_play_snapshot_done_ = false;
 	bool snapshot_capture_pending_ = false;
@@ -272,6 +274,7 @@ private:
 	std::vector<uint8_t> video_rgb_; // RGB24 frames concatenated
 	uint32_t video_frames_ = 0;
 	std::unique_ptr<FrameObservationWriter> frame_observations_;
+	std::unique_ptr<StateHashRecorder> state_hashes_;
 };
 
 } // namespace revm

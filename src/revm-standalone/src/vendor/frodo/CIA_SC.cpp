@@ -95,6 +95,8 @@ void MOS6526_2::Reset()
 	// VA14/15 = 0
 	the_vic->ChangedVA(0);
 
+	// IEC
+	IECLines = 0x38;	// DATA, CLK, ATN high
 }
 
 
@@ -226,6 +228,9 @@ void MOS6526::SetState(const MOS6526State * s)
 void MOS6526_2::SetState(const MOS6526State * s)
 {
 	MOS6526::SetState(s);
+
+	uint8_t inv_out = ~PAOut();
+	IECLines = inv_out & 0x38;
 }
 
 
@@ -309,8 +314,20 @@ uint8_t MOS6526_1::ReadRegister(uint8_t reg)
 uint8_t MOS6526_2::ReadRegister(uint8_t reg)
 {
 	switch (reg) {
-		case 0: {	// Port A: undriven in standalone
-			uint8_t in = 0xff;
+		case 0: {	// Port A: IEC
+			// REVM runs PRG games with 1541 emulation off, but Frodo's drive
+			// object still sits on the bus in its reset state: its own lines
+			// released (0x38) and ATN acknowledge armed (0x08). Mirror that
+			// wired-AND (MOS6502_1541::CalcIECLines) so $DD00 reads the same
+			// DATA/CLK bits as on Stage 4.5: the C64's own CLK/DATA OUT pull
+			// the lines low, and the parked drive pulls DATA low while ATN
+			// is released.
+			const uint8_t drive_lines = 0x38;
+			const uint8_t drive_atn_ack = 0x08;
+			uint8_t iec = drive_lines & IECLines;
+			iec &= ((iec ^ drive_atn_ack) << 2) | 0xdf;	// ATN acknowledge pulls DATA low
+			uint8_t in = ((iec & 0x30) << 2)	// DATA and CLK from bus
+			           | 0x3f;					// Other lines high
 			SetPAIn(in);
 			break;
 		}
@@ -355,11 +372,13 @@ void MOS6526_1::WriteRegister(uint8_t reg, uint8_t byte)
  *  Write to register (CIA 2)
  */
 
-// Write to port A and check for VIC bank change.
+// Write to port A, check for VIC bank change and IEC lines
+// (no drive CPU to interrupt on an ATN edge).
 inline void MOS6526_2::write_pa(uint8_t inv_out)
 {
 	the_vic->ChangedVA(inv_out & 3);
 
+	IECLines = inv_out & 0x38;
 }
 
 void MOS6526_2::WriteRegister(uint8_t reg, uint8_t byte)
@@ -367,7 +386,7 @@ void MOS6526_2::WriteRegister(uint8_t reg, uint8_t byte)
 	write_register(reg, byte);
 
 	switch (reg) {
-		case 0:	// Port A: Handle VIC bank
+		case 0:	// Port A: Handle VIC bank and IEC port
 		case 2:
 			write_pa(~PAOut());
 			break;

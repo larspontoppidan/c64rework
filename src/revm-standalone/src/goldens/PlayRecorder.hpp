@@ -24,7 +24,9 @@ struct PlaySource {
 };
 
 // Slim --record-play writer: sticky input_events + timing + rand_seed.
-// Always writes "no-twin": true. No snapshot hashes, ROM records, F9
+// Always writes recorded_on { no_twin: true, main_blank: true,
+// details: "standalone export, C64 Rework X", git: the game HEAD baked in at
+// export (omitted when unknown) }. No snapshot hashes, ROM records, F9
 // timestamps, or mod_events (standalone has none of those machines).
 class PlayRecorder {
 public:
