@@ -203,5 +203,5 @@ reason = "Standalone register-shaped memory access preserves Main reads, writes,
 
 [[forked]]
 path = "src/cpumock/VideoAssets.hpp"
-base_sha256 = "e963cbd6688a8af64aab09d477ef2252b2b39568b9c59f9bfdc8f28ca7562875"
+base_sha256 = "a41207c460767fe310b7bb951635a16020a588b1b6ec5a149a77cb989a9d471f"
 reason = "Standalone asset installation retains validation and mutable surface seeding but has no pending Sync marker; surfaces bind to gamehost::GameHost."

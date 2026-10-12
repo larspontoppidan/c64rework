@@ -2478,8 +2478,9 @@ def _asset_install(call) -> bool:
         if field is not None and field.text == b"charset":
             return True
     if receiver.type == "call_expression":
+        # video.sprites.slot(p).install(..) and video.charset.page(n).install(..)
         inner = call_name(receiver)
-        return inner is not None and inner[0] == "slot"
+        return inner is not None and inner[0] in {"slot", "page"}
     return False
 
 
@@ -3327,6 +3328,28 @@ void caller(Plain & p) { fill(p); }
     else:
         print("lower-standalone-game selftest: ambiguous template accepted",
               file=sys.stderr)
+        return 1
+    # A fixed charset page is a video surface like video.charset: kept as is.
+    charset_page = b'''\
+#include "cpumock/VideoAssets.hpp"
+struct P {
+  revm::cpumock::VideoAssets video;
+  void f(const uint8_t (&a)[2048]) {
+    video.charset.page(7).install(a);
+    video.charset.page(7).glyph(1).row(0).write(video.charset.page(7).byte(8).read());
+  }
+};
+'''
+    page_findings = analyze_file(charset_page, Path("page.cpp"),
+                                 inventory_linked([(Path("page.cpp"), charset_page)]))
+    page_out, _ = lower_source(charset_page, Path("page.cpp"))
+    if (sum(1 for found in page_findings if found.category == "asset_install") != 1 or
+            b"gamehost::VideoAssets video;" not in page_out or
+            b"video.charset.page(7).install(a);" not in page_out or
+            b"video.charset.page(7).glyph(1).row(0).write("
+            b"video.charset.page(7).byte(8).read());" not in page_out):
+        print("lower-standalone-game selftest: bad charset page lowering", file=sys.stderr)
+        print(page_out.decode("utf-8"), file=sys.stderr)
         return 1
     facade_fixture = b'''\
 #define REVM_LOG_MODULE "ff-fixture"

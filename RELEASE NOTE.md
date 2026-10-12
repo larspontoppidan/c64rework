@@ -52,6 +52,10 @@ or `.WithFlags(bits, main)` compares the flags the translation models (D, C,
 ...) with Twin's P at a fence and fails with `CPU flag FAIL ... C main=0
 twin=1`. It needs no `s3lint:allow S3-014`; events and `--report` gain a
 `flags` channel.
+- Stage 4: `video.charset.page(n)` is the charset surface fixed to character
+page `n` (0..7, bank offset `n * $800`) of the VIC bank, with the same timed
+writes. Use it when the original writes an absolute glyph page while a raster
+IRQ flips `$D018`; `video.charset` still follows the live `$D018`.
 
 ## v0.9.3
 

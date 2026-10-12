@@ -155,6 +155,11 @@ Sync::AtPc(host_, 0x4567);
 video.charset.glyph(ch).row(row).write(value);
 ```
 
+`video.charset` follows the character page the live `$D018` selects. When the
+original stores to an absolute glyph page while a raster IRQ flips `$D018`
+(a split screen), name the page instead: `video.charset.page(n)` (0..7, bank
+offset `n * $800`) is the same surface fixed to that page.
+
 Do not call `install()` more than necessary.
 
 ## Linked local state
