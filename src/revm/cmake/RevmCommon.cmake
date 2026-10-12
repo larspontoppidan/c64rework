@@ -83,7 +83,38 @@ if(NOT EXISTS "${RESID_DIR}/sid.h")
     "  (build-revm.sh does this automatically.)")
 endif()
 
-# --- reSID (untouched submodule; build-dir generated headers) ---
+# --- C64 Rework patch to reSID ---
+# The submodule stays untouched: the build compiles a copy with
+# patches/resid-adsr-delay-fix.patch applied (an opt-in removal of the SID's
+# ADSR delay bug; off unless the program enables it). The copy is redone when
+# the patch or the patched reSID files change.
+set(RESID_PATCH "${_REVM_ROOT}/patches/resid-adsr-delay-fix.patch")
+set(RESID_PATCHED_DIR "${CMAKE_BINARY_DIR}/resid-src")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${RESID_PATCH}")
+set(_resid_want "")
+foreach(_f "${RESID_PATCH}" "${RESID_DIR}/envelope.h" "${RESID_DIR}/envelope.cc"
+        "${RESID_DIR}/sid.h" "${RESID_DIR}/sid.cc")
+  file(SHA256 "${_f}" _h)
+  string(APPEND _resid_want "${_h}\n")
+endforeach()
+set(_resid_stamp "${RESID_PATCHED_DIR}/.c64rework-patched")
+set(_resid_have "")
+if(EXISTS "${_resid_stamp}")
+  file(READ "${_resid_stamp}" _resid_have)
+endif()
+if(NOT _resid_have STREQUAL _resid_want)
+  file(REMOVE_RECURSE "${RESID_PATCHED_DIR}")
+  file(COPY "${RESID_DIR}/" DESTINATION "${RESID_PATCHED_DIR}" PATTERN ".git" EXCLUDE)
+  execute_process(COMMAND patch -p1 --forward --silent -i "${RESID_PATCH}"
+    WORKING_DIRECTORY "${RESID_PATCHED_DIR}" RESULT_VARIABLE _resid_patch_rc)
+  if(NOT _resid_patch_rc EQUAL 0)
+    message(FATAL_ERROR "Applying ${RESID_PATCH} to reSID failed")
+  endif()
+  file(WRITE "${_resid_stamp}" "${_resid_want}")
+endif()
+set(RESID_DIR "${RESID_PATCHED_DIR}")
+
+# --- reSID (patched copy above; build-dir generated headers) ---
 set(RESID_GEN_DIR "${CMAKE_BINARY_DIR}/resid-gen")
 file(MAKE_DIRECTORY "${RESID_GEN_DIR}")
 

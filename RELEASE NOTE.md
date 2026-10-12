@@ -68,7 +68,20 @@ averaged over a second (in practice under 0.1%; at most 0.5%). Before, the buffe
 dropped samples (crackle, ~150 ms latency).
 - Fixed: REVM's cycle counter was uninitialized until a snapshot set it, so
 loading a disk-game snapshot with reSID could stall for up to a minute.
+- New `--resid-adsr real|fix|fix-attack|fix-attack-soft` (REVM, Stage 3/4
+and the standalone export): how reSID emulates the real SID's ADSR delay bug,
+which can postpone an envelope step by up to ~33 ms. `real` (default) is the
+chip; `fix` removes the delay (tight, more staccato); `fix-attack` starts
+note-ons on time but keeps the chip's late releases (notes keep their length);
+`fix-attack-soft` is fix-attack with the note-on delay divided by 5 instead of
+removed. A game can enforce a mode in code with
+`host.SetResidAdsr(ResidAdsr::FixAttackSoft)`, which overrides the option (the
+standalone export keeps the call). See `docs/revm/SOUND.md`. reSID stays an untouched submodule: builds
+compile a copy with `src/revm/patches/resid-adsr-delay-fix.patch`, and the
+export vendors the patched source.
 - Fixed: Stage 3/4 builds ignored `--resid-hq` and `--sid-model`.
+- `./rework update-docs` also refreshes `docs/revm/KB.md`, `SOUND.md` (new)
+and `REVM-STANDALONE.md`.
 - `./rework export` removes staging directories left by an interrupted export.
 - REVM's stuck-run watchdog counts the emulation thread's own CPU time: it
 aborts after 5 CPU seconds without a Main VBlank (before: one wall-clock

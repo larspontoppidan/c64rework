@@ -12,6 +12,7 @@
 #include "C64.h"
 #include "CIA.h"
 #include "CPUC64.h"
+#include "Prefs.h"
 #include "SID.h"
 
 #include <cstdarg>
@@ -251,6 +252,15 @@ void GameHost::enable_mock_cpu() {
 	cpu->SetCpuMockIFlag(true);
 	REVM_LOG(REVM_DEBUG, "mock 6510 ON (no opcode fetch; chips drive "
 		"irq_pending/nmi_pending; host dispatches RunIrqHandler/RunNmiHandler)");
+}
+
+void GameHost::SetResidAdsr(ResidAdsr mode) {
+	static const char * const kNames[] = {"real", "fix-attack", "fix", "fix-attack-soft"};
+	REVM_LOG(REVM_INFO, "reSID ADSR: %s (set by the game)", kNames[int(mode)]);
+	ThePrefs.ResidAdsr = int(mode);
+	C64 * c64 = board_.Machine();
+	if (c64 && c64->TheSID)
+		c64->TheSID->SetResidAdsr(int(mode));
 }
 
 bool GameHost::init_board(const revm::Config & cfg) {

@@ -22,6 +22,7 @@
 #include "C64.h"
 #include "CIA.h"
 #include "CPUC64.h"
+#include "Prefs.h"
 #include "SID.h"
 
 #include <cstdarg>
@@ -1325,6 +1326,7 @@ void CpuMockHost::apply_user_cfg(Config & cfg, const Config * user_cfg) {
 	cfg.sid_resid = user_cfg->sid_resid;
 	cfg.sid_resid_hq = user_cfg->sid_resid_hq;
 	cfg.sid_8580 = user_cfg->sid_8580;
+	cfg.sid_resid_adsr = user_cfg->sid_resid_adsr;
 	cfg.main_blank = user_cfg->main_blank;
 	if (cfg.no_audio) {
 		cfg.audio_enabled = false;
@@ -3065,6 +3067,15 @@ void CpuMockHost::Quit(int code) {
 	event::EmitSoftquit(code, "Quit()");
 	board_.RequestQuit(code);
 	throw SoftQuitException{code};
+}
+
+void CpuMockHost::SetResidAdsr(ResidAdsr mode) {
+	static const char * const kNames[] = {"real", "fix-attack", "fix", "fix-attack-soft"};
+	REVM_LOG(REVM_INFO, "reSID ADSR: %s (set by the game)", kNames[int(mode)]);
+	ThePrefs.ResidAdsr = int(mode);
+	C64 * c64 = board_.Machine();
+	if (c64 && c64->TheSID)
+		c64->TheSID->SetResidAdsr(int(mode));
 }
 
 void CpuMockHost::WatchTwinPc(uint16_t pc, const char * label) {

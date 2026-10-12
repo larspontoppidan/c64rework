@@ -44,6 +44,8 @@ public:
 	// After an untimed machine-counter relocation, retain audio state while
 	// rebasing the renderer clock. The skipped coordinate gap is not SID time.
 	void RebaseRendererClock();
+	// reSID only: how the ADSR delay bug is emulated (ResidAdsr).
+	void SetResidAdsr(int mode);
 	void GetState(MOS6581State * s) const;
 	void SetState(const MOS6581State * s);
 	void EmulateLine();
@@ -135,6 +137,7 @@ public:
 	virtual void Pause() = 0;
 	virtual void Resume() = 0;
 	virtual void RebaseCycleClock() {}
+	virtual void SetAdsrMode(int /*mode*/) {}
 };
 
 

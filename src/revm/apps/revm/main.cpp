@@ -6,6 +6,7 @@
  * revm — unified REVM CLI (see newusage.txt / GUIDE.md)
  */
 
+#include "sid/ResidAdsr.hpp"
 #include "core/Board.hpp"
 #include "core/Config.hpp"
 #include "core/RunSetup.hpp"
@@ -106,6 +107,10 @@ void print_usage(const char * argv0) {
 		"  --no-audio            Disable SID\n"
 		"  --resid               Use reSID with interpolated sampling\n"
 		"  --resid-hq            Use reSID with FastMem resampling (HQ wins)\n"
+		"  --resid-adsr real|fix|fix-attack|fix-attack-soft\n"
+		"                        reSID's ADSR delay bug: real chip (default); fix = no\n"
+		"                        delay; fix-attack = note-ons on time, releases as the\n"
+		"                        chip; fix-attack-soft = note-on delay divided by 5\n"
 		"  --sid-model 6581|8580  SID model for Frodo/reSID (default 6581)\n"
 		"                        --no-audio overrides both reSID options\n"
 		"  --max-frames N        Quit after N frames\n"
@@ -452,6 +457,21 @@ bool parse_args(int argc, char ** argv, Opts & o, std::string & error) {
 		} else if (std::strcmp(a, "--resid-hq") == 0) {
 			o.cfg.sid_resid = true;
 			o.cfg.sid_resid_hq = true;
+		} else if (std::strcmp(a, "--resid-adsr") == 0) {
+			const char * v = need_i("--resid-adsr");
+			if (!v) return false;
+			if (std::strcmp(v, "real") == 0) {
+				o.cfg.sid_resid_adsr = int(ResidAdsr::Real);
+			} else if (std::strcmp(v, "fix") == 0) {
+				o.cfg.sid_resid_adsr = int(ResidAdsr::Fix);
+			} else if (std::strcmp(v, "fix-attack") == 0) {
+				o.cfg.sid_resid_adsr = int(ResidAdsr::FixAttack);
+			} else if (std::strcmp(v, "fix-attack-soft") == 0) {
+				o.cfg.sid_resid_adsr = int(ResidAdsr::FixAttackSoft);
+			} else {
+				error = "--resid-adsr requires real, fix, fix-attack or fix-attack-soft";
+				return false;
+			}
 		} else if (std::strcmp(a, "--sid-model") == 0) {
 			const char * v = need_i("--sid-model");
 			if (!v) return false;

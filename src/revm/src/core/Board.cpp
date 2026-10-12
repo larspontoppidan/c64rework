@@ -321,6 +321,7 @@ bool Board::init_machine(std::string & error, BoardInitRole role) {
 	const bool saved_autostart = ThePrefs.AutoStart;
 	const int saved_sid = ThePrefs.SIDType;
 	const bool saved_resid_hq = ThePrefs.ResidHQ;
+	const int saved_resid_adsr_delay = ThePrefs.ResidAdsr;
 	const bool saved_testbench = ThePrefs.TestBench;
 	const std::string saved_load = ThePrefs.LoadProgram;
 	const std::string saved_drive0 = ThePrefs.DrivePath[0];
@@ -346,6 +347,7 @@ bool Board::init_machine(std::string & error, BoardInitRole role) {
 		ThePrefs.SIDType = SIDTYPE_NONE;
 	}
 	ThePrefs.ResidHQ = cfg_.sid_resid_hq;
+	ThePrefs.ResidAdsr = cfg_.sid_resid_adsr;
 	ThePrefs.TestBench = secondary || cfg_.headless;
 	ThePrefs.LoadProgram.clear();
 
@@ -425,6 +427,7 @@ bool Board::init_machine(std::string & error, BoardInitRole role) {
 		ThePrefs.AutoStart = saved_autostart;
 		ThePrefs.SIDType = saved_sid;
 		ThePrefs.ResidHQ = saved_resid_hq;
+		ThePrefs.ResidAdsr = saved_resid_adsr_delay;
 		ThePrefs.TestBench = saved_testbench;
 		ThePrefs.LoadProgram = saved_load;
 		ThePrefs.DrivePath[0] = saved_drive0;

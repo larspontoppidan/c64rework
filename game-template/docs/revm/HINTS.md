@@ -55,6 +55,9 @@ and diagnostics are options rather than subcommands.
   reSID with FastMem resampling, using more memory for higher audio quality.
   HQ wins if both flags are given, regardless of order. `--sid-model 6581|8580`
   selects the chip model for both Frodo and reSID (default: 6581).
+  `--resid-adsr real|fix|fix-attack|fix-attack-soft` sets how reSID emulates
+  the SID's ADSR delay bug; game code can enforce it with
+  `host.SetResidAdsr(...)`. See `SOUND.md`.
   `--no-audio` overrides both reSID flags. `--save-video` always requires
   `--resid` or `--resid-hq` (Frodo SID is not used for MP4 audio). Headless
   `--save-audio` also requires one of those flags; Frodo SID only emits the sample tap through SDL

@@ -30,6 +30,7 @@ public:
 	void Pause() override;
 	void Resume() override;
 	void RebaseCycleClock() override;
+	void SetAdsrMode(int mode) override;
 
 private:
 	void sync_cycle_base();

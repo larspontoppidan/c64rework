@@ -25,6 +25,7 @@ struct Config {
 	bool headless = false;
 	SidMode sid = SidMode::Digital;
 	bool sid_resid_hq = false;
+	int sid_resid_adsr = 0; // --resid-adsr real|fix|fix-attack|fix-attack-soft (ResidAdsr)
 	bool sid_8580 = false; // --sid-model; default 6581
 
 	std::optional<uint64_t> max_cycles;

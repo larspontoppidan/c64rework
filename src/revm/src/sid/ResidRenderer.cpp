@@ -48,6 +48,13 @@ void ResidRenderer::sync_cycle_base()
 	have_cycle_ = true;
 }
 
+void ResidRenderer::SetAdsrMode(int mode)
+{
+	// Render the audio so far under the old mode, then switch.
+	flush_cycles();
+	engine_.SetAdsrMode(mode);
+}
+
 void ResidRenderer::RebaseCycleClock()
 {
 	// A new timeline origin is not elapsed emulation time. Preserve reSID's
@@ -60,6 +67,7 @@ void ResidRenderer::Reset()
 	engine_.SetChipModel(ThePrefs.SIDType == SIDTYPE_RESID_8580);
 	high_quality_ = ThePrefs.ResidHQ;
 	engine_.Reset();
+	engine_.SetAdsrMode(ThePrefs.ResidAdsr);
 	apply_sampling();
 	{
 		std::lock_guard<std::mutex> lock(ring_mu_);

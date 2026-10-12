@@ -61,7 +61,7 @@ reason = "Standalone extracts the shared AdvanceResult enum and name helper from
 
 [[forked]]
 path = "src/core/Board.cpp"
-base_sha256 = "a00e076fa9d2cd4cff7677f09f72b30183abf490f26d5b2f3274677bd1764428"
+base_sha256 = "c2ec2532451894c633188b0104518d1f37c83e0a7eda15c1216f2100f629c5e6"
 reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write an indexed Pepto PNG from the VIC bitmap without the full media/snapshot stack; --state-hashes uses the shared StateHashRecorder, closed by FinishOutputs. Optional PlayRecorder captures sticky C64 input at VSYNC. The game has no supervisor or watchdog thread: --max-seconds is a cooperative limit checked in the emulation loop, for headless tests. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
 
 [[forked]]
@@ -86,7 +86,7 @@ reason = "Standalone timed logs format only the Main clock; Twin suffixes and Sa
 
 [[forked]]
 path = "src/core/Config.hpp"
-base_sha256 = "e1cffdb6fd6bd279b13f4140dbd17ea2d09dcedf04ea2c037535fe8063ce3a39"
+base_sha256 = "81692efe9dd4285c75ff794e837cb7b6f48e5fc60cbf59faa3bafad3d4264b0d"
 reason = "Standalone configuration is blank-Main only and uses one SidMode instead of overlapping audio flags. --save-screen FRAME FILE (repeatable) and --state-hashes FILE are retained."
 
 [[forked]]
@@ -173,7 +173,7 @@ reason = "Standalone SDL display and input handling omit media drops, cartridge 
 
 [[forked]]
 path = "src/vendor/frodo/Prefs.h"
-base_sha256 = "3e9ea51cea1f7ad6deb5680398db5e828b54ca23a17dad8b960a014cdc13daad"
+base_sha256 = "c4966f963bcfe94f5fdeec2837ff1ecf2530415f892a20b6717f7f3d22337904"
 reason = "Standalone preferences retain only fields consumed by the remaining chip, audio, display, and input implementation."
 
 [[forked]]
@@ -188,13 +188,13 @@ reason = "Standalone VIC removes its stale cartridge reference while preserving 
 
 [[forked]]
 path = "apps/revm/main.cpp"
-base_sha256 = "b48bf84b8487363a8614cc508d6b650fa9eebc41788cac810757def6752ba0cc"
+base_sha256 = "f6187a37fbccdaa96fa45397deb835100ac67de02cf5685da48cc43aa49860d2"
 reason = "Standalone entry point omits REVM CLI, oracle, Twin, and analysis startup; launch uses StandaloneRunner and one SidMode for interactive play, --record-play, and replay. Prints a live key sheet (including Ctrl+F9) on windowed launches. --save-screen FRAME FILE (repeatable) and --state-hashes FILE are retained."
 
 [[forked]]
 path = "cmake/RevmCommon.cmake"
-base_sha256 = "f211b2776a5e0dcd22392d57d2c7b5290e23f4842e50f9b2990e24ca59f8b2ba"
-reason = "Standalone build always produces one executable and one cpu-mock game object set; reSID remains a runtime SidMode, not a second build graph. The runtime compiles GameHost plus StandaloneRunner instead of CpuMockHost, including the slim PlayRecorder. reSID is vendored at export src/resid/ (not a git submodule); CMake requires those sources and perl to generate wave tables."
+base_sha256 = "0e30009ff085e46085dffb760c75dea2ef0ebaea83a5e06e444e9c864c841631"
+reason = "Standalone build always produces one executable and one cpu-mock game object set; reSID remains a runtime SidMode, not a second build graph. The runtime compiles GameHost plus StandaloneRunner instead of CpuMockHost, including the slim PlayRecorder. reSID is vendored at export src/resid/ (not a git submodule) with the C64 Rework patch (patches/resid-adsr-delay-fix.patch) already applied by the exporter; CMake requires those sources and perl to generate wave tables."
 
 [[forked]]
 path = "src/cpumock/Mem.hpp"

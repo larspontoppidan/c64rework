@@ -89,6 +89,7 @@ bool Board::init_machine(std::string & error) {
 	ThePrefs.LimitSpeed = cfg_.limit_speed;
 	ThePrefs.TestBench = cfg_.headless;
 	ThePrefs.ResidHQ = cfg_.sid_resid_hq;
+	ThePrefs.ResidAdsr = cfg_.sid_resid_adsr;
 	switch (cfg_.sid) {
 	case SidMode::Resid:
 		ThePrefs.SIDType = cfg_.sid_8580 ? SIDTYPE_RESID_8580 : SIDTYPE_RESID_6581;

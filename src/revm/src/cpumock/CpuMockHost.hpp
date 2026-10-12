@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "sid/ResidAdsr.hpp"
 #include "cpumock/LinkedRegistry.hpp"
 #include "core/Board.hpp"
 #include "core/Config.hpp"
@@ -257,6 +258,10 @@ public:
 	// Main's own simulation clock: the cycle count of Main's board. Use it
 	// for --no-twin pacing; the standalone GameHost has the same method.
 	uint32_t MainCycle() const { return board_.CycleCounter(); }
+	// Game code may choose how reSID emulates the SID's ADSR delay bug; it
+	// overrides --resid-adsr. Sound only (Twin compares SID registers).
+	// No effect without --resid / --resid-hq.
+	void SetResidAdsr(ResidAdsr mode);
 
 	Board & MainBoard() { return board_; }
 	const Board & MainBoard() const { return board_; }

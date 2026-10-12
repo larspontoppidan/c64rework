@@ -2,6 +2,7 @@
 // Author   : Lars Ole Pontoppidan
 // Project  : REVM - C64rework
 
+#include "sid/ResidAdsr.hpp"
 #include "core/Config.hpp"
 #include "core/StandaloneRunner.hpp"
 #include "input/JoystickConfig.hpp"
@@ -44,6 +45,11 @@ void print_usage(const char * program) {
 	             "  --no-audio       Disable SID audio\n"
 	             "  --resid          Use reSID with interpolated sampling\n"
 	             "  --resid-hq       Use reSID with FastMem resampling (HQ wins)\n"
+	             "  --resid-adsr real|fix|fix-attack|fix-attack-soft\n"
+	             "                   reSID's ADSR delay bug: real chip (default); fix = no\n"
+	             "                   delay; fix-attack = note-ons on time, releases as the\n"
+	             "                   chip; fix-attack-soft = note-on delay divided by 5.\n"
+	             "                   A game that sets it in code overrides this option.\n"
 	             "  --sid-model 6581|8580  SID model for Frodo/reSID (default 6581)\n"
 	             "  --version        Print the C64 Rework framework version\n"
 	             "  -h, --help       Show this help\n",
@@ -130,6 +136,21 @@ bool parse_options(int argc, char ** argv, Options & options, std::string & erro
 			options.config.sid_resid_hq = true;
 			if (!options.no_audio)
 				options.config.sid = revm::SidMode::Resid;
+		} else if (std::strcmp(argument, "--resid-adsr") == 0) {
+			const char * value = value_after(argument);
+			if (!value) return false;
+			if (std::strcmp(value, "real") == 0) {
+				options.config.sid_resid_adsr = int(ResidAdsr::Real);
+			} else if (std::strcmp(value, "fix") == 0) {
+				options.config.sid_resid_adsr = int(ResidAdsr::Fix);
+			} else if (std::strcmp(value, "fix-attack") == 0) {
+				options.config.sid_resid_adsr = int(ResidAdsr::FixAttack);
+			} else if (std::strcmp(value, "fix-attack-soft") == 0) {
+				options.config.sid_resid_adsr = int(ResidAdsr::FixAttackSoft);
+			} else {
+				error = "--resid-adsr requires real, fix, fix-attack or fix-attack-soft";
+				return false;
+			}
 		} else if (std::strcmp(argument, "--sid-model") == 0) {
 			const char * value = value_after(argument);
 			if (!value) return false;

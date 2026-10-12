@@ -212,6 +212,10 @@ vendor_resid() {
 	rm -rf -- "$destination"
 	cp -a -- "$REVM_ROOT/src/resid" "$destination"
 	rm -rf -- "$destination/.git"
+	# The export ships reSID with the C64 Rework patch already applied.
+	patch -p1 --forward --silent -d "$destination" \
+		-i "$REVM_ROOT/src/revm/patches/resid-adsr-delay-fix.patch" \
+		|| die "applying the reSID patch to the export failed"
 	resid_complete "$destination" || die "standalone export is missing reSID sources at $destination"
 }
 
@@ -380,6 +384,9 @@ update_docs() {
 		docs/agents/STANDALONE-EXPORT.md
 		docs/revm/HINTS.md
 		docs/revm/EVENTS.md
+		docs/revm/KB.md
+		docs/revm/SOUND.md
+		docs/revm/REVM-STANDALONE.md
 	)
 	local rel src dest
 	for rel in "${files[@]}"; do
