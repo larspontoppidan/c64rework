@@ -6,6 +6,11 @@
 (screen, charset, bitmap, sprite data), so graphics count as used memory. The
 file format moves to version 2; older coverage files still load, without it.
 Run `./rework generate-cov` again to get it.
+- New `--history FILE` (REVM): records every CPU bus access with its value
+and cycle, plus the PRG bytes `--load-prg` injects, between `--history-from`
+and `--history-to`, as one zstd stream. A whole load from power-on to BEGIN
+is a few MB. `scripts/revm_history.py` reads it; `verify` rebuilds the end
+RAM from the history and compares it with a RAM image.
 - `revm-tool --free-map FILE` lists the RAM no recorded play executed, read,
 wrote or the VIC fetched, as a start for finding room for patches.
 `./rework kb-analysis` writes it as `kb-analysis/free_map.txt`. The address

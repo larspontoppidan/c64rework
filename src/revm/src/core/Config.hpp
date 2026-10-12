@@ -71,6 +71,11 @@ struct Config {
 	bool kb_check_stage3 = false;
 
 	std::string coverage_path;
+	// --history FILE: full CPU bus history (REVMHIST, debug/History.hpp) of
+	// Main from cycle history_from to history_to (default: the whole run).
+	std::string history_path;
+	uint64_t history_from = 0;
+	std::optional<uint64_t> history_to;
 	std::string watch_timeline_path; // --watch-timeline FILE (JSONL)
 
 	// --save-snapshot CYCLE FILE

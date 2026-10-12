@@ -129,6 +129,10 @@ void print_usage(const char * argv0) {
 		"  --kb-check-stage3     Also check KB watch:\"stage3\" slots (Stage 3 targets)\n"
 		"  --trace-calls         Log fetches at KB objects with trace:\"yes\"\n"
 		"  --coverage FILE       Record REVMCOV2 coverage (u16 counts/addr, VIC fetches included)\n"
+		"  --history FILE        Record every CPU bus access of Main (zstd REVMHIST):\n"
+		"                        PC, reads, writes, injected PRG bytes\n"
+		"  --history-from CYCLE  Start the history at this cycle (default 0)\n"
+		"  --history-to CYCLE    End the history at this cycle (default: end of run)\n"
 		"  --headless            Hidden window, uncapped; requires --max-frames N\n"
 		"                        or --use-play FILE\n"
 		"  --log-debug CYCLE     Emit Debug logs once Main cycle >= CYCLE\n"
@@ -531,6 +535,18 @@ bool parse_args(int argc, char ** argv, Opts & o, std::string & error) {
 			const char * v = need_i("--coverage");
 			if (!v) return false;
 			o.cfg.coverage_path = v;
+		} else if (std::strcmp(a, "--history") == 0) {
+			const char * v = need_i("--history");
+			if (!v) return false;
+			o.cfg.history_path = v;
+		} else if (std::strcmp(a, "--history-from") == 0) {
+			const char * v = need_i("--history-from");
+			if (!v) return false;
+			o.cfg.history_from = std::strtoull(v, nullptr, 10);
+		} else if (std::strcmp(a, "--history-to") == 0) {
+			const char * v = need_i("--history-to");
+			if (!v) return false;
+			o.cfg.history_to = std::strtoull(v, nullptr, 10);
 		} else if (std::strcmp(a, "--headless") == 0) {
 			o.cfg.headless = true;
 		} else if (std::strcmp(a, "--log-debug") == 0) {
@@ -614,6 +630,20 @@ bool validate(Opts & o, std::string & error) {
 		error = "--headless requires a positive --max-frames or --use-play";
 		return false;
 	}
+	if (o.cfg.history_path.empty() && (o.cfg.history_from != 0 || o.cfg.history_to)) {
+		error = "--history-from / --history-to require --history FILE";
+		return false;
+	}
+	if (o.cfg.history_to && *o.cfg.history_to <= o.cfg.history_from) {
+		error = "--history-to must be after --history-from";
+		return false;
+	}
+#if defined(REVM_HAS_CPUMOCK)
+	if (!o.cfg.history_path.empty()) {
+		error = "--history records a real 6510; run it with revm (play-game original)";
+		return false;
+	}
+#endif
 	const bool want_media =
 		!o.cfg.save_audio_path.empty() || !o.cfg.save_video_path.empty();
 	if (want_media && o.cfg.no_audio) {

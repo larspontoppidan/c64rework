@@ -71,6 +71,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 find_package(Threads REQUIRED)
 find_package(PNG 1.6 REQUIRED)
+pkg_check_modules(ZSTD REQUIRED IMPORTED_TARGET libzstd)
 
 set(FRODO_DIR "${_REVM_ROOT}/src/vendor/frodo")
 set(REVM_DIR "${_REVM_ROOT}/src")
@@ -237,6 +238,7 @@ set(REVM_SOURCES
   ${REVM_DIR}/roms/Roms.cpp
   ${REVM_DIR}/debug/Disasm6502.cpp
   ${REVM_DIR}/debug/Coverage.cpp
+  ${REVM_DIR}/debug/History.cpp
   ${REVM_DIR}/debug/KnowledgeBase.cpp
   ${REVM_DIR}/debug/KbWatch.cpp
   ${REVM_DIR}/debug/KbWatchWindow.cpp
@@ -252,7 +254,7 @@ if(REVM_CPU_MOCK_PLUGIN_DIR)
 endif()
 add_library(revm_lib STATIC ${REVM_SOURCES})
 target_include_directories(revm_lib PUBLIC ${REVM_DIR} ${REVM_DIR}/vendor)
-target_link_libraries(revm_lib PUBLIC frodo_sc PNG::PNG)
+target_link_libraries(revm_lib PUBLIC frodo_sc PNG::PNG PkgConfig::ZSTD)
 if(REVM_CPU_MOCK_PLUGIN_DIR)
   target_compile_definitions(revm_lib PUBLIC REVM_HAS_CPUMOCK=1)
 endif()

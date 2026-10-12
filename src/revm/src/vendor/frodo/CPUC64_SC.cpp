@@ -466,7 +466,7 @@ uint8_t MOS6510::read_byte(uint16_t adr)
 		byte = read_byte_io(adr);
 	}
 	if (mem_access_hook_) {
-		mem_access_hook_(adr, false, ClassifyRead(adr), mem_access_userdata_);
+		mem_access_hook_(adr, byte, false, ClassifyRead(adr), mem_access_userdata_);
 	}
 	if (ClassifyRead(adr) == CoverSpace::Io) {
 		note_io_read(adr, byte);
@@ -561,7 +561,7 @@ void MOS6510::write_byte(uint16_t adr, uint8_t byte)
 		write_byte_io(adr, byte);
 	}
 	if (mem_access_hook_) {
-		mem_access_hook_(adr, true, space, mem_access_userdata_);
+		mem_access_hook_(adr, byte, true, space, mem_access_userdata_);
 	}
 	if (space == CoverSpace::Io) {
 		note_io_write(adr, byte);
