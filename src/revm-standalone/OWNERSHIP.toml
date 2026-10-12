@@ -150,7 +150,7 @@ reason = "Standalone CIA implementation removes IEC and drive-CPU side effects."
 
 [[forked]]
 path = "src/vendor/frodo/CPUC64.h"
-base_sha256 = "c3996617e4e285a2fa2e3acbca484f6bc5cb86c4885ea1d670857846c766dd14"
+base_sha256 = "e39cb08e0e84ba9065222df622cfb66b1ca9fca084d4b288825b3ef2a09ed018"
 reason = "Standalone CPU interface removes cartridge, IEC, tape, REU, and autostart surfaces while retaining CPU-mock access."
 
 [[forked]]

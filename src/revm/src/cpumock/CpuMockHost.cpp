@@ -6,6 +6,7 @@
 #include "cpumock/LinkedRegistry.hpp"
 
 #include "cpumock/ScreenContext.hpp"
+#include "debug/InsnBytes6502.hpp"
 #include "goldens/CompareReport.hpp"
 #include "goldens/PlayLog.hpp"
 #include "goldens/PlayPlayer.hpp"
@@ -464,7 +465,11 @@ void CpuMockHost::dispatch_irq() {
 		}
 		return;
 	}
+	// The body moves Main's PC through its own declared PCs; the original's
+	// RTI returns to the interrupted instruction, so put the PC back.
+	const uint16_t interrupted_pc = MainPc();
 	irq_handler_();
+	SetMainPc(interrupted_pc);
 }
 
 void CpuMockHost::dispatch_nmi() {
@@ -476,7 +481,33 @@ void CpuMockHost::dispatch_nmi() {
 		}
 		return;
 	}
+	const uint16_t interrupted_pc = MainPc();  // as dispatch_irq
 	nmi_handler_();
+	SetMainPc(interrupted_pc);
+}
+
+void CpuMockHost::SetMainPc(uint16_t pc) {
+	C64 * c64 = board_.Machine();
+	if (!c64 || !c64->TheCPU)
+		return;
+	if (board_.GetConfig().main_blank)
+		return;
+	c64->TheCPU->SetCpuMockPc(pc);
+}
+
+void CpuMockHost::SetMainPcAfter(uint16_t pc) {
+	C64 * c64 = board_.Machine();
+	if (!c64 || !c64->TheCPU)
+		return;
+	const unsigned length = revm::InsnBytes6502(c64->RAM[pc]);
+	SetMainPc(uint16_t(pc + length));
+}
+
+uint16_t CpuMockHost::MainPc() const {
+	const C64 * c64 = board_.Machine();
+	if (!c64 || !c64->TheCPU)
+		return 0;
+	return c64->TheCPU->GetPC();
 }
 
 void CpuMockHost::InstallIrqHandler(IrqHandler handler) {

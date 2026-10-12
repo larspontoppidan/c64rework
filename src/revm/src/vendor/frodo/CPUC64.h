@@ -144,6 +144,10 @@ public:
 	void SetCpuMock(bool enabled, CpuMockIrqHook irq_hook = nullptr,
 	                void * userdata = nullptr, CpuMockIrqHook nmi_hook = nullptr);
 	bool CpuMockEnabled() const { return cpumock_; }
+	// The mock CPU fetches nothing, so its PC only matters to the VIC, which
+	// reads the byte at the PC in a DMA-delay matrix access. CpuMockHost moves
+	// it to the PC the translation declares.
+	void SetCpuMockPc(uint16_t new_pc) { pc = new_pc; }
 	CpuMockIrqHook CpuMockHook() const { return cpumock_irq_hook_; }
 	CpuMockIrqHook CpuMockNmiHook() const { return cpumock_nmi_hook_; }
 	void * CpuMockUserdata() const { return cpumock_irq_userdata_; }

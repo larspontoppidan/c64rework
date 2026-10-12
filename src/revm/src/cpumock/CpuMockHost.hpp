@@ -396,6 +396,17 @@ private:
 	void FinishMockNmi(uint32_t cycles);
 	void AddMockIrqHold(uint32_t cycles);
 	bool IrqHoldActive() const;
+	// Main's mock 6510 fetches no opcodes, but its VIC still reads the byte
+	// at the CPU's PC: a DMA-delay matrix access draws colour ram[pc] & $F
+	// (Frodo VIC_SC.cpp matrix_access). Sync moves the PC to where the
+	// original CPU stands at each declared-PC meeting, so Main draws the
+	// same bytes as Twin. No-op with --main-blank: Main's RAM holds no code
+	// then, and the standalone export (no declared PCs) must keep matching it.
+	void SetMainPc(uint16_t pc);
+	// The PC of the instruction after the one at `pc` (its length read from
+	// Main's RAM): where the CPU stands once an I/O access has completed.
+	void SetMainPcAfter(uint16_t pc);
+	uint16_t MainPc() const;
 
 	// C64 map through Main's mock 6510 (RAM/ROM/IO banking). Plugins use
 	// Mem / Mem16 / Io; raw Read/Write from a replica is a compile error.

@@ -136,6 +136,7 @@ struct Sync {
 	static inline void LinkedReadAtPc(Host &host, uint16_t pc, uint16_t addr,
 	                                 FenceSlack slack = FenceSlack::AllowOneVSync) {
 		if (host.NoTwin()) {
+			host.SetMainPc(pc);
 			REVM_LOG_M("sync", REVM_VERBOSE,
 			           "LinkedReadAtPc pc=$%04X addr=$%04X (no-twin)", pc, addr);
 			return;
@@ -151,6 +152,7 @@ struct Sync {
 	                                  uint8_t value,
 	                                  FenceSlack slack = FenceSlack::AllowOneVSync) {
 		if (host.NoTwin()) {
+			host.SetMainPc(pc);
 			REVM_LOG_M("sync", REVM_VERBOSE,
 			           "LinkedWriteAtPc pc=$%04X addr=$%04X val=$%02X (no-twin)",
 			           pc, addr, value);
@@ -169,6 +171,7 @@ struct Sync {
 	                                FenceSlack slack = FenceSlack::AllowOneVSync) {
 		rmw_check_carry(host, op, carry);
 		if (host.NoTwin()) {
+			host.SetMainPc(pc);
 			REVM_LOG_M("sync", REVM_VERBOSE,
 			           "LinkedRmwAtPc pc=$%04X addr=$%04X op=%s (no-twin)", pc,
 			           addr, rmw_op_name(op));
@@ -708,8 +711,10 @@ public:
 			              src_file(loc), loc.line());
 		};
 
-		if (host.NoTwin())
+		if (host.NoTwin()) {
+			host.SetMainPc(pc);
 			return;
+		}
 
 		bool extra = false;
 		if (slack == FenceSlack::Exact) {
@@ -748,6 +753,7 @@ public:
 		}
 
 		align_after_arrival(host, "JoinAtPc", pc);
+		host.SetMainPc(pc);  // Twin stands at pc's opcode fetch
 
 		ev_fence(host, "join", pc, extra ? "hit_vsync" : "ok", extra);
 		host.CompareNow(mask);
@@ -785,7 +791,9 @@ public:
 		};
 
 		if (host.NoTwin()) {
-			return host.AdvanceFrames(b.no_twin_frames);
+			const uint32_t frames = host.AdvanceFrames(b.no_twin_frames);
+			host.SetMainPc(pc);
+			return frames;
 		}
 
 		uint64_t lap0 = 0;
@@ -818,6 +826,7 @@ public:
 		}
 
 		align_after_arrival(host, "JoinAtPcBounded", pc);
+		host.SetMainPc(pc);
 
 		ev_fence(host, "bounded", pc, n > 0 ? "hit_vsync" : "ok", n > 0);
 		REVM_LOG_M("sync", n == 0 ? REVM_VERBOSE : REVM_INFO,
@@ -1018,12 +1027,18 @@ private:
 		return cached.value;
 	}
 
+	// After an I/O access the instruction is complete: Main's PC moves to
+	// the next instruction, where Twin is parked (see SetMainPc).
 	static inline uint8_t ReadIoAtPc(Host & host, uint16_t pc, uint16_t io_addr) {
-		if (host.NoTwin())
-			return read_io_exact(host, pc, pc, io_addr);
+		if (host.NoTwin()) {
+			const uint8_t v = read_io_exact(host, pc, pc, io_addr);
+			host.SetMainPcAfter(pc);
+			return v;
+		}
 
 		const uint16_t pc_after = io_pc_after(host, pc);
 		const uint8_t v = read_io_exact(host, pc, pc_after, io_addr);
+		host.SetMainPc(pc_after);
 		ev_fence(host, "io_read", pc, "ok", false);
 		return v;
 	}
@@ -1032,6 +1047,7 @@ private:
 	                               uint8_t value) {
 		if (host.NoTwin()) {
 			host.Write(io_addr, value);
+			host.SetMainPcAfter(pc);
 			REVM_LOG_M("sync", REVM_VERBOSE,
 			         "WriteIoAtPc pc=$%04X addr=$%04X val=$%02X (no-twin)",
 			         pc, io_addr, value);
@@ -1084,6 +1100,7 @@ private:
 		}
 
 		host.Write(io_addr, value);
+		host.SetMainPc(pc_after);
 		ev_fence(host, "io_write", pc, "ok", false);
 		REVM_LOG_M("sync", REVM_VERBOSE,
 		         "WriteIoAtPc pc=$%04X addr=$%04X val=$%02X", pc, io_addr,
@@ -1191,11 +1208,15 @@ private:
 
 	static inline uint8_t RmwIoAtPc(Host & host, uint16_t pc, uint16_t io_addr,
 	                                RmwOp op, bool *carry) {
-		if (host.NoTwin())
-			return rmw_io_exact(host, pc, pc, io_addr, op, carry);
+		if (host.NoTwin()) {
+			const uint8_t v = rmw_io_exact(host, pc, pc, io_addr, op, carry);
+			host.SetMainPcAfter(pc);
+			return v;
+		}
 
 		const uint16_t pc_after = io_pc_after(host, pc);
 		const uint8_t v = rmw_io_exact(host, pc, pc_after, io_addr, op, carry);
+		host.SetMainPc(pc_after);
 		ev_fence(host, "io_rmw", pc, "ok", false);
 		return v;
 	}
@@ -1231,6 +1252,7 @@ private:
 		}
 
 		align_after_arrival(host, tag, pc);
+		host.SetMainPc(pc);  // Twin parks at the opcode fetch of a RAM arm
 	}
 
 	// Returns true when the fence crossed a VBLANK (extra-VSYNC path).
@@ -1283,6 +1305,7 @@ private:
 		Host & host, uint16_t pc, uint16_t addr,
 		FenceSlack slack = FenceSlack::AllowOneVSync) {
 		if (host.NoTwin()) {
+			host.SetMainPc(pc);
 			const uint8_t v = host.Read(addr);
 			REVM_LOG_M("sync", REVM_VERBOSE,
 			         "ReadRamAtPc pc=$%04X addr=$%04X -> $%02X (no-twin)",
@@ -1301,6 +1324,7 @@ private:
 		Host & host, uint16_t pc, uint16_t addr, uint8_t value,
 		FenceSlack slack = FenceSlack::AllowOneVSync) {
 		if (host.NoTwin()) {
+			host.SetMainPc(pc);
 			host.Write(addr, value);
 			REVM_LOG_M("sync", REVM_VERBOSE,
 			         "WriteRamAtPc pc=$%04X addr=$%04X val=$%02X "
@@ -1327,6 +1351,7 @@ private:
 		rmw_check_carry(host, op, carry);
 		const bool cin = rmw_uses_carry(op) ? *carry : false;
 		if (host.NoTwin()) {
+			host.SetMainPc(pc);
 			const RmwApply a = apply_rmw(host.Read(addr), op, cin);
 			host.Write(addr, a.value);
 			if (carry)

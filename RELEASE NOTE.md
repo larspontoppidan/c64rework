@@ -15,6 +15,10 @@ blank (Stage 4.5 `--main-blank --no-twin` or the standalone export).
 blank vs no-twin from BEGIN) warns and continues. The standalone warns on
 plays with `mod_events` or of another class, and ignores the `mod_events`;
 such plays are not export evidence.
+- Stage 3/4: Main's mock CPU now stands at the PC the translation declares
+(joins and armed accesses), not at the BEGIN PC. The VIC reads the byte at
+the CPU's PC for its DMA-delay "garbage" fetch, so Main now draws the same
+bytes there as the original. Not with `--main-blank`.
 
 ## v0.9.3
 
