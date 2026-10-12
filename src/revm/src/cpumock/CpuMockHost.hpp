@@ -52,10 +52,29 @@ struct SoftQuitException {
 	int code = 1;
 };
 
+// 6510 status register bits (P = NV-BDIZC), for CompareMask::Flags.
+// B and bit 5 are not flags (they exist only in a pushed P) and cannot be
+// compared.
+struct CpuFlag {
+	static constexpr uint8_t C = 0x01;
+	static constexpr uint8_t Z = 0x02;
+	static constexpr uint8_t I = 0x04;
+	static constexpr uint8_t D = 0x08;
+	static constexpr uint8_t V = 0x40;
+	static constexpr uint8_t N = 0x80;
+};
+
 // Main↔Twin compare mask at a join fence (or Sync::Compare).
 // All flags default false: CompareMask{} / None() is PC-only (no compare).
 // JoinAtPc / Sync::Compare default to Kb(). All() is screen + sid + vic +
 // cia1 + cia2 + kb. vic_state is opt-in (SC internals / raster pipeline).
+//
+// CPU flags: Main's mock 6510 has no P register. Where a translation models
+// a flag itself (a decimal-mode window, a carry kept across routines), it
+// passes the values it models and the compare checks them against Twin's P:
+// `flags` selects the bits (CpuFlag::...), `flags_main` holds Main's values
+// for them. Flags(...) builds a flags-only mask; WithFlags(...) adds the
+// channel to another mask, e.g. CompareMask::Kb().WithFlags(CpuFlag::C, c).
 struct CompareMask {
 	bool screen = false;
 	bool sid = false;
@@ -64,10 +83,12 @@ struct CompareMask {
 	bool cia1 = false;
 	bool cia2 = false;
 	bool kb = false;
+	uint8_t flags = 0;
+	uint8_t flags_main = 0;
 
-	static CompareMask None() { return {}; }
-	static CompareMask Kb() { return {.kb = true}; }
-	static CompareMask All() {
+	static constexpr CompareMask None() { return {}; }
+	static constexpr CompareMask Kb() { return {.kb = true}; }
+	static constexpr CompareMask All() {
 		return {.screen = true,
 		        .sid = true,
 		        .vic = true,
@@ -75,8 +96,20 @@ struct CompareMask {
 		        .cia2 = true,
 		        .kb = true};
 	}
-	bool any() const {
-		return screen || sid || vic || vic_state || cia1 || cia2 || kb;
+	// `which`: the CpuFlag bits to compare. `main_p`: Main's value for them,
+	// laid out as in P (bits outside `which` are ignored).
+	static constexpr CompareMask Flags(uint8_t which, uint8_t main_p) {
+		return CompareMask{}.WithFlags(which, main_p);
+	}
+	constexpr CompareMask WithFlags(uint8_t which, uint8_t main_p) const {
+		CompareMask out = *this;
+		out.flags = which;
+		out.flags_main = uint8_t(main_p & which);
+		return out;
+	}
+	constexpr bool any() const {
+		return screen || sid || vic || vic_state || cia1 || cia2 || kb ||
+		       flags != 0;
 	}
 };
 
@@ -481,6 +514,7 @@ private:
 	void compare_vic(uint32_t frame, RitualCheck & out);
 	void compare_vic_state(uint32_t frame, RitualCheck & out);
 	void compare_cia(int which, uint32_t frame, RitualCheck & out);
+	void compare_flags(CompareMask mask, RitualCheck & out);
 	void print_compare_tallies() const;
 	void report_linked_pending() const;
 	void finish_media();
@@ -581,17 +615,20 @@ private:
 	IgnoreTally vic_state_tally_{};
 	IgnoreTally cia1_tally_{};
 	IgnoreTally cia2_tally_{};
+	IgnoreTally flags_tally_{};
 	RitualCheck last_screen_{};
 	RitualCheck last_sid_{};
 	RitualCheck last_vic_{};
 	RitualCheck last_vic_state_{};
 	RitualCheck last_cia1_{};
 	RitualCheck last_cia2_{};
+	RitualCheck last_flags_{};
 	std::string last_screen_summary_;
 	char last_sid_detail_[96]{};
 	char last_vic_detail_[96]{};
 	char last_cia1_detail_[96]{};
 	char last_cia2_detail_[96]{};
+	char last_flags_detail_[128]{};
 	unsigned dump_images_written_ = 0;
 	// Screen-fail context state for net_fail / fail_context records; reset
 	// at the top of every CompareNow. The bbox is canvas coordinates

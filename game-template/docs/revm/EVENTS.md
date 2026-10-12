@@ -52,7 +52,7 @@ through the event `Hex` type are JSON strings such as `"0xEC3C"`.
 | `accept` | `phase`, `kind`, optional `boundary_cyc` | IRQ/NMI detection, resolution, dispatch, silence, or repair. |
 | `skew` | `kind`, `paired`, `phi2` | Main/Twin interrupt pairing and Φ2 difference. |
 | `handler` | `kind`, `phase` | IRQ/NMI handler entry or exit. |
-| `compare` | `screen`, `sid`, `vic`, `vic_state`, `cia1`, `cia2`, `kb`, optional `raster_line` | Per-channel result: `1` ran and passed, `0` ran and failed, `-1` the channel was not in the compare's mask. |
+| `compare` | `screen`, `sid`, `vic`, `vic_state`, `cia1`, `cia2`, `flags`, `kb`, optional `raster_line` | Per-channel result: `1` ran and passed, `0` ran and failed, `-1` the channel was not in the compare's mask. |
 | `compare_fail` | `channel`, `addr`, `main`, `twin`, or `overflow` | A differing byte. At most 32 are emitted per comparison before an overflow marker. |
 | `screen_fail` | pixel count, bounding box, optional context | Visual mismatch and failure-oriented screen diagnosis. |
 | `net_fail` | `plane`, `play`, `report_frame`, `rendered_frame`, `pixels`, bbox, `cells`, `repro_command` | One first-class row per screen-plane mismatch; see "Failure context records". |
@@ -98,7 +98,7 @@ before its `softquit`. It names the fence the failure belongs to and what
 actually ran:
 
 - `plane`: the first channel that ran and failed (`screen`, `sid`, `vic`,
-  `vic_state`, `cia1`, `cia2`, `kb`), or `fence` for a fence miss.
+  `vic_state`, `cia1`, `cia2`, `flags`, `kb`), or `fence` for a fence miss.
 - `op`, `pc`: the most recent fence operation and its PC (for a miss, the
   fence that missed).
 - `mask_used`: the channels the compare's mask requested, joined with `+`.
@@ -137,6 +137,7 @@ The report contains this top-level shape:
     "vic_state": {"compared": 0, "failed": 0},
     "cia1": {"compared": 0, "failed": 0},
     "cia2": {"compared": 0, "failed": 0},
+    "flags": {"compared": 0, "failed": 0},
     "kb": {"compared": 0, "failed": 0}
   },
   "skew": {

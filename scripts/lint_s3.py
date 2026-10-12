@@ -334,9 +334,10 @@ class FileScan:
                     if not in_revm_log_args(node):
                         self.add("S3-014", node,
                                  "host.diag() is the oracle door — only "
-                                 "inside a REVM_LOG* argument list, or "
-                                 "suppress with // s3lint:allow S3-014 — "
-                                 "reason")
+                                 "inside a REVM_LOG* argument list; to check "
+                                 "a CPU flag against Twin use "
+                                 "CompareMask::Flags; otherwise suppress "
+                                 "with // s3lint:allow S3-014 — reason")
             elif node.type == "subscript_expression":
                 arg = node.child_by_field_name("argument")
                 idx = node.child_by_field_name("indices")
@@ -946,6 +947,12 @@ void Game::w() {
         ("diag inside REVM_LOG is fine", {"game.cpp": """
 void Game::w() {
 	REVM_LOG(REVM_INFO, "twin_pc=$%04X", unsigned(host_.diag().TwinCpu().pc));
+}
+"""}, set(), None),
+        ("CPU-flag compare needs no allow", {"game.cpp": """
+void Game::w() {
+	Sync::JoinAtPc(host_, 0x2922, CompareMask::Kb().WithFlags(CpuFlag::D, irq_d_ ? CpuFlag::D : 0));
+	Sync::Compare(host_, CompareMask::Flags(CpuFlag::C, cpu_c_ ? CpuFlag::C : 0));
 }
 """}, set(), None),
         ("diag suppressed inline", {"game.cpp": """

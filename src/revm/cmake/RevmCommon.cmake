@@ -267,7 +267,8 @@ if(REVM_CPU_MOCK_PLUGIN_DIR)
   message(STATUS "REVM cpu-mock plugin → ${REVM_CPU_MOCK_PLUGIN_DIR}")
   add_library(revm_linked_compile_probe OBJECT
     "${REVM_DIR}/cpumock/LinkedCompileProbe.cpp"
-    "${REVM_DIR}/cpumock/VideoAssetsCompileProbe.cpp")
+    "${REVM_DIR}/cpumock/VideoAssetsCompileProbe.cpp"
+    "${REVM_DIR}/cpumock/CompareMaskCompileProbe.cpp")
   target_include_directories(revm_linked_compile_probe PRIVATE
     ${REVM_DIR} ${REVM_DIR}/vendor)
   target_link_libraries(revm_linked_compile_probe PRIVATE revm_lib)

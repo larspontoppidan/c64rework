@@ -127,7 +127,8 @@ void EmitWatchHit(uint16_t pc, const char * label, uint64_t total);
 // Per-compare channel outcomes (-1 sentinel = channel not run).
 void EmitCompareResult(int screen_ok, int sid_ok, int kb_ok, int vic_ok = -1,
                        int vic_state_ok = -1, int cia1_ok = -1,
-                       int cia2_ok = -1, int raster_line = -1);
+                       int cia2_ok = -1, int flags_ok = -1,
+                       int raster_line = -1);
 // Raster-line side channel: when >= 0, compare/fail-context records carry
 // Main's VIC raster line at the compare instant (Frodo raster_y, the value
 // RasterY() returns — display lines start at raster $10 on PAL).

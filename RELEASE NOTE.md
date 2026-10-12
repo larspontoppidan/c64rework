@@ -37,6 +37,11 @@ such plays are not export evidence.
 (joins and armed accesses), not at the BEGIN PC. The VIC reads the byte at
 the CPU's PC for its DMA-delay "garbage" fetch, so Main now draws the same
 bytes there as the original. Not with `--main-blank`.
+- Stage 3/4: new CPU-flag compare channel. `CompareMask::Flags(bits, main)`
+or `.WithFlags(bits, main)` compares the flags the translation models (D, C,
+...) with Twin's P at a fence and fails with `CPU flag FAIL ... C main=0
+twin=1`. It needs no `s3lint:allow S3-014`; events and `--report` gain a
+`flags` channel.
 
 ## v0.9.3
 

@@ -214,6 +214,7 @@ class Counts:
     compare_mask_usings: int = 0
     compare_mask_functions: int = 0
     fence_slack_usings: int = 0
+    cpu_flag_usings: int = 0
     linked_bytes: int = 0
     linked_words: int = 0
     linked_arrays: int = 0
@@ -1614,6 +1615,7 @@ def lower_compare_mask_functions(source: bytes, label: Path, counts: Counts) -> 
 UNUSED_USING_IMPORTS = {
     "CompareMask": "compare_mask_usings",
     "FenceSlack": "fence_slack_usings",
+    "CpuFlag": "cpu_flag_usings",
 }
 
 
@@ -2645,7 +2647,7 @@ def analyze_file(source: bytes, label: Path,
                 continue
             mapped = FACADE_QUALIFIED_MAP.get(head)
             removed = parts[-1] in {
-                "CompareMask", "FenceSlack", "Sync",
+                "CompareMask", "CpuFlag", "FenceSlack", "Sync",
                 "LinkedByte", "LinkedWord", "LinkedArray",
                 "Uninitialized", "uninitialized",
             }
@@ -3125,6 +3127,7 @@ def selftest() -> int:
 #include "cpumock/Sync.hpp"
 #include "cpumock/Mem.hpp"
 using revm::cpumock::CompareMask;
+using revm::cpumock::CpuFlag;
 using revm::cpumock::FenceSlack;
 using revm::cpumock::Sync;
 using revm::cpumock::VSyncPolicy;
@@ -3141,6 +3144,7 @@ void fixture() {
   Sync::AtPc(host_, 0x1234);
   revm::cpumock::Sync::JoinAtPc(host_, 0x1235);
   Sync::Compare(host_);
+  Sync::Compare(host_, CompareMask::Flags(CpuFlag::D, d ? CpuFlag::D : 0));
   mark = Sync::WatchMark(host_, 0x1236);
   if (ordinary()) Sync::AtPc(host_, 0x1237);
   const char* text = "Sync::AtPc host_.HasTwin()";
@@ -3161,6 +3165,7 @@ void fixture() {
 '''
     expected = b'''\
 #include "gamehost/GameHost.hpp"
+
 
 
 
@@ -3192,11 +3197,12 @@ void fixture() {
         print(lowered.decode("utf-8"), file=sys.stderr)
         return 1
     if counts != Counts(twin_branches=9, twin_conditionals=1, at_pc=2,
-                        joins=1, compares=1, watches=1, advance_cycles=3,
+                        joins=1, compares=2, watches=1, advance_cycles=3,
                         advance_to_vsync=1, advance_frames=1, return_irq=1,
                         return_nmi=1, sync_includes=1, sync_usings=1,
                         diag_watch_calls=1, diag_align_calls=1,
                         compare_mask_usings=1, fence_slack_usings=1,
+                        cpu_flag_usings=1,
                         facade_includes=1, qualified_types=1):
         print(f"lower-standalone-game selftest: bad counts {counts}", file=sys.stderr)
         return 1
@@ -3949,7 +3955,8 @@ def main() -> int:
         f"diag_align_calls={counts.diag_align_calls} "
         f"compare_mask_usings={counts.compare_mask_usings} "
         f"compare_mask_functions={counts.compare_mask_functions} "
-        f"fence_slack_usings={counts.fence_slack_usings}"
+        f"fence_slack_usings={counts.fence_slack_usings} "
+        f"cpu_flag_usings={counts.cpu_flag_usings}"
         f" linked_bytes={counts.linked_bytes} linked_words={counts.linked_words} "
         f"linked_arrays={counts.linked_arrays} linked_uninitialized={counts.linked_uninitialized} linked_reads={counts.linked_reads} "
         f"linked_writes={counts.linked_writes} "

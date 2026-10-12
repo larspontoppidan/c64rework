@@ -65,7 +65,8 @@ Twin executes the original binary. Twin is used for exactly two things:
 Twin is never a source of *values*. Reading Twin RAM, Twin registers or Twin
 chip state into Main's computation makes Main a puppet that cannot run under
 `--no-twin` and is rejected at review. The one door to Twin values is
-`host.diag()`, and it is for log messages only (§6.3, lint S3-014).
+`host.diag()`, and it is for log messages only (§6.3, lint S3-014). To check
+a flag Main models against Twin's P, use the CPU-flag compare (§10.2).
 
 ### 2.2 Twin leads
 
@@ -375,7 +376,8 @@ void     Sync::ExpectWatchDelta(host, uint16_t pc, uint64_t mark,
 
 `CompareMask`: `None()` (fence only), `Kb()` (default), `All()` (kb + sid +
 screen + vic + cia1 + cia2). `.vic_state` is opt-in (§10.1). Designated
-initialiser e.g. `CompareMask{.vic_state = true, .kb = true}`.
+initialiser e.g. `CompareMask{.vic_state = true, .kb = true}`. CPU flags are
+the `Flags(...)` / `.WithFlags(...)` channel (§10.2).
 `FenceSlack::AllowOneVSync` tolerates one silent extra Main VBLANK if Twin misses the
 fence in this frame; `FenceSlack::Exact` makes that a failure. Prefer `Exact`
 once a fence is understood; the default will become `Exact`.
@@ -751,6 +753,27 @@ Sync::Compare(host_, CompareMask{.vic_state = true, .kb = true});
 `All()` is `screen` + `sid` + `vic` + `cia1` + `cia2` + `kb`. Not `.vic_state`.
 
 A KB watch over the I/O window is DRAM or color RAM, not a chip compare.
+
+### 10.2 CPU flags versus Twin
+
+Main's mock 6510 has no P register. Where the translation models a flag
+itself (a decimal-mode window, a carry that a later `SBC` without `SEC`
+reads), compare it against Twin's P at a fence: pass the bits and the
+values Main models.
+
+```cpp
+// D at a handler entry: flags only.
+Sync::Compare(host_, CompareMask::Flags(CpuFlag::D, irq_d_ ? CpuFlag::D : 0));
+// C at a routine entry, together with the usual kb compare.
+Sync::JoinAtPc(host_, 0x0CB4,
+               CompareMask::Kb().WithFlags(CpuFlag::C, cpu_c_ ? CpuFlag::C : 0));
+```
+
+`CpuFlag` names C, Z, I, D, V, N (B and bit 5 are not flags). Twin stands at
+the fence's opcode fetch, so its P is the original's flags at that
+instruction boundary. A mismatch fails like any channel: `CPU flag FAIL
+frame N at join $0CB4: C main=0 twin=1 (Twin P=$A1)`. `--no-twin` it no-ops.
+This replaces reading `host.diag().TwinCpu().p` under an S3-014 allow.
 
 ---
 

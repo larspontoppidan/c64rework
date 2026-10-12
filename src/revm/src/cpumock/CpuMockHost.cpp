@@ -1421,10 +1421,12 @@ void CpuMockHost::emit_fail_context(CompareMask mask,
 	add_mask(mask.cia1, "cia1");
 	add_mask(mask.cia2, "cia2");
 	add_mask(mask.kb, "kb");
+	add_mask(mask.flags != 0, "flags");
 
 	const bool compare_ran = last_screen_.ran || last_sid_.ran ||
 	                         last_vic_.ran || last_vic_state_.ran ||
-	                         last_cia1_.ran || last_cia2_.ran || kb_check.ran;
+	                         last_cia1_.ran || last_cia2_.ran ||
+	                         last_flags_.ran || kb_check.ran;
 	auto fmt_channel = [](const RitualCheck & c) {
 		return c.ran ? (c.ok ? "ok" : "fail") : "off";
 	};
@@ -1432,11 +1434,11 @@ void CpuMockHost::emit_fail_context(CompareMask mask,
 	std::snprintf(chans, sizeof chans,
 	              "{\"screen\":\"%s\",\"sid\":\"%s\",\"vic\":\"%s\","
 	              "\"vic_state\":\"%s\",\"cia1\":\"%s\",\"cia2\":\"%s\","
-	              "\"kb\":\"%s\"}",
+	              "\"flags\":\"%s\",\"kb\":\"%s\"}",
 	              fmt_channel(last_screen_), fmt_channel(last_sid_),
 	              fmt_channel(last_vic_), fmt_channel(last_vic_state_),
 	              fmt_channel(last_cia1_), fmt_channel(last_cia2_),
-	              fmt_channel(kb_check));
+	              fmt_channel(last_flags_), fmt_channel(kb_check));
 
 	// kb diff detail, pre-serialized (null when the kb compare did not run
 	// or found nothing).
@@ -1481,6 +1483,7 @@ void CpuMockHost::emit_fence_miss_context(CompareMask mask) {
 	last_vic_state_ = {};
 	last_cia1_ = {};
 	last_cia2_ = {};
+	last_flags_ = {};
 	last_screen_summary_.clear(); // no screen data at a fence miss
 	emit_fail_context(mask, none, "fence");
 }
@@ -1733,6 +1736,45 @@ void CpuMockHost::compare_cia(int which, uint32_t frame, RitualCheck & out) {
 	(which == 0 ? cia1_tally_ : cia2_tally_).Note(false, ok);
 }
 
+// Main's mock 6510 has no P register: the mask carries the flag values the
+// translation models (flags_main) and this checks them against Twin's P.
+// Twin stands at the fence's opcode fetch, so its P is the flags the
+// original has at that instruction boundary.
+// CompareNow reports a failure ("CPU flag FAIL frame ...") from the detail.
+void CpuMockHost::compare_flags(CompareMask mask, RitualCheck & out) {
+	static const char kNames[8] = {'C', 'Z', 'I', 'D', 'B', '-', 'V', 'N'};
+	last_flags_detail_[0] = 0;
+	if ((mask.flags & 0x30) != 0) {
+		SoftQuit(1, "CompareMask flags $%02X selects B or bit 5, which are "
+		            "not CPU flags (use CpuFlag::C/Z/I/D/V/N)",
+		         mask.flags);
+	}
+	const uint8_t twin_p = TwinCpu().p;
+	const uint8_t diff = uint8_t((twin_p ^ mask.flags_main) & mask.flags);
+	const bool ok = diff == 0;
+	if (!ok) {
+		// "at join $2922: D main=1 twin=0 (Twin P=$24)", one name per bit.
+		size_t used = size_t(std::snprintf(
+			last_flags_detail_, sizeof last_flags_detail_, "at %s $%04X:",
+			last_fence_op_, last_fence_pc_));
+		for (int bit = 0; bit < 8; ++bit) {
+			const uint8_t m = uint8_t(1u << bit);
+			if ((diff & m) == 0 || used >= sizeof last_flags_detail_)
+				continue;
+			used += size_t(std::snprintf(
+				last_flags_detail_ + used, sizeof last_flags_detail_ - used,
+				" %c main=%d twin=%d", kNames[bit],
+				(mask.flags_main & m) ? 1 : 0, (twin_p & m) ? 1 : 0));
+		}
+		if (used < sizeof last_flags_detail_)
+			std::snprintf(last_flags_detail_ + used,
+			              sizeof last_flags_detail_ - used,
+			              " (Twin P=$%02X)", twin_p);
+	}
+	out = {true, false, ok};
+	flags_tally_.Note(false, ok);
+}
+
 void CpuMockHost::CompareNow(CompareMask mask) {
 	ThrowIfQuitRequested();
 	if (NoTwin() || !mask.any())
@@ -1757,6 +1799,7 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 	last_vic_state_ = {};
 	last_cia1_ = {};
 	last_cia2_ = {};
+	last_flags_ = {};
 	last_screen_summary_.clear();
 	last_screen_pixels_ = 0;
 	last_screen_x0_ = 0;
@@ -1768,6 +1811,7 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 	last_vic_detail_[0] = 0;
 	last_cia1_detail_[0] = 0;
 	last_cia2_detail_[0] = 0;
+	last_flags_detail_[0] = 0;
 	RitualCheck kb{};
 	bool abort_check = false;
 
@@ -1801,6 +1845,11 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 		if (!last_cia2_.ok)
 			abort_check = true;
 	}
+	if (mask.flags != 0) {
+		compare_flags(mask, last_flags_);
+		if (!last_flags_.ok)
+			abort_check = true;
+	}
 	if (mask.kb && kb_check_.Active()) {
 		const bool twin_ok =
 			kb_check_.OnFrame(board_, *twin_, frame, cycle,
@@ -1815,17 +1864,18 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 		return c.ran ? (c.ok ? 1 : 0) : -1;
 	};
 	if (last_screen_.ran || last_sid_.ran || last_vic_.ran ||
-	    last_vic_state_.ran || last_cia1_.ran || last_cia2_.ran || kb.ran) {
+	    last_vic_state_.ran || last_cia1_.ran || last_cia2_.ran ||
+	    last_flags_.ran || kb.ran) {
 		REVM_LOG(REVM_VERBOSE,
 		         "compare frame=%u cycle=%u screen=%s SID=%s vic=%s vic_state=%s "
-		         "cia1=%s cia2=%s kb=%s",
+		         "cia1=%s cia2=%s flags=%s kb=%s",
 		         frame, cycle, last_screen_.Format(), last_sid_.Format(),
 		         last_vic_.Format(), last_vic_state_.Format(), last_cia1_.Format(),
-		         last_cia2_.Format(), kb.Format());
+		         last_cia2_.Format(), last_flags_.Format(), kb.Format());
 	}
 	event::EmitCompareResult(ch(last_screen_), ch(last_sid_), ch(kb), ch(last_vic_),
 	                         ch(last_vic_state_), ch(last_cia1_), ch(last_cia2_),
-	                         int(RasterLine()));
+	                         ch(last_flags_), int(RasterLine()));
 
 	if (abort_check) {
 		++total_fails_;
@@ -1839,6 +1889,7 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 		else if (last_vic_state_.ran && !last_vic_state_.ok) plane = "vic_state";
 		else if (last_cia1_.ran && !last_cia1_.ok) plane = "cia1";
 		else if (last_cia2_.ran && !last_cia2_.ok) plane = "cia2";
+		else if (last_flags_.ran && !last_flags_.ok) plane = "flags";
 		else if (kb.ran && !kb.ok) plane = "kb";
 		emit_fail_context(mask, kb, plane);
 		static bool repro_hinted = false;
@@ -1885,6 +1936,8 @@ void CpuMockHost::CompareNow(CompareMask mask) {
 			else
 				QuitOnCheck("CIA2 FAIL frame %u", frame);
 		}
+		if (!last_flags_.ok && last_flags_.ran)
+			QuitOnCheck("CPU flag FAIL frame %u %s", frame, last_flags_detail_);
 		if (kb_check_.HasFirstDiff())
 			QuitOnCheck("kb-check FAIL frame %u cycle %u %s $%04X main=$%02X "
 			            "twin=$%02X",
@@ -1940,6 +1993,8 @@ void CpuMockHost::print_compare_tallies() const {
 		cia1_tally_.LogLine(REVM_LOG_MODULE, "cia1");
 	if (cia2_tally_.compared > 0)
 		cia2_tally_.LogLine(REVM_LOG_MODULE, "cia2");
+	if (flags_tally_.compared > 0)
+		flags_tally_.LogLine(REVM_LOG_MODULE, "flags");
 	kb_check_.PrintTally();
 }
 
