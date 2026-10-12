@@ -2,99 +2,39 @@
 
 ## v0.9.4
 
-- 0.9.4 changes the timing of armed RAM accesses (Stage 3/4 `mem.*` and
-Linked values after `Sync::AtPc`). Twin now executes the armed instruction and
-Main's read or write lands on that instruction's own bus cycle, as armed I/O
-already did; before, it landed at the opcode fetch, 2-6 Φ2 early, and the next
-fetch's VIC stall was not walked. The PC must name the load, store or RMW
-itself: an implied, immediate or control-flow opcode SoftQuits, and an arm
-whose instruction on Twin does not touch the byte Main accesses fails the run
-as a check (`--ignore-checks` runs past it).
-Games that armed the instruction after a store to make up for the early store
-must arm the store itself.
-- 0.9.4 changes `--no-twin` timing (Stage 3/4 and the standalone export): an
-interrupt handler now takes the interrupted code's time, as on the real CPU.
-After `ReturnIrq` the main line waits 7 + `no_twin_cycles` + 8 Φ2 (and
-`ReturnNmi`'s `no_twin_cycles`, which Twin runs now ignore, as they do
-for `ReturnIrq`) before it continues; `AdvanceCycles` counts
-main-line time only. Declare each handler's body length; pacing constants
-calibrated from Twin wall time must drop the interrupt share. Existing
-no-twin recordings may follow a different course and should be re-recorded.
-- Recordings note how they were made: every recorder (REVM, Stage 3/4 and the
-standalone export) writes `"recorded_on": {"no_twin", "main_blank",
-"details"}` after `source`. It replaces the root `"no-twin"` field, which is
-still read in older plays. `details` names the program and framework version
-and is never checked. No-twin plays also store `git`, the game repository's
-HEAD at record time (`./rework` passes `--record-git`; the standalone export
-bakes it in at export).
-- Four recording classes are documented: Load, Original, No-twin and No-twin
-blank (Stage 4.5 `--main-blank --no-twin` or the standalone export).
-- Replaying a play on another kind of system (no-twin differs, or no-twin
-blank vs no-twin from BEGIN) warns and continues. The standalone warns on
-plays with `mod_events` or of another class, and ignores the `mod_events`;
-such plays are not export evidence.
-- Stage 3/4: Main's mock CPU now stands at the PC the translation declares
-(joins and armed accesses), not at the BEGIN PC. The VIC reads the byte at
-the CPU's PC for its DMA-delay "garbage" fetch, so Main now draws the same
-bytes there as the original. Not with `--main-blank`.
-- New `--state-hashes FILE` on REVM, the Stage 3/4 builds and the standalone
-export: one CRC32 per frame of the screen, the SID writes (with their timing
-in the frame), VIC, CIA1 and CIA2, about 20 bytes per frame.
-`./rework hash-compare A B` shows the first differing frame per channel.
-Records are made to prove something and thrown away, never stored or gated.
-- The standalone export's parity check now compares state hashes of the
-export and Stage 4.5 `--main-blank --no-twin` over whole plays, sound
-included, instead of PNGs at sampled frames.
-- `--save-screen FRAME FILE` can be given several times (REVM, Stage 3/4 and
-the standalone export); before, only the last one was kept.
-- Stage 3/4: new CPU-flag compare channel. `CompareMask::Flags(bits, main)`
-or `.WithFlags(bits, main)` compares the flags the translation models (D, C,
-...) with Twin's P at a fence and fails with `CPU flag FAIL ... C main=0
-twin=1`. It needs no `s3lint:allow S3-014`; events and `--report` gain a
-`flags` channel.
-- Stage 4: `video.charset.page(n)` is the charset surface fixed to character
-page `n` (0..7, bank offset `n * $800`) of the VIC bank, with the same timed
-writes. Use it when the original writes an absolute glyph page while a raster
-IRQ flips `$D018`; `video.charset` still follows the live `$D018`.
-- lint-s3 understands armed `Mem16::at(y)` accesses (`mem.ptr.at(y).write(a)`),
-so they no longer need an `s3lint:allow S3-013`.
-- Standalone export: `$DD00` reads the IEC DATA/CLK input bits like REVM
-(the C64's own outputs and Frodo's parked 1541 pull the lines low) instead
-of all ones. A read-modify-write of `$DD00` now leaves the same port A latch
-as Stage 4.5; the `cia2` state hash counts that whole latch.
-- reSID speaker output (`--resid`, `--resid-hq`, REVM and the standalone
-export): drift control keeps about 30 ms of audio buffered by resampling,
-averaged over a second (in practice under 0.1%; at most 0.5%). Before, the buffer filled up within seconds and then
-dropped samples (crackle, ~150 ms latency).
-- Fixed: REVM's cycle counter was uninitialized until a snapshot set it, so
-loading a disk-game snapshot with reSID could stall for up to a minute.
-- New `--resid-adsr real|fix|fix-attack|fix-attack-soft` (REVM, Stage 3/4
-and the standalone export): how reSID emulates the real SID's ADSR delay bug,
-which can postpone an envelope step by up to ~33 ms. `real` (default) is the
-chip; `fix` removes the delay (tight, more staccato); `fix-attack` starts
-note-ons on time but keeps the chip's late releases (notes keep their length);
-`fix-attack-soft` is fix-attack with the note-on delay divided by 5 instead of
-removed. See `docs/revm/SOUND.md`.
-- Game code can choose exactly how reSID runs (REVM stage builds and the
-standalone export): `host.SetResid(ResidQuality::High, SidModel::Mos6581)`
-overrides `--resid`/`--resid-hq` and `--sid-model`, and
-`host.SetResidAdsr(ResidAdsr::FixAttackSoft)` overrides `--resid-adsr`. Neither
-turns sound on when it is off. The standalone export keeps the calls. reSID stays an untouched submodule: builds
-compile a copy with `src/revm/patches/resid-adsr-delay-fix.patch`, and the
-export vendors the patched source.
-- Fixed: Stage 3/4 builds ignored `--resid-hq` and `--sid-model`.
-- `./rework update-docs` also refreshes `docs/revm/KB.md`, `SOUND.md` (new)
-and `REVM-STANDALONE.md`.
-- `./rework export` removes staging directories left by an interrupted export.
-- REVM's stuck-run watchdog counts the emulation thread's own CPU time: it
-aborts after 5 CPU seconds without a Main VBlank (before: one wall-clock
-second), so runs slowed by machine load or a debugger are no longer killed.
-- The standalone game has no watchdog thread any more.
-- Standalone export: a Linked name may be a `LinkedArray` in one struct and a
-`LinkedByte`/`LinkedWord` in another (it failed with "linked scalar/array
-names overlap"); the owner's declared type decides. A function template that
-gets Linked state at one call and other state at another is still rejected,
-now naming the argument and the rule (STANDALONE-EXPORT.md).
+Breaking:
+- Armed RAM accesses (`Sync::AtPc`) now land on the instruction's own bus
+cycle, not at its opcode fetch. Arm the load/store itself; an arm that
+doesn't match Twin's access fails the run.
+- No-twin: interrupt handlers take the interrupted code's time
+(`ReturnIrq`/`ReturnNmi` `no_twin_cycles`).
+
+New:
+- Plays record how they were made (`recorded_on`); replaying on another kind
+of system warns.
+- State-hash records (`--state-hashes`) and `./rework hash-compare`: per-frame
+proof that two runs look and sound the same. The export parity check uses them.
+- CPU-flag compare at joins (`CompareMask::Flags`).
+- Stage 4 `video.charset.page(n)` for a fixed glyph page.
+- REVM now supports various fixes for the SID's ADSR delay bug when running
+reSID. It can be fully fixed, fixed only for attack, or fixed only 80% for the
+attacks, to keep some variability. Game code can configure reSID with 
+`host.SetResid(...)` and `host.SetResidAdsr(...)`. See: `docs/revm/SOUND.md`.
+
+Improved:
+- reSID speaker output: no crackle, latency ~180 ms → ~50 ms.
+- Watchdog counts CPU time, so load or a debugger no longer kills runs; the
+standalone has none.
+- `--save-screen` can be repeated; disk images hint at `--disk-auto-load`;
+`update-docs` refreshes all docs; lint understands armed `Mem16` accesses.
+- Docs: four recording classes, fat-slice rules, release workflow.
+
+Fixed:
+- Main's mock CPU stands at the translation's PC, so VIC garbage fetches match.
+- Stage 3/4 builds ignored `--resid-hq` and `--sid-model`.
+- Loading a disk-game snapshot with reSID could stall up to a minute.
+- Standalone export: `$DD00` IEC input bits, shared Linked names, leftover
+staging folders.
 
 ## v0.9.3
 
