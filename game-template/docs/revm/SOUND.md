@@ -13,6 +13,8 @@ the audio, so no option here affects a gate.
 | `--resid-hq` | reSID, FastMem resampling (higher quality, more memory) |
 | `--sid-model 6581\|8580` | chip model for either engine (default 6581) |
 
+Game code can make these choices itself; see below.
+
 reSID speaker output keeps about 30 ms of audio buffered and corrects clock
 drift between the emulator and the sound card by resampling (in practice
 under 0.1%). `--save-audio` and `--state-hashes` take the samples before that
@@ -67,25 +69,38 @@ The divisor is `adsr_soft_divisor` in the reSID patch.
 
 The option needs `--resid` or `--resid-hq`; with Frodo's SID it does nothing.
 
-## Choosing the mode in game code
+## Choosing the sound in game code
 
-A game can set the mode itself, which overrides `--resid-adsr`. Call it once
-when the game is installed, for example in Stage 4's `InstallGame`:
+A game, typically a remaster, can fix exactly how reSID runs. Call the host
+once when the game is installed, for example in Stage 4's `InstallGame`:
 
 ```cpp
 void InstallGame(CpuMockHost & host) {
+	host.SetResid(ResidQuality::High, SidModel::Mos6581);
 	host.SetResidAdsr(ResidAdsr::FixAttackSoft);
 	...
 }
 ```
 
-The run logs `reSID ADSR: fix-attack-soft (set by the game)`. The standalone
-export keeps the call (`gamehost::GameHost::SetResidAdsr`), so the exported
-game always plays that way. The values are `ResidAdsr::Real`, `Fix`,
-`FixAttack` and `FixAttackSoft` (`sid/ResidAdsr.hpp`).
+- `SetResid(quality, model)` switches to reSID, overriding `--resid`,
+  `--resid-hq` and `--sid-model`: `ResidQuality::Normal` is `--resid`,
+  `High` is `--resid-hq`; `SidModel::Mos6581` or `Mos8580`. It never turns
+  sound on: with `--no-audio`, or a headless run without `--resid`, it does
+  nothing and logs `SID: sound is off; the game's reSID choice is not used`.
+- `SetResidAdsr(mode)` overrides `--resid-adsr`: `ResidAdsr::Real`, `Fix`,
+  `FixAttack` or `FixAttackSoft`.
 
-The engine itself (`--resid`, `--resid-hq`) is still chosen on the command
-line. For example, Frantic Freddie sounds best to its maintainer with:
+Each call logs what it set, for example `SID: reSID 6581 (FastMem
+resampling), set by the game`. The types are in `sid/ResidOptions.hpp`. The
+standalone export keeps both calls (`gamehost::GameHost`), so the exported game
+always sounds that way, whatever its command line says. Twin compares SID
+registers only, so the calls never affect a gate.
+
+The chip model also changes what the game reads back from the SID's voice 3
+registers (`$D41B`), exactly as `--sid-model` does.
+
+Without these calls the command line decides. For example, Frantic Freddie
+sounds best to its maintainer with:
 
 ```bash
 ./rework play-game stage4 --main-blank --no-twin --resid-hq --resid-adsr fix-attack-soft

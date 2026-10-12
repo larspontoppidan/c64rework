@@ -173,7 +173,7 @@ reason = "Standalone SDL display and input handling omit media drops, cartridge 
 
 [[forked]]
 path = "src/vendor/frodo/Prefs.h"
-base_sha256 = "c4966f963bcfe94f5fdeec2837ff1ecf2530415f892a20b6717f7f3d22337904"
+base_sha256 = "80ad5ec2471ccfa8c85f998cc221d532bff9aa7c10beb0385729df976ff54ae3"
 reason = "Standalone preferences retain only fields consumed by the remaining chip, audio, display, and input implementation."
 
 [[forked]]
@@ -188,7 +188,7 @@ reason = "Standalone VIC removes its stale cartridge reference while preserving 
 
 [[forked]]
 path = "apps/revm/main.cpp"
-base_sha256 = "f6187a37fbccdaa96fa45397deb835100ac67de02cf5685da48cc43aa49860d2"
+base_sha256 = "ca21c6adb3bb24889485daaa19b4677c0f317295a2e7844d30bdb22574e16604"
 reason = "Standalone entry point omits REVM CLI, oracle, Twin, and analysis startup; launch uses StandaloneRunner and one SidMode for interactive play, --record-play, and replay. Prints a live key sheet (including Ctrl+F9) on windowed launches. --save-screen FRAME FILE (repeatable) and --state-hashes FILE are retained."
 
 [[forked]]

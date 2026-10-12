@@ -2,7 +2,7 @@
 // Author   : Lars Ole Pontoppidan
 // Project  : REVM - C64rework
 
-#include "sid/ResidAdsr.hpp"
+#include "sid/ResidOptions.hpp"
 #include "core/Config.hpp"
 #include "core/StandaloneRunner.hpp"
 #include "input/JoystickConfig.hpp"

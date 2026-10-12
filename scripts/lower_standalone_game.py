@@ -89,6 +89,7 @@ HOST_METHOD_MAP = {
     "InstallIrqHandler": "SetIrqHandler",
     "InstallNmiHandler": "SetNmiHandler",
     "MainCycle": "MainCycle",
+    "SetResid": "SetResid",
     "SetResidAdsr": "SetResidAdsr",
 }
 HOST_CONTROL_METHODS = {

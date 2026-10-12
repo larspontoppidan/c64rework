@@ -3069,6 +3069,24 @@ void CpuMockHost::Quit(int code) {
 	throw SoftQuitException{code};
 }
 
+void CpuMockHost::SetResid(ResidQuality quality, SidModel model) {
+	const bool high = quality == ResidQuality::High;
+	const bool is_8580 = model == SidModel::Mos8580;
+	C64 * c64 = board_.Machine();
+	if (ThePrefs.SIDType == SIDTYPE_NONE || !c64 || !c64->TheSID) {
+		REVM_LOG(REVM_INFO, "SID: sound is off; the game's reSID choice is not used");
+		return;
+	}
+	REVM_LOG(REVM_INFO, "SID: reSID %s (%s), set by the game",
+	         is_8580 ? "8580" : "6581", high ? "FastMem resampling" : "interpolate");
+	// MOS6581::NewPrefs compares against ThePrefs, so update ThePrefs after.
+	Prefs prefs = ThePrefs;
+	prefs.SIDType = is_8580 ? SIDTYPE_RESID_8580 : SIDTYPE_RESID_6581;
+	prefs.ResidHQ = high;
+	c64->TheSID->NewPrefs(&prefs);
+	ThePrefs = prefs;
+}
+
 void CpuMockHost::SetResidAdsr(ResidAdsr mode) {
 	static const char * const kNames[] = {"real", "fix-attack", "fix", "fix-attack-soft"};
 	REVM_LOG(REVM_INFO, "reSID ADSR: %s (set by the game)", kNames[int(mode)]);

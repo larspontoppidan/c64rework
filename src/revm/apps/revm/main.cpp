@@ -6,7 +6,7 @@
  * revm — unified REVM CLI (see newusage.txt / GUIDE.md)
  */
 
-#include "sid/ResidAdsr.hpp"
+#include "sid/ResidOptions.hpp"
 #include "core/Board.hpp"
 #include "core/Config.hpp"
 #include "core/RunSetup.hpp"

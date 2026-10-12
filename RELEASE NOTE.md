@@ -74,9 +74,12 @@ which can postpone an envelope step by up to ~33 ms. `real` (default) is the
 chip; `fix` removes the delay (tight, more staccato); `fix-attack` starts
 note-ons on time but keeps the chip's late releases (notes keep their length);
 `fix-attack-soft` is fix-attack with the note-on delay divided by 5 instead of
-removed. A game can enforce a mode in code with
-`host.SetResidAdsr(ResidAdsr::FixAttackSoft)`, which overrides the option (the
-standalone export keeps the call). See `docs/revm/SOUND.md`. reSID stays an untouched submodule: builds
+removed. See `docs/revm/SOUND.md`.
+- Game code can choose exactly how reSID runs (REVM stage builds and the
+standalone export): `host.SetResid(ResidQuality::High, SidModel::Mos6581)`
+overrides `--resid`/`--resid-hq` and `--sid-model`, and
+`host.SetResidAdsr(ResidAdsr::FixAttackSoft)` overrides `--resid-adsr`. Neither
+turns sound on when it is off. The standalone export keeps the calls. reSID stays an untouched submodule: builds
 compile a copy with `src/revm/patches/resid-adsr-delay-fix.patch`, and the
 export vendors the patched source.
 - Fixed: Stage 3/4 builds ignored `--resid-hq` and `--sid-model`.

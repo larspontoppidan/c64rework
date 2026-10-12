@@ -14,7 +14,7 @@
 #include "cpumock/AdvanceResult.hpp"
 #include "core/Board.hpp"
 #include "core/Config.hpp"
-#include "sid/ResidAdsr.hpp"
+#include "sid/ResidOptions.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -120,9 +120,13 @@ public:
 	void ReturnNmi(uint32_t cycles);
 	// Main's simulation clock (CpuMockHost::MainCycle in Stage 4).
 	uint32_t MainCycle() const;
-	// Game code may choose how reSID emulates the SID's ADSR delay bug; it
-	// overrides --resid-adsr. Sound only (Twin compares SID registers).
-	// No effect without --resid / --resid-hq.
+	// Game code may choose how Main's sound is made; these override the
+	// command line. Sound only (Twin compares SID registers). SetResid
+	// switches to reSID with that quality and chip model (as --resid or
+	// --resid-hq with --sid-model); it does nothing when sound is off
+	// (--no-audio, or a headless run without --resid). SetResidAdsr chooses
+	// how reSID emulates the SID's ADSR delay bug (--resid-adsr).
+	void SetResid(ResidQuality quality, SidModel model);
 	void SetResidAdsr(ResidAdsr mode);
 
 private:
