@@ -10,11 +10,13 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 namespace revm {
 
 void Coverage::Clear() {
 	std::memset(counts_, 0, sizeof(counts_));
+	vic_recorded_ = true;
 }
 
 void Coverage::add(Plane p, uint16_t addr) {
@@ -54,10 +56,10 @@ bool Coverage::Save(const std::string & path, std::string & error) const {
 	char magic[8]{};
 	std::memcpy(magic, kMagic, 8);
 	const uint16_t version = kVersion;
-	const uint16_t reserved = 0;
+	const uint16_t flags = vic_recorded_ ? kFlagVicRecorded : 0;
 	f.write(magic, 8);
 	f.write(reinterpret_cast<const char *>(&version), 2);
-	f.write(reinterpret_cast<const char *>(&reserved), 2);
+	f.write(reinterpret_cast<const char *>(&flags), 2);
 	for (unsigned p = 0; p < static_cast<unsigned>(Plane::Count); ++p) {
 		f.write(reinterpret_cast<const char *>(counts_[p]),
 		        static_cast<std::streamsize>(kPlaneAddrs * sizeof(uint16_t)));
@@ -79,29 +81,38 @@ bool Coverage::Load(const std::string & path, std::string & error) {
 	f.seekg(0);
 	Clear();
 
-	if (sz != kFileSize) {
-		error = "unexpected coverage size " + std::to_string(sz) +
-		        " (want REVMCOV2 " + std::to_string(kFileSize) + "): " + path;
-		return false;
-	}
-
 	char magic[8]{};
 	uint16_t version = 0;
-	uint16_t reserved = 0;
+	uint16_t flags = 0;
 	f.read(magic, 8);
 	f.read(reinterpret_cast<char *>(&version), 2);
-	f.read(reinterpret_cast<char *>(&reserved), 2);
+	f.read(reinterpret_cast<char *>(&flags), 2);
 	if (std::memcmp(magic, kMagic, 8) != 0) {
 		error = "bad coverage magic (expected REVMCOV2): " + path;
 		return false;
 	}
-	if (version != kVersion) {
+	unsigned planes = 0;
+	size_t want = 0;
+	if (version == 1) {
+		planes = 4;
+		want = kFileSizeV1;
+		vic_recorded_ = false;
+	} else if (version == kVersion) {
+		planes = static_cast<unsigned>(Plane::Count);
+		want = kFileSize;
+		vic_recorded_ = (flags & kFlagVicRecorded) != 0;
+	} else {
 		error = "unsupported coverage version " + std::to_string(version) +
 		        ": " + path;
 		return false;
 	}
-	(void)reserved;
-	for (unsigned p = 0; p < static_cast<unsigned>(Plane::Count); ++p) {
+	if (sz != want) {
+		error = "unexpected coverage size " + std::to_string(sz) + " (want " +
+		        std::to_string(want) + " for version " + std::to_string(version) +
+		        "): " + path;
+		return false;
+	}
+	for (unsigned p = 0; p < planes; ++p) {
 		f.read(reinterpret_cast<char *>(counts_[p]),
 		       static_cast<std::streamsize>(kPlaneAddrs * sizeof(uint16_t)));
 	}
@@ -113,6 +124,7 @@ bool Coverage::Load(const std::string & path, std::string & error) {
 }
 
 void Coverage::Merge(const Coverage & other) {
+	vic_recorded_ = vic_recorded_ && other.vic_recorded_;
 	for (unsigned p = 0; p < static_cast<unsigned>(Plane::Count); ++p) {
 		for (size_t i = 0; i < kPlaneAddrs; ++i) {
 			const uint32_t sum =
@@ -187,6 +199,37 @@ int RunCoverageSelfTest(std::string & report) {
 	check(c.Get(Coverage::Plane::PcRam, 0x1000) == 3, "roundtrip pc");
 	check(c.Get(Coverage::Plane::MemRam, 0x00DA) == 1, "roundtrip mem");
 	check(c.Count(Coverage::Plane::PcRam) == 1, "nonzero count");
+	std::remove(path.c_str());
+
+	// Version 2 carries the VIC plane; version 1 files load as "not recorded".
+	Coverage v;
+	v.MarkVicRam(0x0400);
+	check(v.Save(path, err), "save v2 with vic");
+	Coverage v2;
+	check(v2.Load(path, err), "load v2");
+	check(v2.HitVicRam(0x0400) && v2.VicRecorded(), "roundtrip vic");
+	{
+		std::ofstream f(path, std::ios::binary | std::ios::trunc);
+		const uint16_t version1 = 1;
+		const uint16_t zero = 0;
+		f.write(Coverage::kMagic, 8);
+		f.write(reinterpret_cast<const char *>(&version1), 2);
+		f.write(reinterpret_cast<const char *>(&zero), 2);
+		std::vector<uint16_t> plane(Coverage::kPlaneAddrs, 0);
+		plane[0x1000] = 7;
+		f.write(reinterpret_cast<const char *>(plane.data()),
+		        static_cast<std::streamsize>(plane.size() * sizeof(uint16_t)));
+		plane[0x1000] = 0;
+		for (int p = 1; p < 4; ++p)
+			f.write(reinterpret_cast<const char *>(plane.data()),
+			        static_cast<std::streamsize>(plane.size() * sizeof(uint16_t)));
+	}
+	Coverage v1;
+	check(v1.Load(path, err), "load v1");
+	check(v1.Get(Coverage::Plane::PcRam, 0x1000) == 7, "v1 pc plane");
+	check(!v1.VicRecorded(), "v1 vic not recorded");
+	v2.Merge(v1);
+	check(!v2.VicRecorded(), "merge with v1 not recorded");
 	std::remove(path.c_str());
 
 	if (fails == 0) r << "All coverage self-tests passed.\n";

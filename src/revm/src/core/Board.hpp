@@ -152,6 +152,7 @@ public:
 	const Coverage & GetCoverage() const { return coverage_; }
 	Coverage & GetCoverage() { return coverage_; }
 	void RecordMemAccess(uint16_t adr, bool is_rom);
+	void RecordVicFetch(uint16_t adr);
 
 	struct LastTrace {
 		std::string name;

@@ -128,7 +128,7 @@ void print_usage(const char * argv0) {
 		"  --kb-check-verbose    Stage 3: also check KB watch:\"verbose\" slots\n"
 		"  --kb-check-stage3     Also check KB watch:\"stage3\" slots (Stage 3 targets)\n"
 		"  --trace-calls         Log fetches at KB objects with trace:\"yes\"\n"
-		"  --coverage FILE       Record REVMCOV2 coverage (u16 counts/addr)\n"
+		"  --coverage FILE       Record REVMCOV2 coverage (u16 counts/addr, VIC fetches included)\n"
 		"  --headless            Hidden window, uncapped; requires --max-frames N\n"
 		"                        or --use-play FILE\n"
 		"  --log-debug CYCLE     Emit Debug logs once Main cycle >= CYCLE\n"

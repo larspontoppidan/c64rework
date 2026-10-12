@@ -61,12 +61,12 @@ reason = "Standalone extracts the shared AdvanceResult enum and name helper from
 
 [[forked]]
 path = "src/core/Board.cpp"
-base_sha256 = "c2ec2532451894c633188b0104518d1f37c83e0a7eda15c1216f2100f629c5e6"
+base_sha256 = "fc49fc8e47395c37676367c4acebde1c54cb462492d16bf6229513625b31299a"
 reason = "Standalone Board retains only the primary blank-Main Frodo lifecycle, input, display/audio, and CPU-mock hooks; unused Reset/Run, input getters, frame/shutdown callbacks, the shadow Clock object, and EmulateCycleInjectCpu are removed. SID setup uses one SidMode. --save-screen and Ctrl+F9 write an indexed Pepto PNG from the VIC bitmap without the full media/snapshot stack; --state-hashes uses the shared StateHashRecorder, closed by FinishOutputs. Optional PlayRecorder captures sticky C64 input at VSYNC. The game has no supervisor or watchdog thread: --max-seconds is a cooperative limit checked in the emulation loop, for headless tests. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
 
 [[forked]]
 path = "src/core/Board.hpp"
-base_sha256 = "450cb68516e832ddfa108ad2001d9d716bb434859a4139f11a13351fe91e40d5"
+base_sha256 = "ddde8c253b53b075021437a2729d65eb7b8595de8c09a9edda168d5e5e4b58d9"
 reason = "Standalone Board API omits secondary/Twin, snapshots, playback-oracle callbacks, debug, coverage, analysis, unused Reset/Run/hook surfaces, the shadow Clock object, and EmulateCycleInjectCpu. --save-screen and Ctrl+F9 are Main-only PNG captures; --state-hashes is the shared StateHashRecorder. SetPlayRecorder is the slim input recorder, not the FullSnapshot oracle. Upstream KB-load error propagation is omitted because standalone has no knowledge-base loader."
 
 [[forked]]
@@ -183,12 +183,12 @@ reason = "Standalone preferences provide retained defaults without editor, persi
 
 [[forked]]
 path = "src/vendor/frodo/VIC_SC.cpp"
-base_sha256 = "f4da8d7409e9377e0df7b901ba229666785d8711ce37b314907c65d976a6f60e"
+base_sha256 = "f601dfe2f0fe8e3b02042bf4ffc395151ba086e11cbbbe90fa4a46f8adfa4a62"
 reason = "Standalone VIC removes its stale cartridge reference while preserving raster and rendering behavior."
 
 [[forked]]
 path = "apps/revm/main.cpp"
-base_sha256 = "ca21c6adb3bb24889485daaa19b4677c0f317295a2e7844d30bdb22574e16604"
+base_sha256 = "2c3c38926bd89b493dfa83bbcac86f1f0c8307196b27430dc8a159cca040d785"
 reason = "Standalone entry point omits REVM CLI, oracle, Twin, and analysis startup; launch uses StandaloneRunner and one SidMode for interactive play, --record-play, and replay. Prints a live key sheet (including Ctrl+F9) on windowed launches. --save-screen FRAME FILE (repeatable) and --state-hashes FILE are retained."
 
 [[forked]]

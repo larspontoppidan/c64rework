@@ -793,7 +793,7 @@ void MOS6569::TriggerLightpen()
  *  Read a byte from the VIC's address space
  */
 
-inline uint8_t MOS6569::read_byte(uint16_t adr)
+inline uint8_t MOS6569::read_byte_quiet(uint16_t adr)
 {
 	uint16_t va = adr | cia_vabase;
 	if ((va & 0x7000) == 0x1000) {
@@ -801,6 +801,16 @@ inline uint8_t MOS6569::read_byte(uint16_t adr)
 	} else {
 		return LastVICByte = ram[va];
 	}
+}
+
+// A display fetch: reported to the fetch hook when it reads RAM.
+inline uint8_t MOS6569::read_byte(uint16_t adr)
+{
+	if (fetch_hook_) {
+		uint16_t va = adr | cia_vabase;
+		if ((va & 0x7000) != 0x1000) fetch_hook_(va, fetch_hook_userdata_);
+	}
+	return read_byte_quiet(adr);
 }
 
 
@@ -1477,11 +1487,11 @@ inline void MOS6569::draw_sprites()
 
 // Idle access
 #define IdleAccess \
-	read_byte(0x3fff)
+	read_byte_quiet(0x3fff)
 
 // Refresh access
 #define RefreshAccess \
-	read_byte(0x3f00 | ref_cnt--)
+	read_byte_quiet(0x3f00 | ref_cnt--)
 
 // Turn on sprite DMA if necessary
 #define CheckSpriteDMA \
@@ -1509,7 +1519,7 @@ inline void MOS6569::draw_sprites()
 		mc[num] = (mc[num] + 1) & 0x3f; \
 	} else { \
 		if (bytenum == 1) { \
-			spr_data[num][bytenum] = read_byte(0x3fff); \
+			spr_data[num][bytenum] = read_byte_quiet(0x3fff); \
 		} else { \
 			spr_data[num][bytenum] = 0xff; /* TODO: or byte which CPU is reading from/writing to VIC register right now */ \
 		} \

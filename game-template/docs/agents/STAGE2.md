@@ -74,8 +74,8 @@ Day-to-day Stage 2 work is: edit the KB, then rebuild analysis.
    more into `plays/merged_cov.bin`.
 
 2. Generate (and atomically replace) `kb-analysis/`: listing, address map,
-   extracted blobs. If `plays/merged_cov.bin` exists, also the call graph and
-   hot-UNDOC queue:
+   extracted blobs. If `plays/merged_cov.bin` exists, also the call graph, the
+   hot-UNDOC queue and `free_map.txt`, the RAM no play used (see `KB.md`):
 
    ```bash
    ./rework kb-analysis

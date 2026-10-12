@@ -588,6 +588,13 @@ kb_analysis() {
 		args+=(--cov "$COVERAGE_MERGED"
 			--call-graph "$stage_dir/call_graph.txt"
 			--hot-undoc "$stage_dir/hot_undoc.txt")
+		# REVMCOV2 version 2 (0.9.5+) carries the VIC fetch plane the free map
+		# needs; older files are 524300 bytes.
+		if [[ "$(stat -c %s -- "$COVERAGE_MERGED")" == 655372 ]]; then
+			args+=(--free-map "$stage_dir/free_map.txt")
+		else
+			echo "rework: warning: $COVERAGE_MERGED predates VIC coverage; run generate-cov again for free_map.txt" >&2
+		fi
 	else
 		echo "rework: warning: missing $COVERAGE_MERGED; skipping --cov / --call-graph / --hot-undoc" >&2
 	fi

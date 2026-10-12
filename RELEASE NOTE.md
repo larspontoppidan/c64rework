@@ -2,6 +2,15 @@
 
 ## v0.9.5
 
+- Coverage records what the VIC fetches: `--coverage` gains a VIC plane
+(screen, charset, bitmap, sprite data), so graphics count as used memory. The
+file format moves to version 2; older coverage files still load, without it.
+Run `./rework generate-cov` again to get it.
+- `revm-tool --free-map FILE` lists the RAM no recorded play executed, read,
+wrote or the VIC fetched, as a start for finding room for patches.
+`./rework kb-analysis` writes it as `kb-analysis/free_map.txt`. The address
+map tags VIC-fetched bytes `vic`.
+
 ## v0.9.4
 
 Breaking:

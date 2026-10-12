@@ -223,7 +223,10 @@ Breakpoints are **not** in the KB — set them from the REVM command line.
 `--trace-calls` for last-trace); Stage 3 kb-check with `--kb` (optional
 `--kb-check-verbose`); `--trace-calls` for `trace:"yes"`; `--coverage FILE`
 writes REVMCOV2 with saturating u16 counts for the PC-RAM, PC-ROM, MEM-RAM,
-and MEM-ROM planes.
+MEM-ROM and VIC planes. The VIC plane counts the RAM bytes the VIC fetched for
+display (screen, charset, bitmap, sprite pointers and data), so graphics the
+CPU never touches still count as used. It is new in 0.9.5 (file version 2);
+older coverage files load with the VIC plane marked not recorded.
 
 **Disassembler / `revm-tool`** — `--kb` annotates ordinary `snap` and `ram`
 disassembly. Snapshot `--listing` without coverage disassembles the continuous
@@ -240,7 +243,14 @@ as a progress signal (not a Stage-2 gate — prefer UNDOC over placeholder
 names; Stage 2↔3 iterate per README / GUIDE). Use
 `--map-tally` for the tally alone. `--call-graph` / `--hot-undoc` need `--cov`
 (REVMCOV2 u16 counts): call-graph weights JSR/JMP sites by PC-RAM fetch count;
-hot-undoc ranks unnamed MEM hits (ZP first). `--watch-diff OTHER` compares KB
+hot-undoc ranks unnamed MEM hits (ZP first). In the map, bytes the VIC
+fetched are tagged `vic` (`UNDOC vic` is unnamed graphics). `--free-map FILE`
+(needs `--cov` with the VIC plane) lists RAM runs no play executed, read,
+wrote or the VIC fetched, with their content (one fill byte, or data), whether
+they lie under BASIC, KERNAL or I/O, and any KB objects they overlap.
+`--free-min N` sets the shortest run (default 16). Coverage proves only what
+the plays reached, so an unreached level looks free: a fill run is good
+evidence, a data run is unreached content until shown otherwise. `--watch-diff OTHER` compares KB
 `watch` bytes between two FullSnapshots. `revm-tool sort-kb IN OUT` rewrites a KB with
 objects sorted by bank, then `addr` (range start). MEM hits with
 no KB entry are UNDOC (`mem-ram` / `mem-rom`). Optional `--kb-support` supplies

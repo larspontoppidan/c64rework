@@ -60,6 +60,10 @@ void mem_access_thunk(uint16_t adr, bool /*is_write*/, MOS6510::CoverSpace space
 	self->RecordMemAccess(adr, space == MOS6510::CoverSpace::Rom);
 }
 
+void vic_fetch_thunk(uint16_t adr, void * userdata) {
+	static_cast<Board *>(userdata)->RecordVicFetch(adr);
+}
+
 void supervisor_diagnostic(const char * reason, uint32_t frame,
                            uint32_t cycle, uint64_t generation) {
 	char message[320];
@@ -441,6 +445,9 @@ bool Board::init_machine(std::string & error, BoardInitRole role) {
 	if (coverage_active_ && c64_->TheCPU) {
 		c64_->TheCPU->SetMemAccessHook(&mem_access_thunk, this);
 	}
+	if (coverage_active_ && c64_->TheVIC) {
+		c64_->TheVIC->SetFetchHook(&vic_fetch_thunk, this);
+	}
 
 	if (!secondary_) {
 		// Stage 3 CpuMockHost::wire_defaults replaces this with Main+Twin.
@@ -821,6 +828,16 @@ void Board::RecordMemAccess(uint16_t adr, bool is_rom) {
 	}
 }
 
+void Board::RecordVicFetch(uint16_t adr) {
+	if (!coverage_active_) return;
+	if (cfg_.begin_cycle_count) {
+		const uint64_t begin = *cfg_.begin_cycle_count;
+		const uint64_t early = begin > 16 ? begin - 16 : 0;
+		if (CycleCounter() < early) return;
+	}
+	coverage_.MarkVicRam(adr);
+}
+
 void Board::PcFetchThunk(uint16_t pc, void * userdata) {
 	auto * self = static_cast<Board *>(userdata);
 	if (self->coverage_active_) {
@@ -865,7 +882,7 @@ void Board::flush_coverage() {
 		REVM_LOG(REVM_ERROR, "coverage save failed: %s", err.c_str());
 	} else {
 		REVM_LOG(REVM_DEBUG, "coverage → %s  (pc_ram=%zu/%llu pc_rom=%zu/%llu "
-		             "mem_ram=%zu/%llu mem_rom=%zu/%llu)",
+		             "mem_ram=%zu/%llu mem_rom=%zu/%llu vic_ram=%zu/%llu)",
 		             cfg_.coverage_path.c_str(),
 		             coverage_.Count(Coverage::Plane::PcRam),
 		             (unsigned long long)coverage_.TotalHits(Coverage::Plane::PcRam),
@@ -874,11 +891,16 @@ void Board::flush_coverage() {
 		             coverage_.Count(Coverage::Plane::MemRam),
 		             (unsigned long long)coverage_.TotalHits(Coverage::Plane::MemRam),
 		             coverage_.Count(Coverage::Plane::MemRom),
-		             (unsigned long long)coverage_.TotalHits(Coverage::Plane::MemRom));
+		             (unsigned long long)coverage_.TotalHits(Coverage::Plane::MemRom),
+		             coverage_.Count(Coverage::Plane::VicRam),
+		             (unsigned long long)coverage_.TotalHits(Coverage::Plane::VicRam));
 	}
 	coverage_active_ = false; // avoid double-save from destructor after Run()
 	if (c64_ && c64_->TheCPU) {
 		c64_->TheCPU->SetMemAccessHook(nullptr, nullptr);
+	}
+	if (c64_ && c64_->TheVIC) {
+		c64_->TheVIC->SetFetchHook(nullptr, nullptr);
 	}
 }
 
