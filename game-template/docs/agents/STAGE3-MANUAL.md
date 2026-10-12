@@ -577,8 +577,13 @@ void Game::nmi_music() {
 - `ReturnIrq` needs the original RTI PC so Twin can be walked to it.
   `ReturnNmi` does not chase Twin (the NMI body's duration is owned by later
   fences).
-- `no_twin_cycles` is the handler's original body length used only under
-  `--no-twin`; `0` is acceptable until timing under `--no-twin` matters.
+- `no_twin_cycles` is the handler's original body length in Φ2, used only
+  under `--no-twin` (§11): the Φ2 of the handler's own instructions up to,
+  not including, the RTI. Declare a constant when the body is fixed, or
+  compute it for the path taken (a delay count, a loop trip count). `0`
+  means "not declared": the main line then loses only the interrupt
+  sequence and RTI. Record what is counted and what is not modelled
+  (data-dependent paths) at the `ReturnIrq`.
 - Inside a handler you may use `JoinAtPc` (same frame), armed accesses, `Compare`,
   `Return*`. You may **not** use `JoinAtPcBounded`, `AdvanceCycles` or
   `AdvanceToVSync` (lint
@@ -759,7 +764,7 @@ fence degrades:
 | `JoinAtPc` | no-op (no compare) |
 | `JoinAtPcBounded` | `no_twin_frames` Main VBLANKs |
 | armed explicit bag access | the same explicit operation, ordinary Main-only |
-| `ReturnIrq/Nmi` | `no_twin_cycles` then teardown |
+| `ReturnIrq/Nmi` | teardown; the interrupted code waits for the handler's time (below) |
 | `AdvanceCycles` / `AdvanceToVSync` | same (Main-only) |
 | `WatchMark/ExpectWatchDelta` | no-op |
 | `diag().*` | hard quit — keep it out of paths that run without Twin |
@@ -767,6 +772,18 @@ fence degrades:
 Where an original wait is data-dependent and you cannot give a frame count,
 write the `host_.NoTwin()` sibling explicitly (poll the same Main register
 the original polls).
+
+**Handler time.** A translated handler body runs in zero time, but on the
+real CPU it takes the interrupted code's time. Under `--no-twin` the host
+holds I and the interrupted main line after `ReturnIrq` for 7 Φ2 (the
+interrupt sequence) + `no_twin_cycles` + 8 Φ2 (RTI and the CIA IR-clear),
+counted like the CPU: not while the VIC holds BA low. `ReturnNmi` holds for
+its `no_twin_cycles` (0: no hold). `AdvanceCycles(n)` therefore means `n`
+Φ2 of main-line time, and `AdvanceToVSync` returns after a handler that runs
+over the VSYNC. Code after a spin that an IRQ releases runs when the
+original's does, with no game-side release bookkeeping. Calibrate
+`--no-twin` pacing constants as main-line time only: a figure measured as
+Twin wall time includes the interrupts, which the host now charges again.
 
 Original-game recordings are authoritative only with Twin attached. Without
 Twin, changed fence timing can alter CIA samples, collisions and RNG; the game

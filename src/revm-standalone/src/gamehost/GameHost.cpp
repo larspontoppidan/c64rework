@@ -152,7 +152,10 @@ void GameHost::MockNmiThunk(void * userdata) {
 	--self->nmi_depth_;
 
 	if (self->nmi_finish_called_ && self->nmi_hold_cycles_ > 0) {
-		if (self->irq_depth_ > 0 && self->IrqHoldActive())
+		// An NMI inside an IRQ handler's time lengthens it. That time is
+		// paid after the IRQ body has returned (run_handler_time), so the
+		// hold alone says the IRQ handler is still running.
+		if (self->IrqHoldActive())
 			self->AddMockIrqHold(self->nmi_hold_cycles_);
 		else
 			hw->SetCpuMockPostIrqHold(self->nmi_hold_cycles_, i_before);
@@ -277,35 +280,40 @@ GameHost::AdvanceResult GameHost::AdvanceCycles(
 	if (cycles == 0)
 		return AdvanceResult::Ok;
 
+	// `cycles` is main-line time. A handler that interrupts the wait does
+	// not use it up: its time is paid by run_handler_time() and not counted.
+	const bool cross_vsync = vsync_policy == VSyncPolicy::Cross;
 	uint64_t left = cycles;
 	int no_progress = 0;
 	while (left > 0) {
 		const uint32_t c0 = board_.CycleCounter();
-		const bool cross_vsync = vsync_policy == VSyncPolicy::Cross;
 		const AdvanceResult r = main_advance(left, cross_vsync);
-		if (r == AdvanceResult::HitNmi || r == AdvanceResult::HitIrq) {
-			if (board_.CycleCounter() == c0) {
-				if (++no_progress > 128) {
-					Fail(1,
-					     "Main dispatch: too many HitIrq/HitNmi retries (%d)",
-					     no_progress);
-					return AdvanceResult::Error;
-				}
-			} else {
-				no_progress = 0;
+		const uint32_t ran = board_.CycleCounter() - c0;
+		if (uint64_t(ran) >= left)
+			left = 0;
+		else
+			left -= ran;
+		if (r != AdvanceResult::HitNmi && r != AdvanceResult::HitIrq)
+			return r;
+		if (ran == 0) {
+			if (++no_progress > 128) {
+				Fail(1,
+				     "Main dispatch: too many HitIrq/HitNmi retries (%d)",
+				     no_progress);
+				return AdvanceResult::Error;
 			}
-			if (r == AdvanceResult::HitNmi)
-				RunNmiHandler();
-			else
-				RunIrqHandler();
-			const uint32_t ran = board_.CycleCounter() - c0;
-			if (uint64_t(ran) >= left)
-				left = 0;
-			else
-				left -= ran;
-			continue;
+		} else {
+			no_progress = 0;
 		}
-		return r;
+		if (r == AdvanceResult::HitNmi)
+			RunNmiHandler();
+		else
+			RunIrqHandler();
+		// The main line resumes after the handler. If the handler ran over
+		// the VSYNC, the main line can only notice that afterwards.
+		const bool crossed = run_handler_time();
+		if (crossed && !cross_vsync)
+			return AdvanceResult::HitVSync;
 	}
 	return AdvanceResult::Ok;
 }
@@ -325,7 +333,40 @@ GameHost::AdvanceResult GameHost::AdvanceToVSync() {
 			RunNmiHandler();
 		else
 			RunIrqHandler();
+		// A handler still running at the VSYNC delays the main line past it.
+		if (run_handler_time())
+			return AdvanceResult::HitVSync;
 	}
+}
+
+// The translated handler body ran in zero time, but on the real machine it
+// occupies the CPU, and the interrupted main line only resumes after its
+// RTI. That time is the post-interrupt hold that ReturnIrq / ReturnNmi set
+// from the cycles the translation declares. Run the machine until the hold
+// has elapsed, so main-line code after the interrupt runs at the original's
+// time and not at the accept. IRQs stay masked during the hold (I is set),
+// so a following IRQ is dispatched by the caller once the main line would
+// resume; an NMI can still interrupt the handler, and its own time is added
+// to the hold. Returns true when a VSYNC passed. Same as CpuMockHost.
+bool GameHost::run_handler_time() {
+	C64 * c64 = board_.Machine();
+	if (!c64 || !c64->TheCPU)
+		return false;
+	MOS6510 * hw = c64->TheCPU;
+	bool crossed_vsync = false;
+	while (hw->CpuMockIrqHoldActive()) {
+		ThrowIfQuitRequested();
+		if (hw->CpuMockNmiPending() && nmi_depth_ == 0) {
+			RunNmiHandler();
+			continue;
+		}
+		if (board_.EmulateCycle()) {
+			pace_after_vsync();
+			ThrowIfQuitRequested();
+			crossed_vsync = true;
+		}
+	}
+	return crossed_vsync;
 }
 
 uint32_t GameHost::AdvanceFrames(uint32_t frames) {
@@ -341,7 +382,11 @@ uint32_t GameHost::AdvanceFrames(uint32_t frames) {
 void GameHost::ReturnIrq(uint32_t body_cycles) {
 	if (!InIrq())
 		Fail(1, "ReturnIrq requires InIrq");
-	FinishMockIrq(body_cycles);
+	// The handler's time on the real CPU: the 7-Φ2 interrupt sequence, the
+	// body the translation declares, and FinishMockIrq's 8-Φ2 RTI/IR-clear.
+	// The interrupted main line waits for all of it (run_handler_time).
+	constexpr uint32_t kIrqSequencePhi2 = 7;
+	FinishMockIrq(kIrqSequencePhi2 + body_cycles);
 }
 
 void GameHost::ReturnNmi(uint32_t cycles) {

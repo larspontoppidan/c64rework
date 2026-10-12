@@ -858,9 +858,12 @@ public:
 	// joins). Twin still obligated by this accept token (not I)
 	// across VBLANK extra-VSYNCs once (silent). Twin already RTI'd /
 	// LeftNest is success — unlike nested JoinAtPc, which SoftQuits.
-	// --no-twin / calendar off: FinishMockIrq
-	// (`cycles` + 8 Φ2 IR-clear). Do not chase Twin PC when the calendar is
-	// off (Twin may be in interval 6510, not this handler).
+	// --no-twin: `cycles` is the handler body's own Φ2 as the translation
+	// declares it (a constant, or computed for the path taken). The host
+	// holds I and the interrupted main line for 7 (interrupt sequence) +
+	// `cycles` + 8 (RTI/IR-clear) Φ2, so main-line code after the
+	// interrupt runs when the original's does. Under Twin `cycles` is unused
+	// for timing: Twin's RTI is the duration.
 	static inline void ReturnIrq(Host & host, uint16_t rti_pc, uint32_t cycles,
 	                             CompareMask mask = CompareMask::None()) {
 		RejectArmed(host, "ReturnIrq");
@@ -883,8 +886,9 @@ public:
 	// Twin already left the steal is success (do not chase the next RTI).
 	// Extra VSYNC while TwinInNmiSequence() across VBLANK is drain-trunc,
 	// not a body chase. NMI *body* spanning VBLANK is unpaid until body
-	// tracking exists. --no-twin / calendar off: FinishMockNmi(cycles);
-	// 0 is today's no-op (thunk restores I).
+	// tracking exists. --no-twin: `cycles` holds I and the interrupted
+	// code for that many Φ2 (the NMI's whole time); 0 is a no-op (thunk
+	// restores I). Under Twin `cycles` is ignored.
 	static inline void ReturnNmi(Host & host, uint32_t cycles,
 	                             CompareMask mask = CompareMask::None()) {
 		RejectArmed(host, "ReturnNmi");
@@ -896,7 +900,8 @@ public:
 				host.CompareNow(mask);
 			return;
 		}
-		host.FinishMockNmi(cycles);
+		// Under Twin `cycles` is unused for timing, as in ReturnIrq: the NMI's
+		// duration is Twin's own execution, drained by later fences.
 		if (mask.any())
 			host.CompareNow(mask);
 	}

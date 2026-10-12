@@ -12,6 +12,14 @@ whose instruction on Twin does not touch the byte Main accesses fails the run
 as a check (`--ignore-checks` runs past it).
 Games that armed the instruction after a store to make up for the early store
 must arm the store itself.
+- 0.9.4 changes `--no-twin` timing (Stage 3/4 and the standalone export): an
+interrupt handler now takes the interrupted code's time, as on the real CPU.
+After `ReturnIrq` the main line waits 7 + `no_twin_cycles` + 8 Φ2 (and
+`ReturnNmi`'s `no_twin_cycles`, which Twin runs now ignore, as they do
+for `ReturnIrq`) before it continues; `AdvanceCycles` counts
+main-line time only. Declare each handler's body length; pacing constants
+calibrated from Twin wall time must drop the interrupt share. Existing
+no-twin recordings may follow a different course and should be re-recorded.
 - Recordings note how they were made: every recorder (REVM, Stage 3/4 and the
 standalone export) writes `"recorded_on": {"no_twin", "main_blank",
 "details"}` after `source`. It replaces the root `"no-twin"` field, which is

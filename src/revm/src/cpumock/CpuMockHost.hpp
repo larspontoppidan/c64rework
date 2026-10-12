@@ -216,6 +216,9 @@ public:
 	                            VSyncPolicy vsync_policy = VSyncPolicy::Cross);
 	AdvanceResult AdvanceToVSync();
 	uint32_t AdvanceFrames(uint32_t frames);
+	// --no-twin: the interrupted main line resumes only after the handler's
+	// time (ReturnIrq: 7 + body_cycles + 8 Φ2; ReturnNmi: cycles), as on the
+	// real CPU. AdvanceCycles counts main-line Φ2 only.
 	void ReturnIrq(uint32_t body_cycles);
 	void ReturnNmi(uint32_t cycles);
 	// Main's own simulation clock: the cycle count of Main's board. Use it
@@ -490,6 +493,10 @@ private:
 	// Raw Main-only advance (Twin untouched; inject catch-up, --no-twin).
 	// Tracks Main line edges; yields Hit* only without Twin.
 	AdvanceResult main_advance(uint64_t cycles, bool run_past_vsync = true);
+	// --no-twin: run Main until the handler's post-interrupt hold has
+	// elapsed (the interrupted main line does not run meanwhile). True when
+	// a VSYNC passed.
+	bool run_handler_time();
 	// EnterInterrupt: Twin is parked at its accept boundary. Burn Main to
 	// the steal cycle, take the skew verdict (K_EARLY / K_LATE, type match),
 	// consume the pending flag and bind the sequence to this dispatch.

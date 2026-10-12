@@ -159,6 +159,9 @@ private:
 	void ThrowIfQuitRequested();
 	void pace_after_vsync();
 	AdvanceResult main_advance(uint64_t cycles, bool run_past_vsync = true);
+	// Run Main until the handler's post-interrupt hold has elapsed (the
+	// interrupted main line does not run meanwhile). True when a VSYNC passed.
+	bool run_handler_time();
 
 	revm::Board board_;
 	EntryHandler entry_handler_;
