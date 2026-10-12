@@ -659,6 +659,19 @@ run_selftests() {
 	fi
 }
 
+# An export that was killed leaves its staging directory (.Export.tmp.*) and
+# possibly the moved-aside previous export (.Export.previous.<pid>) in the game
+# root. Both are export's own scratch; the next export removes them. (Only one
+# export runs in a game root at a time.)
+remove_stale_export_dirs() {
+	local stale
+	for stale in "$GAME_ROOT"/.Export.tmp.* "$GAME_ROOT"/.Export.previous.*; do
+		[[ -d "$stale" ]] || continue
+		echo "rework: removing stale ${stale##*/} (left by an interrupted export)"
+		rm -rf -- "$stale"
+	done
+}
+
 generate_export() {
 	require_framework
 	ensure_resid
@@ -670,6 +683,7 @@ generate_export() {
 		die "missing Stage4/REMASTERING.md (a Stage 4.5 deliverable; template in game-template/Stage4/)"
 	stage4_diag
 	audit_runtime
+	remove_stale_export_dirs
 	local stage_dir backup=""
 	stage_dir="$(mktemp -d "$GAME_ROOT/.Export.tmp.XXXXXX")"
 	trap '[[ -z "${stage_dir:-}" ]] || rm -rf -- "$stage_dir"' EXIT

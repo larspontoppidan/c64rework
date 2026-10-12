@@ -56,6 +56,16 @@ twin=1`. It needs no `s3lint:allow S3-014`; events and `--report` gain a
 page `n` (0..7, bank offset `n * $800`) of the VIC bank, with the same timed
 writes. Use it when the original writes an absolute glyph page while a raster
 IRQ flips `$D018`; `video.charset` still follows the live `$D018`.
+- Standalone export: `$DD00` reads the IEC DATA/CLK input bits like REVM
+(the C64's own outputs and Frodo's parked 1541 pull the lines low) instead
+of all ones. A read-modify-write of `$DD00` now leaves the same port A latch
+as Stage 4.5; the `cia2` state hash counts that whole latch.
+- `./rework export` removes staging directories left by an interrupted export.
+- Standalone export: a Linked name may be a `LinkedArray` in one struct and a
+`LinkedByte`/`LinkedWord` in another (it failed with "linked scalar/array
+names overlap"); the owner's declared type decides. A function template that
+gets Linked state at one call and other state at another is still rejected,
+now naming the argument and the rule (STANDALONE-EXPORT.md).
 
 ## v0.9.3
 

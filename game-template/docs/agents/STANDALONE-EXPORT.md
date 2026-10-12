@@ -121,7 +121,9 @@ Accepted forms the analyzer will lower:
   `.no_twin_frames`; `ReturnIrq` / `ReturnNmi`.
 - Linked scalar and array `read`/`write`/`inc`/`dec`/`asl`/`lsr`/`rol`/`ror`,
   including template parameters resolved from call sites across the copied
-  tree. Receivers are matched by declared type path, not terminal names.
+  tree. Receivers are matched by declared type path, not terminal names, so
+  one name may be a `LinkedArray` in one struct and a `LinkedByte` in
+  another as long as each receiver's owner has a declared type.
 - Members declared in a named base class (`struct Painter : PaintBase`,
   public/protected/private/virtual, several bases, `Base::member`): hosts,
   Linked fields and methods are found through the whole base chain, from
@@ -144,7 +146,13 @@ Accepted forms the analyzer will lower:
 
 Deliberate rejections: a Linked operation on an `auto` / `decltype` local or
 method result whose type the exporter cannot determine (declare the type
-explicitly); an `auto` method returning two different types; mixed Twin
+explicitly); a Linked operation on a name that is a `LinkedArray` in one
+struct and a `LinkedByte`/`LinkedWord` in another when the receiver's owner
+type is unknown; a function template whose parameter receives Linked state
+at one call and anything else (plain state, another Linked kind) at another,
+because the export turns the Linked argument into a plain byte or array and
+one body cannot serve both (write a separate function); an `auto` method
+returning two different types; mixed Twin
 predicates with side effects; linked
 `address()`; free `asl`/`lsr`/`rol`/`ror`/`inc`/`dec` helpers; unknown
 `revm::` names; `Sei()` on a non-host; parse errors other than the known

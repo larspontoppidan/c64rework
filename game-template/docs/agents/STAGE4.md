@@ -344,7 +344,10 @@ Run `./rework stage4-diag` alongside lint. It is the standalone exporter's
 preflight over `Stage4/` and stops at the first construct the export cannot
 lower; it is cheaper to fix those during Stage 4 than to discover them at
 export time. Its C++ parser does not accept an attribute between `enum class`
-and the name (`enum class [[nodiscard]] Flow`); write `enum class Flow`.
+and the name (`enum class [[nodiscard]] Flow`); write `enum class Flow`. A
+function template must receive the same kind of Linked state at every call:
+the export makes a Linked argument a plain byte or array, so one body cannot
+also serve plain or other state.
 
 The rule fixtures are part of the tool and must remain green:
 

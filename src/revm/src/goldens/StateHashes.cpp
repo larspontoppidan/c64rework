@@ -153,12 +153,16 @@ uint32_t StateHashRecorder::hash_cia(int which) const {
 	else
 		machine_->TheCIA2->GetState(&cia);
 	// Register state only. A port contributes the bits it drives (latch AND
-	// DDR); latch bits under input pins are invisible to the program and the
-	// machine, and the input pins themselves (keyboard, joystick, IEC) are left
-	// out: input is the play's, and the standalone CIA 2 has no IEC bus, so a
-	// read-modify-write of $DD00 stores different input-pin bits there.
+	// DDR), and the input pins themselves (keyboard, joystick, IEC) are left
+	// out: input is the play's. CIA 2 port A is the exception: its whole
+	// latch counts. A read-modify-write of $DD00 stores the IEC input bits
+	// (DATA/CLK IN) there, and those come from the machine, not the play,
+	// so the standalone must model them like REVM does.
+	uint8_t pra = uint8_t(cia.pra & cia.ddra);
+	if (which == 2)
+		pra = cia.pra;
 	const uint8_t bytes[] = {
-		uint8_t(cia.pra & cia.ddra), cia.ddra, uint8_t(cia.prb & cia.ddrb), cia.ddrb,
+		pra, cia.ddra, uint8_t(cia.prb & cia.ddrb), cia.ddrb,
 		cia.ta_lo, cia.ta_hi, cia.tb_lo, cia.tb_hi,
 		cia.tod_10ths, cia.tod_sec, cia.tod_min, cia.tod_hr,
 		cia.sdr, cia.int_flags, cia.cra, cia.crb,

@@ -68,7 +68,8 @@ and diagnostics are options rather than subcommands.
   sees and hears: `screen` (the pixels `--save-screen` writes), `sid` (the
   frame's SID writes with their cycle in the frame), `vic` (registers as a
   program reads them), `cia1`, `cia2` (register state, without port input
-  pins). With Twin it records Main. About 20 bytes per frame; the format is
+  pins, except that CIA 2's port A latch counts whole: it keeps the IEC
+  bits a `$DD00` read-modify-write stores). With Twin it records Main. About 20 bytes per frame; the format is
   described in `src/revm/src/goldens/StateHashes.hpp`.
   `./rework hash-compare A B` (or `revm-tool hash-compare`) prints, per
   channel, the first differing frame and how many frames differ over the

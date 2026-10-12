@@ -144,12 +144,12 @@ reason = "Standalone directly wires the retained chips without desktop, media, d
 [[forked]]
 path = "src/vendor/frodo/CIA.h"
 base_sha256 = "2c016b15cad2b8742a40cc3ec1dd0ef9a297a809497c0f51375e379a8491409d"
-reason = "Standalone CIA2 retains VIC bank and interrupt behavior without IEC or 1541 wiring."
+reason = "Standalone CIA2 retains VIC bank and interrupt behavior and the C64-side IEC lines, without a 1541 object."
 
 [[forked]]
 path = "src/vendor/frodo/CIA_SC.cpp"
 base_sha256 = "d18f536500bdc7155075dfa9f7e01bc5b5825c52401f06ffc7c7569d9866de1c"
-reason = "Standalone CIA implementation removes IEC and drive-CPU side effects."
+reason = "Standalone CIA implementation removes the drive CPU; $DD00 reads the IEC lines wired-AND with a parked drive, as REVM does with 1541 emulation off."
 
 [[forked]]
 path = "src/vendor/frodo/CPUC64.h"

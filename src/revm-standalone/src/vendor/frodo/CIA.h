@@ -188,6 +188,10 @@ private:
 	void write_pa(uint8_t inv_out);
 
 	MOS6569 * the_vic;				// Pointer to VIC object
+
+	uint8_t IECLines;		// State of IEC lines from C64 side
+							// (bit 5 - DATA, bit 4 - CLK, bit 3 - ATN)
+							// Wire-AND with the parked 1541 to obtain $DD00 bits 6/7
 };
 
 

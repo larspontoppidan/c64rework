@@ -486,9 +486,9 @@ def inventory_linked(sources: list[tuple[Path, bytes]]) -> LinkedInventory:
                     call in registration_methods for call in calls):
                 registration_methods.add(name)
                 grew = True
-    overlap = scalars & arrays
-    if overlap:
-        raise ValueError("linked scalar/array names overlap: " + ", ".join(sorted(overlap)))
+    # One name may be a LinkedArray in one struct and a LinkedByte/Word in
+    # another: such a name is resolved through the declared type of its owner
+    # (linked_kind_of_expr), never by the name alone.
     types, aliases = collect_program_types(sources)
     return LinkedInventory(frozenset(scalars), frozenset(arrays),
                            frozenset(registration_methods), types, aliases)
@@ -1053,15 +1053,22 @@ def resolve_expr_type(node, inventory: LinkedInventory) -> str | None:
     return None
 
 
+def is_shared_linked_name(name: str | None, inventory: LinkedInventory) -> bool:
+    """True when `name` is a LinkedArray somewhere and a LinkedByte/LinkedWord
+    elsewhere: only the declared type of its owner tells which one is meant."""
+    return name is not None and name in inventory.arrays and name in inventory.scalars
+
+
 def linked_kind_of_expr(node, inventory: LinkedInventory) -> str | None:
     if node is None:
         return None
     if node.type == "identifier":
         name = node.text.decode("utf-8")
-        if name in inventory.arrays:
-            return "array"
-        if name in inventory.scalars:
-            return "scalar"
+        if not is_shared_linked_name(name, inventory):
+            if name in inventory.arrays:
+                return "array"
+            if name in inventory.scalars:
+                return "scalar"
     resolved = resolve_expr_type(node, inventory)
     if resolved == "LinkedArray":
         return "array"
@@ -1207,6 +1214,8 @@ def resolve_template_linked(root, label: Path,
                 continue
             kinds: set[str] = set()
             unresolved = not calls.get(name)
+            # The first argument that is not Linked state, for the diagnostic.
+            plain_argument: str | None = None
             for call in calls.get(name, []):
                 arguments = call_args(call)
                 if index >= len(arguments):
@@ -1215,8 +1224,8 @@ def resolve_template_linked(root, label: Path,
                         "parameter list"
                     )
                 kind = linked_kind_of_expr(arguments[index], inventory)
-                if kind is None:
-                    terminal = last_member_name(arguments[index])
+                terminal = last_member_name(arguments[index])
+                if kind is None and not is_shared_linked_name(terminal, inventory):
                     if terminal in inventory.arrays:
                         kind = "array"
                     elif terminal in inventory.scalars:
@@ -1227,12 +1236,26 @@ def resolve_template_linked(root, label: Path,
                     kinds.add("scalar")
                 else:
                     unresolved = True
+                    if plain_argument is None:
+                        plain_argument = arguments[index].text.decode("utf-8")
             if unresolved or len(kinds) != 1:
                 if body_uses_linked_op(func, parameter):
+                    if not calls.get(name):
+                        why = "no call site of it was found"
+                    elif kinds and plain_argument is not None:
+                        why = (f"one call passes Linked state and another passes "
+                               f"'{plain_argument}', which is not Linked")
+                    elif kinds:
+                        why = "calls pass both a LinkedArray and a LinkedByte/LinkedWord"
+                    else:
+                        why = f"'{plain_argument}' is not Linked state the exporter can resolve"
                     raise ValueError(
                         f"{locate(func, label)}: template parameter '{parameter}' "
-                        f"of {name}() receives ambiguous or non-linked state; its "
-                        "linked operations cannot be lowered"
+                        f"of {name}() receives ambiguous or non-linked state ({why}). "
+                        "The export turns a Linked argument into a plain byte or "
+                        "array, so one template body cannot serve Linked and other "
+                        "arguments: every call must pass the same kind of Linked "
+                        "state (write a separate function for the rest)"
                     )
                 continue
             (arrays if kinds == {"array"} else scalars).add(parameter)
@@ -2588,7 +2611,19 @@ def analyze_file(source: bytes, label: Path,
                         "io_surface", name, node, label, "retained"))
                 elif name != "address":
                     unresolved = unresolved_deduced_receiver(receiver, inventory)
-                    if unresolved is not None:
+                    shared = linked_op_receiver_name(receiver)
+                    if is_shared_linked_name(shared, inventory):
+                        findings.append(_finding(
+                            "linked_op", name, node, label, "unsupported",
+                            detail=(
+                                f"{name}() on '{shared}': that name is a LinkedArray "
+                                "in one struct and a LinkedByte/LinkedWord in another, "
+                                "and the type of this receiver's owner cannot be "
+                                "resolved here; reach it through a member or reference "
+                                "of declared type, or give the two members different "
+                                "names"
+                            )))
+                    elif unresolved is not None:
                         findings.append(_finding(
                             "linked_op", name, node, label, "unsupported",
                             detail=(
@@ -3327,6 +3362,69 @@ void caller(Plain & p) { fill(p); }
             return 1
     else:
         print("lower-standalone-game selftest: ambiguous template accepted",
+              file=sys.stderr)
+        return 1
+    # One template body cannot serve Linked and plain arguments: the export
+    # turns the Linked one into a plain array whose .write() no longer exists.
+    mixed_template = b'''\
+#include "cpumock/Linked.hpp"
+struct S { LinkedArray<0x30, 2> xs; };
+template <typename Xs>
+void fill(Xs & xs) { xs[0].write(1); }
+void caller(S & s, Plain & p) { fill(s.xs); fill(p); }
+'''
+    try:
+        lower_source(mixed_template, Path("mixed-template.cpp"))
+    except ValueError as exc:
+        if ("one call passes Linked state and another passes 'p'" not in str(exc) or
+                "mixed-template.cpp:4:1" not in str(exc)):
+            print(f"lower-standalone-game: wrong mixed template diagnostic: {exc}",
+                  file=sys.stderr)
+            return 1
+    else:
+        print("lower-standalone-game selftest: mixed Linked/plain template accepted",
+              file=sys.stderr)
+        return 1
+    # The same name may be a LinkedArray in one struct and a LinkedByte in
+    # another; the owner's declared type decides which lowering applies.
+    shared_names = b'''\
+#include "cpumock/Linked.hpp"
+struct Droids { LinkedArray<0x0390, 4> timer{revm::uninitialized}; };
+struct Transfer {
+  LinkedByte<0x008A> timer{revm::uninitialized};
+  void tick() { timer.dec(); }
+};
+void h(Droids & d, Transfer & t, int i) {
+  d.timer[i].write(uint8_t(d.timer[i].read() + 1));
+  t.timer.write(uint8_t(t.timer.read() - 1));
+  d.timer[0].inc();
+}
+'''
+    shared_out, shared_counts = lower_source(shared_names, Path("shared.cpp"))
+    if (b"std::array<uint8_t, 4> timer{};" not in shared_out or
+            b"uint8_t timer{};" not in shared_out or
+            b"void tick() { --timer; }" not in shared_out or
+            b"d.timer[i] = uint8_t(d.timer[i] + 1);" not in shared_out or
+            b"t.timer = uint8_t(t.timer - 1);" not in shared_out or
+            b"++d.timer[0];" not in shared_out or
+            shared_counts.linked_reads != 2 or shared_counts.linked_writes != 2):
+        print("lower-standalone-game selftest: bad shared-name lowering", file=sys.stderr)
+        print(shared_out.decode("utf-8"), file=sys.stderr)
+        return 1
+    # ...but a receiver whose owner's type is unknown cannot be told apart.
+    shared_unknown = shared_names + b'''\
+void k(Unknown & u) { u.timer.write(1); }
+'''
+    try:
+        lower_source(shared_unknown, Path("shared-unknown.cpp"))
+    except ValueError as exc:
+        if ("shared-unknown.cpp:12:23" not in str(exc) or
+                "LinkedArray in one struct and a LinkedByte/LinkedWord" not in str(exc)):
+            print(f"lower-standalone-game: wrong shared-name diagnostic: {exc}",
+                  file=sys.stderr)
+            return 1
+    else:
+        print("lower-standalone-game selftest: unresolved shared Linked name accepted",
               file=sys.stderr)
         return 1
     # A fixed charset page is a video surface like video.charset: kept as is.
