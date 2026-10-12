@@ -56,6 +56,8 @@ twin=1`. It needs no `s3lint:allow S3-014`; events and `--report` gain a
 page `n` (0..7, bank offset `n * $800`) of the VIC bank, with the same timed
 writes. Use it when the original writes an absolute glyph page while a raster
 IRQ flips `$D018`; `video.charset` still follows the live `$D018`.
+- lint-s3 understands armed `Mem16::at(y)` accesses (`mem.ptr.at(y).write(a)`),
+so they no longer need an `s3lint:allow S3-013`.
 - Standalone export: `$DD00` reads the IEC DATA/CLK input bits like REVM
 (the C64's own outputs and Frodo's parked 1541 pull the lines low) instead
 of all ones. A read-modify-write of `$DD00` now leaves the same port A latch

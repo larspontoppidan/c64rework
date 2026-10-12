@@ -537,7 +537,11 @@ local translation check you have. Treat it as a gift.
   instruction; a wrong PC (e.g. the operand address, or the next opcode)
   SoftQuits with `AtPc I/O: not an I/O-sized opcode` or a miss.
 - **Handler bodies**: AtPc inside an installed IRQ/NMI body is allowed but
-  reviewed (lint S3-012 warning) — see §8.3.
+  reviewed (lint S3-012 warning) — see §8.3. Lint knows a handler only as the
+  function called from the `InstallIrqHandler`/`InstallNmiHandler` lambda. A
+  body reached through it (a dispatch function, a table of phase handlers) is
+  not checked, and neither is any routine a handler calls: review those AtPcs
+  by hand.
 
 ---
 

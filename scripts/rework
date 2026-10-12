@@ -482,6 +482,9 @@ invoke_play() {
 			case "$ORIGINAL_LOAD" in
 				*.d64|*.D64)
 					load_args=(--load-d64 "$ORIGINAL_LOAD" --kb "$KB_JSON")
+					if [[ "$kind" == live ]] && ! has_option --disk-auto-load "$@"; then
+						echo "rework: disk image mounted without auto load; consider options: --disk-auto-load --disk-warp" >&2
+					fi
 					;;
 				*)
 					load_args=(--load-prg "$ORIGINAL_LOAD" --kb "$KB_JSON")
