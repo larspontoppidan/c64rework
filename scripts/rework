@@ -434,6 +434,29 @@ has_option() {
 	return 1
 }
 
+# Short HEAD of the game repository, "-dirty" when tracked files have
+# uncommitted changes; empty when the game root is not a git work tree.
+game_git_rev() {
+	command -v git >/dev/null 2>&1 || return 0
+	git -C "$GAME_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+	local rev
+	rev="$(git -C "$GAME_ROOT" rev-parse --short=7 HEAD 2>/dev/null)" || return 0
+	if [[ -n "$(git -C "$GAME_ROOT" status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
+		rev+="-dirty"
+	fi
+	printf '%s' "$rev"
+}
+
+# A recording notes the game revision (revm keeps it for no-twin plays).
+add_record_git() {
+	local -n _git_args=$1; shift
+	has_option --record-play "$@" || return 0
+	has_option --record-git "$@" && return 0
+	local rev
+	rev="$(game_git_rev)"
+	[[ -z "$rev" ]] || _git_args+=(--record-git "$rev")
+}
+
 print_run() {
 	printf 'rework:' >&2
 	printf ' %q' "$@" >&2
@@ -496,6 +519,7 @@ invoke_play() {
 	fi
 	require_default_roms "$@"
 	add_rom_dir extra "$@"
+	add_record_git extra "$@"
 	has_option --dump-fail "$@" || fail_args=(--dump-fail "$FAIL")
 	mkdir -p -- "$FAIL"
 	print_run "$exe" "${load_args[@]}" "${extra[@]}" "${fail_args[@]}" "$@"
@@ -586,6 +610,7 @@ run_revm() {
 	local fail_args=() extra=()
 	has_option --dump-fail "$@" || fail_args=(--dump-fail "$FAIL")
 	add_rom_dir extra "$@"
+	add_record_git extra "$@"
 	run_stock revm "${fail_args[@]}" "${extra[@]}" "$@"
 }
 
@@ -650,6 +675,9 @@ generate_export() {
 	cp -a -- "$REVM_ROOT/src/template-standalone/." "$stage_dir/"
 	mkdir -p -- "$stage_dir/src/game"
 	cp -a -- "$REVM_ROOT/VERSION" "$stage_dir/c64rework.version"
+	local game_rev
+	game_rev="$(game_git_rev)"
+	[[ -z "$game_rev" ]] || printf '%s\n' "$game_rev" > "$stage_dir/game-git.version"
 	cp -a -- "$GAME_ROOT/Stage4/." "$stage_dir/src/game/"
 	cp -a -- "$GAME_ROOT/Stage4/REMASTERING.md" "$stage_dir/REMASTERING.md"
 	rm -f -- "$stage_dir/src/game/CMakeLists.txt"

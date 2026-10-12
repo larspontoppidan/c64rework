@@ -224,6 +224,16 @@ target_link_libraries(revm_lib PUBLIC frodo_sc PNG::PNG)
 if(REVM_CPU_MOCK_PLUGIN_DIR)
   target_compile_definitions(revm_lib PUBLIC REVM_HAS_CPUMOCK=1)
 endif()
+# Recordings note which program made them (PlayLog recorded_on.details).
+if(REWORK_STAGE_NUMBER)
+  set(_REVM_PROGRAM "stage${REWORK_STAGE_NUMBER}")
+elseif(REVM_CPU_MOCK_PLUGIN_DIR)
+  set(_REVM_PROGRAM "cpumock")
+else()
+  set(_REVM_PROGRAM "original")
+endif()
+target_compile_definitions(revm_lib PRIVATE
+  C64REWORK_VERSION="${C64REWORK_VERSION}" REVM_PROGRAM="${_REVM_PROGRAM}")
 # --- revm CLI (+ optional game plugin) ---
 if(REVM_BUILD_APP)
   add_executable(revm "${_REVM_ROOT}/apps/revm/main.cpp")

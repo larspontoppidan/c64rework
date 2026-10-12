@@ -126,7 +126,8 @@ applies to Stage 4.5 with `--main-blank`. No-twin plays must keep running
 without failures and feel the same, but need not replay frame-identically:
 Stage 4 may change no-twin timing (for example a shorter boot). Before
 standalone export, record no-twin plays without `mod_events` on Stage 4.5
-(`--main-blank --no-twin`); they are the export's evidence.
+(`--main-blank --no-twin`, stored as `recorded_on` `no_twin` and
+`main_blank` true); they are the export's evidence.
 
 Note that stage 4 will fail recordings with `mod_events` if the modified 
 addresses are not registered Linked values.

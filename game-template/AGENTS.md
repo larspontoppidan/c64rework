@@ -93,19 +93,39 @@ verification through Stage 3, 4 and 4.5, and Stage 4 may change no-twin timing
 standalone export behaves exactly like Stage 4.5 with `--main-blank --no-twin`.
 
 For this reason two types of recordings will be made: original and no-twin,
-reflected in the name: `plays/originalN.json` and `plays/no-twinN.json`. There
-is a field in the json storing the type: `"no-twin": <bool>`. Replaying a
-play on the other kind of system warns that playback will not be faithful.
+reflected in the name: `plays/originalN.json` and `plays/no-twinN.json`.
 A no-twin play belongs to the stage it was recorded on; on another stage it may
 drift.
+
+Recordings fall in four classes:
+
+| Class | Made by |
+|---|---|
+| Load | the original program from power-on (`source.type` prg or d64), to find BEGIN |
+| Original | original timing from BEGIN: full emulation, or any replica with Twin |
+| No-twin | a replica keeping its own time from the BEGIN snapshot (`--no-twin`) |
+| No-twin blank | a replica from a blank start: Stage 4.5 `--main-blank --no-twin`, or the standalone export |
+
+Every recorder writes, right after `source`:
+`"recorded_on": {"no_twin": <bool>, "main_blank": <bool>, "details": "<text>"}`.
+`details` is information only (the program and framework version, for example
+`"stage4, C64 Rework 0.9.4"`, plus a remark if the play is not a genuine
+recording) and is never checked. No-twin plays also get `"git"`: the game
+repository's short HEAD at record time (`-dirty` with uncommitted changes),
+since their replay depends on the replica code of that time. Plays older than 0.9.4
+may instead carry a root `"no-twin": true`, read as `recorded_on.no_twin`.
+Replaying a play on a system of another kind (no_twin differs, or both are
+no-twin and main_blank differs) warns that playback will not be faithful, and
+continues.
 
 Recorded plays may contain `mod_events`: deliberate increments or decrements of
 KB variables used to reach otherwise costly states (for example, skipping 
 through levels). 
 
-The Standalone Export game will support only no-twin plays without `mod_events`,
+The Standalone Export's evidence is no-twin blank plays without `mod_events`,
 recorded on Stage 4.5 (`--main-blank --no-twin`), thus it is important to
-record such plays before export.
+record such plays before export. The standalone replays other plays with a
+warning, ignoring any `mod_events`.
 
 ## Repository rules
 

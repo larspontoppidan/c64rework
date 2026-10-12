@@ -3240,7 +3240,6 @@ bool CpuMockHost::PreparePlayback(const std::string & play_path, uint32_t max_fr
 	PlaybackCompareOpts cmp = compare;
 	playback_player_.SetCompareOpts(cmp);
 	compare_opts_ = cmp;
-	revm::WarnPlayUsage(playback_player_.Log(), cmp.no_twin);
 
 	Config cfg;
 	cfg.stage = Stage::Stage3;
@@ -3251,6 +3250,7 @@ bool CpuMockHost::PreparePlayback(const std::string & play_path, uint32_t max_fr
 	cfg.limit_speed = limit_speed;
 	cfg.play_path = play_path;
 	apply_user_cfg(cfg, user_cfg);
+	revm::WarnPlayUsage(playback_player_.Log(), cmp.no_twin, cfg.main_blank);
 	// A recording owns the deterministic machine seed. Keep this invariant in
 	// CpuMockHost rather than relying on a particular CLI caller to apply it.
 	cfg.rand_seed = playback_player_.Log().rand_seed;
@@ -3532,7 +3532,11 @@ int CpuMockHost::RunPlay(const std::string & prg_path, IInputSource * input,
 	}
 	if (recorder) {
 		recorder->Start(board_);
-		recorder->SetNoTwin(compare_opts_.no_twin);
+		PlayRecordedOn recorded_on;
+		recorded_on.no_twin = compare_opts_.no_twin;
+		recorded_on.main_blank = board_.GetConfig().main_blank;
+		recorded_on.details = RecordedOnDetails(RecordingProgram());
+		recorder->SetRecordedOn(std::move(recorded_on));
 		recorder->CaptureStartHash();
 	}
 

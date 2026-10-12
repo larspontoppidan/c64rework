@@ -71,10 +71,15 @@ and diagnostics are options rather than subcommands.
   and play hashes. It validates Main as a standalone execution path; it does
   not promise the same later trajectory as a Twin-backed recording.
 - Twin-backed recordings are `plays/originalN.json`. `--no-twin` recordings
-  are `plays/no-twinN.json` and store `"no-twin": true`. Replaying a play on
-  the other kind of system prints a warning; playback is not expected to
-  match. Stage 4 does not support `mod_events` and warns if a play contains
-  them.
+  are `plays/no-twinN.json`. Every recorder writes `"recorded_on":
+  {"no_twin", "main_blank", "details"}` after `source`, plus `"git"` (game
+  HEAD, from `--record-git`) for no-twin plays (pre-0.9.4 plays may
+  have a root `"no-twin": true` instead). Replaying a play on another kind of
+  system (no_twin differs, or both no-twin and main_blank differs) prints a
+  warning and continues; playback is not expected to match. On a stage
+  build, `--record-play` without `--no-twin` records the full 6510 from
+  BEGIN (an original recording). Stage 4 does not support `mod_events` and
+  warns if a play contains them.
 - `--dump-fail DIR` writes expected, actual, and diff PNG files for screen
   mismatches. `--dump-fail-limit N` caps how many mismatch sets are written:
   the default `1` matches the legacy aborting-run behavior; `0` writes every

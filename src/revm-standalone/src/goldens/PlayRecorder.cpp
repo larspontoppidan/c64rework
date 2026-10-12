@@ -139,8 +139,19 @@ bool PlayRecorder::write_locked(std::string & error) {
 		{"path", source_.path},
 		{"sha256", source_.sha256},
 	};
+	j["recorded_on"] = {
+		{"no_twin", true},
+		{"main_blank", true},
+#if defined(C64REWORK_VERSION)
+		{"details", "standalone export, C64 Rework " C64REWORK_VERSION},
+#else
+		{"details", "standalone export"},
+#endif
+	};
+#if defined(REVM_GAME_GIT)
+	j["recorded_on"]["git"] = REVM_GAME_GIT;
+#endif
 	j["rand_seed"] = rand_seed_;
-	j["no-twin"] = true;
 	j["start_frame"] = start_frame_;
 	j["start_cycle"] = start_cycle_;
 	j["end_frame"] = end_frame_;

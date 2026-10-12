@@ -14,8 +14,9 @@ namespace revm {
 
 // One standalone playback source: load and validate a play JSON once, then
 // supply sticky VSYNC input. Non-empty mod_events are ignored with a warning.
-// Optional JSON "no-twin": true marks a no-Twin recording; missing/false is
-// original and warns that this no-twin system will not replay it faithfully.
+// "recorded_on" (or a pre-0.9.4 root "no-twin") says how the play was made;
+// anything but no_twin + main_blank warns that this system (blank, no-twin)
+// will not replay it faithfully. Playback always continues.
 class PlayInput : public IInputSource {
 public:
 	bool Load(const std::string & path, std::string & error);
@@ -33,7 +34,9 @@ public:
 
 private:
 	unsigned rand_seed_ = 42;
+	bool recorded_on_known_ = false;
 	bool no_twin_ = false;
+	bool main_blank_ = false;
 	uint32_t start_frame_ = 0;
 	uint64_t start_cycle_ = 0;
 	uint32_t end_frame_ = 0;

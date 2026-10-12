@@ -156,8 +156,19 @@ bool SavePlayLog(const std::string & path, const PlayLog & log, std::string & er
 	};
 	if (log.source.type == "d64")
 		j["source"]["auto_load_d64"] = log.source.auto_load_d64;
+	if (log.recorded_on.known) {
+		j["recorded_on"] = {
+			{"no_twin", log.recorded_on.no_twin},
+			{"main_blank", log.recorded_on.main_blank},
+			{"details", log.recorded_on.details},
+		};
+		if (!log.recorded_on.git.empty())
+			j["recorded_on"]["git"] = log.recorded_on.git;
+	}
 	j["rand_seed"] = log.rand_seed;
-	if (log.no_twin) j["no-twin"] = true;
+	// A pre-0.9.4 play rewritten in place (RegisterPlaySnapshot) keeps its
+	// legacy field rather than inventing recorded_on facts.
+	if (!log.recorded_on.known && log.recorded_on.no_twin) j["no-twin"] = true;
 	nlohmann::ordered_json roms;
 	if (!log.roms.basic.empty()) roms["basic"] = log.roms.basic;
 	if (!log.roms.kernal.empty()) roms["kernal"] = log.roms.kernal;
@@ -244,7 +255,17 @@ bool LoadPlayLog(const std::string & path, PlayLog & log, std::string & error) {
 			log.source.auto_load_d64 = s.value("auto_load_d64", true);
 		}
 		if (j.contains("rand_seed")) log.rand_seed = j["rand_seed"].get<unsigned>();
-		if (j.contains("no-twin")) log.no_twin = j["no-twin"].get<bool>();
+		if (j.contains("recorded_on") && j["recorded_on"].is_object()) {
+			const auto & r = j["recorded_on"];
+			log.recorded_on.known = true;
+			log.recorded_on.no_twin = r.value("no_twin", false);
+			log.recorded_on.main_blank = r.value("main_blank", false);
+			log.recorded_on.details = r.value("details", std::string());
+			log.recorded_on.git = r.value("git", std::string());
+		} else if (j.contains("no-twin")) {
+			// Legacy (pre-0.9.4) root field.
+			log.recorded_on.no_twin = j["no-twin"].get<bool>();
+		}
 		if (j.contains("roms") && j["roms"].is_object()) {
 			const auto & r = j["roms"];
 			if (r.contains("basic")) log.roms.basic = r["basic"].get<std::string>();
@@ -453,14 +474,44 @@ bool RegisterPlaySnapshot(const std::string & play_path, uint64_t cycle,
 	return SavePlayLog(play_path, log, error);
 }
 
-void WarnPlayUsage(const PlayLog & log, bool system_no_twin) {
-	if (log.no_twin != system_no_twin) {
+const char * RecordingProgram() {
+#if defined(REVM_PROGRAM)
+	return REVM_PROGRAM;
+#else
+	return "original";
+#endif
+}
+
+std::string RecordedOnDetails(const std::string & program) {
+#if defined(C64REWORK_VERSION)
+	return program + ", C64 Rework " C64REWORK_VERSION;
+#else
+	return program;
+#endif
+}
+
+void WarnPlayUsage(const PlayLog & log, bool system_no_twin, bool system_main_blank) {
+	const PlayRecordedOn & r = log.recorded_on;
+	if (!r.known) {
+		REVM_LOG(REVM_INFO,
+		         "Play has no recorded_on (older than C64 Rework 0.9.4), assuming it was recorded %s",
+		         r.no_twin ? "no-twin" : "original");
+	}
+	if (r.no_twin != system_no_twin) {
 		if (system_no_twin) {
 			REVM_LOG(REVM_INFO,
 			         "Play was recorded original, this system is no-twin, playback will not be faithful");
 		} else {
 			REVM_LOG(REVM_INFO,
 			         "Play was recorded no-twin, this system is original, playback will not be faithful");
+		}
+	} else if (r.known && r.no_twin && r.main_blank != system_main_blank) {
+		if (system_main_blank) {
+			REVM_LOG(REVM_INFO,
+			         "Play was recorded no-twin from BEGIN, this system is no-twin blank (--main-blank), playback will not be faithful");
+		} else {
+			REVM_LOG(REVM_INFO,
+			         "Play was recorded no-twin blank (--main-blank), this system is no-twin from BEGIN, playback will not be faithful");
 		}
 	}
 }

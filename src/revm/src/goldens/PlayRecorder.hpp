@@ -19,7 +19,11 @@ class PlayRecorder {
 public:
 	void Configure(const std::string & out_path, PlaySource source);
 	void Start(Board & board);
-	void SetNoTwin(bool no_twin);
+	// How this play is being made (JSON "recorded_on"); call after Configure.
+	void SetRecordedOn(PlayRecordedOn recorded_on);
+	// Game repository revision (--record-git); kept in recorded_on.git only
+	// for no-twin plays.
+	void SetRecordGit(std::string git) { record_git_ = std::move(git); }
 
 	// Call once the run loop has the real starting machine state
 	// (after PrepareRun / begin-snap restore). Writes snapshots[0] (start).
@@ -43,6 +47,7 @@ public:
 
 private:
 	std::string out_path_;
+	std::string record_git_;
 	PlayLog log_;
 	InputFrame last_input_;
 	bool have_end_ = false;

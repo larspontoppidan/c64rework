@@ -761,7 +761,9 @@ Once no-Twin recordings exists, they are the identity contract for all stages
 going forward in the `--no-twin` mode and for the standalone export.
 
 Name Twin-backed recordings `plays/originalN.json`. Name `--no-twin`
-recordings `plays/no-twinN.json`; those files store `"no-twin": true`.
+recordings `plays/no-twinN.json`; those files store
+`"recorded_on": {"no_twin": true, …}` (see the recordings section of
+`AGENTS.md`).
 
 Run bounded `--no-twin` smokes every slice even with Twin-backed recordings.
 They check that Main starts, accepts input, advances hardware, renders and 

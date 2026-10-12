@@ -2,6 +2,20 @@
 
 ## v0.9.4
 
+- Recordings note how they were made: every recorder (REVM, Stage 3/4 and the
+standalone export) writes `"recorded_on": {"no_twin", "main_blank",
+"details"}` after `source`. It replaces the root `"no-twin"` field, which is
+still read in older plays. `details` names the program and framework version
+and is never checked. No-twin plays also store `git`, the game repository's
+HEAD at record time (`./rework` passes `--record-git`; the standalone export
+bakes it in at export).
+- Four recording classes are documented: Load, Original, No-twin and No-twin
+blank (Stage 4.5 `--main-blank --no-twin` or the standalone export).
+- Replaying a play on another kind of system (no-twin differs, or no-twin
+blank vs no-twin from BEGIN) warns and continues. The standalone warns on
+plays with `mod_events` or of another class, and ignores the `mod_events`;
+such plays are not export evidence.
+
 ## v0.9.3
 
 - REVM performance: faster KB compares with Linked values and cheaper play

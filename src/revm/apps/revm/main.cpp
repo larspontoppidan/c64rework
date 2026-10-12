@@ -76,6 +76,8 @@ void print_usage(const char * argv0) {
 		"Play role (mutually exclusive):\n"
 		"  --record-play FILE    Record play JSON (inputs, rand_seed, snapshot hashes)\n"
 		"  --use-play FILE       Replay play (applies play rand_seed; verify hashes)\n"
+		"  --record-git REV      Game git revision for a no-twin recording's\n"
+		"                        recorded_on.git (./rework passes it)\n"
 		"\n"
 		"Snapshots (Stage 3 captures Twin):\n"
 		"  --save-snapshot CYCLE FILE  Write FullSnapshot at CYCLE\n"
@@ -283,6 +285,7 @@ struct Opts {
 	bool disk_auto_load = false;
 	bool disk_warp = false;
 	std::string record_play;
+	std::string record_git;
 	std::string use_play;
 	uint32_t max_frames = 0;
 	revm::PlaybackCompareOpts compare;
@@ -365,6 +368,10 @@ bool parse_args(int argc, char ** argv, Opts & o, std::string & error) {
 			const char * v = need_i("--record-play");
 			if (!v) return false;
 			o.record_play = v;
+		} else if (std::strcmp(a, "--record-git") == 0) {
+			const char * v = need_i("--record-git");
+			if (!v) return false;
+			o.record_git = v;
 		} else if (std::strcmp(a, "--use-play") == 0) {
 			const char * v = need_i("--use-play");
 			if (!v) return false;
@@ -740,6 +747,7 @@ int run_record_play(Opts & o) {
 		src.sha256 = revm::Sha256File(src.path);
 		revm::PlayRecorder play;
 		play.Configure(o.record_play, src);
+		play.SetRecordGit(o.record_git);
 
 		revm::cpumock::CpuMockHost host;
 		const int rc = host.RunPlay(o.cfg.prg_path, nullptr, &jcfg, o.max_frames,
@@ -816,6 +824,14 @@ int run_record_play(Opts & o) {
 
 	revm::PlayRecorder play;
 	play.Configure(o.record_play, src);
+	{
+		// The full 6510 records here, also in a stage build with Twin.
+		const std::string program = revm::RecordingProgram();
+		revm::PlayRecordedOn recorded_on;
+		recorded_on.details = revm::RecordedOnDetails(
+			program == "original" ? program : "original (" + program + " build)");
+		play.SetRecordedOn(std::move(recorded_on));
+	}
 	play.Start(board);
 	board.SetPlayRecorder(&play);
 
@@ -877,7 +893,8 @@ int run_use_play(Opts & o) {
 	}
 #endif
 
-	revm::WarnPlayUsage(player.Log(), /*system_no_twin=*/false);
+	revm::WarnPlayUsage(player.Log(), /*system_no_twin=*/false,
+	                    /*system_main_blank=*/false);
 
 	o.cfg.run_mode = revm::RunMode::Playback;
 	o.cfg.stage = revm::Stage::Stage1;

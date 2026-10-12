@@ -24,7 +24,9 @@ namespace revm {
 // Absence = released. Kind is always the token before the first space.
 // Memory modifications are non-sticky operations at a VSYNC, keyed by frame:
 //   "mod_events": { "234": [{"address": 49152, "operation": "increment"}] }
-// Optional "no-twin": true when recorded under --no-twin. Absent = original.
+// "recorded_on" (right after "source") says how the play was made; see
+// PlayRecordedOn. Plays older than C64 Rework 0.9.4 lack it and may carry a
+// root "no-twin": true instead (read as recorded_on.no_twin).
 struct PlaySource {
 	std::string type; // "prg" | "d64" | "snapshot"
 	std::string path;
@@ -51,11 +53,33 @@ struct PlayTimestamp {
 	uint64_t cycle = 0;
 };
 
+// JSON "recorded_on": { "no_twin": bool, "main_blank": bool, "details": str,
+// "git": str }. Written by every recorder. details is information only
+// (program and framework version), never checked. git (no-twin plays only,
+// optional) is the game repository's short HEAD at record time, with
+// "-dirty" for uncommitted tracked changes: a no-twin replay depends on the
+// replica code's timing then. revm takes it from --record-git. known=false: the file has no
+// recorded_on (pre-0.9.4); no_twin then comes from the legacy root "no-twin"
+// and main_blank is unknown.
+struct PlayRecordedOn {
+	bool known = false;
+	bool no_twin = false;
+	bool main_blank = false;
+	std::string details;
+	std::string git;
+};
+
+// The program this binary was built as: "original" (stock revm) or "stageN"
+// (a game's Stage N build; REVM_PROGRAM in RevmCommon.cmake).
+const char * RecordingProgram();
+// "<program>, C64 Rework <version>" for recorded_on.details.
+std::string RecordedOnDetails(const std::string & program);
+
 struct PlayLog {
 	int format_version = 1;
 	PlaySource source;
 	unsigned rand_seed = 42; // Frodo color-RAM LCG; must match for hash replay
-	bool no_twin = false;    // JSON "no-twin": true when recorded under --no-twin; absent = original
+	PlayRecordedOn recorded_on;
 	RomHashes roms;          // SHA-256 of loaded dumps; recorded, not checked on replay
 	uint32_t start_frame = 0;
 	uint64_t start_cycle = 0;
@@ -69,9 +93,10 @@ struct PlayLog {
 bool SavePlayLog(const std::string & path, const PlayLog & log, std::string & error);
 bool LoadPlayLog(const std::string & path, PlayLog & log, std::string & error);
 
-// Warn when a recording's kind does not match the current system.
-// Playback continues.
-void WarnPlayUsage(const PlayLog & log, bool system_no_twin);
+// Warn when a recording's kind does not match the current system: no_twin
+// differs, or both are no-twin and main_blank differs (with Twin, blank or
+// not replays the original timing). Playback always continues.
+void WarnPlayUsage(const PlayLog & log, bool system_no_twin, bool system_main_blank);
 
 bool LoadInputEvents(const std::string & path,
                      std::map<uint32_t, InputFrame> & events,

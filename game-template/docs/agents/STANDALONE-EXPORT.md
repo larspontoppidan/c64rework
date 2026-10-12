@@ -198,8 +198,10 @@ Game export from the game root, after Stage 4.5 is accepted:
 4. verify the generated project does not link `revm_lib`, Twin, snapshots/goldens,
    or debug tools
 5. replay every applicable play from the accepted Stage 4 table with the
-   exported binary (`StandaloneExport/bin/game --use-play plays/…`); recordings
-   containing `mod_events` must be rejected and are not standalone evidence.
+   exported binary (`StandaloneExport/bin/game --use-play plays/…`).
+   Recordings containing `mod_events`, or not recorded no-twin blank
+   (`recorded_on`), are not export evidence: the standalone warns, ignores the
+   `mod_events`, and plays on.
    Standalone `--use-play` is the same machine as Stage 4
    `--main-blank --no-twin`: timed gameplay events (pickups, collect, level
    clear, death) must match that no-Twin recording.
