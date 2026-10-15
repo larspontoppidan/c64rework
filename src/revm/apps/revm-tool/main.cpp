@@ -72,6 +72,8 @@ void usage(const char * argv0) {
 		"  --dump-cpuview FILE  Write banked-in 64K CPU view (ROM/I/O as seen\n"
 		"                       by the 6510 at this snap; needs FullSnapshot\n"
 		"                       and --rom-dir)\n"
+		"  --dump-chips FILE    Write the CPU, VIC, SID, CIA1/2 registers and colour\n"
+		"                       RAM as JSON (for a boot stub that recreates the snap)\n"
 		"\n"
 		"SNAP show mode with knowledge base adds options:\n"
 		"  --dump-blobs DIR     Dump kind:blob ranges as <name>.bin in DIR\n"
@@ -381,6 +383,72 @@ bool dump_cpuview_file(const revm::FullSnapshot & snap, const std::string & rom_
                        const std::string & path, std::string & error) {
 	if (!revm::WriteCpuViewFromFullSnapshot(snap, rom_dir, path, error)) return false;
 	std::fprintf(stdout, "Wrote banked CPU view → %s\n", path.c_str());
+	return true;
+}
+
+void json_bytes(std::ostream & out, const uint8_t * bytes, size_t count) {
+	out << "[";
+	for (size_t i = 0; i < count; ++i) {
+		if (i) out << ",";
+		out << unsigned(bytes[i]);
+	}
+	out << "]";
+}
+
+void json_cia(std::ostream & out, const MOS6526State & cia) {
+	out << "{\"pra\":" << unsigned(cia.pra) << ",\"prb\":" << unsigned(cia.prb)
+	    << ",\"ddra\":" << unsigned(cia.ddra) << ",\"ddrb\":" << unsigned(cia.ddrb)
+	    << ",\"ta_counter\":" << (unsigned(cia.ta_hi) << 8 | cia.ta_lo)
+	    << ",\"tb_counter\":" << (unsigned(cia.tb_hi) << 8 | cia.tb_lo)
+	    << ",\"ta_latch\":" << unsigned(cia.ta_latch)
+	    << ",\"tb_latch\":" << unsigned(cia.tb_latch)
+	    << ",\"cra\":" << unsigned(cia.cra) << ",\"crb\":" << unsigned(cia.crb)
+	    << ",\"sdr\":" << unsigned(cia.sdr)
+	    << ",\"int_mask\":" << unsigned(cia.int_mask)
+	    << ",\"int_flags\":" << unsigned(cia.int_flags)
+	    << ",\"tod\":[" << unsigned(cia.tod_10ths) << "," << unsigned(cia.tod_sec) << ","
+	    << unsigned(cia.tod_min) << "," << unsigned(cia.tod_hr) << "]"
+	    << ",\"alarm\":[" << unsigned(cia.alm_10ths) << "," << unsigned(cia.alm_sec) << ","
+	    << unsigned(cia.alm_min) << "," << unsigned(cia.alm_hr) << "]}";
+}
+
+// The chip registers in their register order ($D000-$D02E, $D400-$D418, CIA
+// fields by name), so a boot stub can write them back.
+bool dump_chips_file(const revm::FullSnapshot & snap, const std::string & path,
+                     std::string & error) {
+	std::ofstream out(path);
+	if (!out) {
+		error = "cannot write " + path;
+		return false;
+	}
+	static_assert(offsetof(MOS6569State, m7c) == 0x2E, "VIC registers in register order");
+	static_assert(offsetof(MOS6581State, mode_vol) == 0x18, "SID registers in register order");
+	const MOS6510State & cpu = snap.cpu;
+	out << "{\"cycle\":" << snap.cycle << ",\"frame\":" << snap.frame
+	    << ",\n\"cpu\":{\"a\":" << unsigned(cpu.a) << ",\"x\":" << unsigned(cpu.x)
+	    << ",\"y\":" << unsigned(cpu.y) << ",\"p\":" << unsigned(cpu.p)
+	    << ",\"pc\":" << unsigned(cpu.pc) << ",\"sp\":" << unsigned(cpu.sp & 0xFF)
+	    << ",\"ddr\":" << unsigned(cpu.ddr) << ",\"pr\":" << unsigned(cpu.pr) << "}";
+	out << ",\n\"vic\":";
+	json_bytes(out, reinterpret_cast<const uint8_t *>(&snap.vic), 0x2F);
+	// $D012 reads the current line; the interrupt compares with irq_raster.
+	out << ",\n\"vic_irq_raster\":" << unsigned(snap.vic.irq_raster);
+	out << ",\n\"sid\":";
+	json_bytes(out, reinterpret_cast<const uint8_t *>(&snap.sid), 0x19);
+	out << ",\n\"cia1\":";
+	json_cia(out, snap.cia1);
+	out << ",\n\"cia2\":";
+	json_cia(out, snap.cia2);
+	uint8_t color[COLOR_RAM_SIZE];
+	for (size_t i = 0; i < COLOR_RAM_SIZE; ++i) color[i] = snap.color[i] & 0x0F;
+	out << ",\n\"color\":";
+	json_bytes(out, color, COLOR_RAM_SIZE);
+	out << "}\n";
+	if (!out) {
+		error = "write error on " + path;
+		return false;
+	}
+	std::fprintf(stdout, "Wrote chip registers → %s\n", path.c_str());
 	return true;
 }
 
@@ -1958,6 +2026,7 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 	std::string kb_support_path;
 	std::string dump_ram;
 	std::string dump_cpuview;
+	std::string dump_chips;
 	std::string dump_blobs_dir;
 	std::string listing_path;
 	std::string cov_path;
@@ -2007,6 +2076,8 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 			dump_ram = argv[++i];
 		} else if (std::strcmp(a, "--dump-cpuview") == 0 && i + 1 < argc) {
 			dump_cpuview = argv[++i];
+		} else if (std::strcmp(a, "--dump-chips") == 0 && i + 1 < argc) {
+			dump_chips = argv[++i];
 		} else if (std::strcmp(a, "--dump-blobs") == 0 && i + 1 < argc) {
 			dump_blobs_dir = argv[++i];
 		} else if (std::strcmp(a, "--listing") == 0 && i + 1 < argc) {
@@ -2112,8 +2183,8 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 			std::fprintf(stderr, "ram mode: --check-begin is SNAP-only\n");
 			return 2;
 		}
-		if (!dump_ram.empty() || !dump_cpuview.empty()) {
-			std::fprintf(stderr, "ram mode: --dump-ram / --dump-cpuview are SNAP-only\n");
+		if (!dump_ram.empty() || !dump_cpuview.empty() || !dump_chips.empty()) {
+			std::fprintf(stderr, "ram mode: --dump-ram / --dump-cpuview / --dump-chips are SNAP-only\n");
 			return 2;
 		}
 		if (want_watch_diff) {
@@ -2176,6 +2247,12 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 	if (!dump_cpuview.empty()) {
 		if (!dump_cpuview_file(snap, rom_dir, dump_cpuview, error)) {
 			std::fprintf(stderr, "--dump-cpuview failed: %s\n", error.c_str());
+			rc = 1;
+		}
+	}
+	if (!dump_chips.empty()) {
+		if (!dump_chips_file(snap, dump_chips, error)) {
+			std::fprintf(stderr, "--dump-chips failed: %s\n", error.c_str());
 			rc = 1;
 		}
 	}

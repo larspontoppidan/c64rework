@@ -24,6 +24,10 @@ Commands:
   paths                      Print shell-safe workspace paths
   generate-cov PLAY [PLAY...]    Record plays/PLAY_cov.bin; merge 2+ to plays/merged_cov.bin
   kb-analysis                Generate and replace kb-analysis/ on begin/snap.bin
+  mod build [--only P,...]   Patch the original game (Mods/mods.toml) and pack it
+                             into one PRG; also writes a patched BEGIN snapshot
+  mod check-boot             Run the PRG to BEGIN and compare with the patched image
+  mod test [NAME...]         Run the scenario tests in Mods/tests/
   build TARGET               TARGET: revm, stage3, stage4, or export
   clean                      Remove build/, bin/, and compile_commands.json
   start-stage4               Copy accepted Stage3 source into pristine Stage4/
@@ -382,6 +386,7 @@ update_docs() {
 		docs/agents/STAGE4.md
 		docs/agents/STAGE4-REVIEW.md
 		docs/agents/STANDALONE-EXPORT.md
+		docs/agents/MOD-ORIGINAL.md
 		docs/revm/HINTS.md
 		docs/revm/EVENTS.md
 		docs/revm/KB.md
@@ -561,6 +566,21 @@ generate_cov() {
 	[[ -x "$tool" ]] || die "missing $tool; build revm first"
 	print_run "$tool" merge-cov "${covs[@]}" "$COVERAGE_MERGED"
 	(cd -- "$GAME_ROOT" && "$tool" merge-cov "${covs[@]}" "$COVERAGE_MERGED")
+}
+
+# Mods of the original game: scripts/c64mod.py, docs/agents/MOD-ORIGINAL.md.
+mod_command() {
+	require_framework
+	[[ $# -ge 1 ]] || die "mod needs a subcommand: build, check-boot or test"
+	local sub=$1
+	shift
+	case "$sub" in
+		build|check-boot|test) ;;
+		*) die "unknown mod subcommand: $sub (build, check-boot or test)" ;;
+	esac
+	[[ -x "$BIN/revm" && -x "$BIN/revm-tool" ]] || die "missing $BIN/revm; run ./rework build revm"
+	command -v 64tass >/dev/null 2>&1 || die "64tass is required (apt install 64tass)"
+	run_script "$SCRIPTS/c64mod.py" "$sub" "$GAME_ROOT" "$@"
 }
 
 kb_analysis() {
@@ -780,6 +800,7 @@ case "$command" in
 			"$GAME_ROOT" "$REVM_ROOT" "$KB_JSON" "$KB_ANALYSIS" "$ORIGINAL_LOAD" "$ROM_DIR" "$BEGIN_SNAP" "$COVERAGE_MERGED" "$BUILD" "$BIN" "$FAIL" "$EXPORT" "$VENV"
 		;;
 	kb-analysis) [[ $# -eq 0 ]] || die "kb-analysis takes no arguments"; kb_analysis ;;
+	mod) mod_command "$@" ;;
 	generate-cov) generate_cov "$@" ;;
 	start-stage4) [[ $# -eq 0 ]] || die "start-stage4 takes no arguments"; start_stage4 ;;
 	update-docs) [[ $# -eq 0 ]] || die "update-docs takes no arguments"; update_docs ;;

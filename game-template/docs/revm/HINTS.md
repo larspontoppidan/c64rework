@@ -174,12 +174,16 @@ Left Shift as fire.
 ## Snapshots, memory, and analysis
 
 `revm-tool snap` can inspect a snapshot, disassemble around an address, and
-write two different 64 KiB views:
+write two different 64 KiB views and the chip state:
 
 - `--dump-ram` writes raw DRAM, including RAM hidden under ROM;
-- `--dump-cpuview` writes the banked memory image visible to the 6510.
+- `--dump-cpuview` writes the banked memory image visible to the 6510;
+- `--dump-chips FILE` writes the snapshot's CPU registers and port, VIC
+  ($D000-$D02E and the raster interrupt line), SID ($D400-$D418, the last
+  values written), both CIAs (ports, timers, latches, control, masks) and
+  colour RAM as JSON.
 
-Do not confuse those views when investigating under-ROM code or data.
+Do not confuse the two memory views when investigating under-ROM code or data.
 
 `revm-tool selftest` runs the analysis, coverage, linked-registry, and
 boot-snapshot self-tests. Coverage from multiple plays should be merged before
