@@ -80,6 +80,18 @@ and diagnostics are options rather than subcommands.
   runs are the same (the export against Stage 4.5, a refactor) or to find
   where a no-twin replay drifts. Records are made on demand and thrown away:
   never store them in plays and never use them as a gate.
+- `--history FILE` (REVM, full emulation) records every CPU bus access of
+  Main: each opcode fetch, read and write with its value and cycle, and the
+  bytes `--load-prg` injects without the CPU. Interrupts are part of the
+  stream. `--history-from CYCLE` and `--history-to CYCLE` limit the range. The
+  file is one zstd stream (format in `src/revm/src/debug/History.hpp`) and is
+  small: a whole disk load of 124 million cycles takes about 10 MB. The
+  typical use is a load recording from power-on to BEGIN, which shows how the
+  loader built the BEGIN image:
+  `revm --load-prg GAME.prg --use-play plays/find-begin.json --headless
+  --max-cycles <BEGIN cycle> --history load.hist`.
+  `REVM_ROOT/scripts/revm_history.py verify load.hist --expect
+  begin/ram64k.bin` replays the history's writes and must find the BEGIN RAM.
 - Record further canonical plays from the BEGIN snapshot with
   `--load-snapshot` and `--record-play`. There is no separate BEGIN-cycle
   option.
@@ -162,12 +174,16 @@ Left Shift as fire.
 ## Snapshots, memory, and analysis
 
 `revm-tool snap` can inspect a snapshot, disassemble around an address, and
-write two different 64 KiB views:
+write two different 64 KiB views and the chip state:
 
 - `--dump-ram` writes raw DRAM, including RAM hidden under ROM;
-- `--dump-cpuview` writes the banked memory image visible to the 6510.
+- `--dump-cpuview` writes the banked memory image visible to the 6510;
+- `--dump-chips FILE` writes the snapshot's CPU registers and port, VIC
+  ($D000-$D02E and the raster interrupt line), SID ($D400-$D418, the last
+  values written), both CIAs (ports, timers, latches, control, masks) and
+  colour RAM as JSON.
 
-Do not confuse those views when investigating under-ROM code or data.
+Do not confuse the two memory views when investigating under-ROM code or data.
 
 `revm-tool selftest` runs the analysis, coverage, linked-registry, and
 boot-snapshot self-tests. Coverage from multiple plays should be merged before

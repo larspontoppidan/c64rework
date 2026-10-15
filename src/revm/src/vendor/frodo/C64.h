@@ -139,6 +139,12 @@ public:
 	bool LoadSnapshot(const std::string & filename, Prefs * prefs, std::string & ret_error_msg);
 
 	bool DMALoad(const std::string & filename, std::string & ret_error_msg);
+	// REVM: told each byte DMALoad places in RAM without the CPU (history).
+	using DmaWriteHook = void (*)(uint16_t addr, uint8_t value, void * userdata);
+	void SetDmaWriteHook(DmaWriteHook hook, void * userdata) {
+		dma_write_hook_ = hook;
+		dma_write_userdata_ = userdata;
+	}
 	void AutoStartOp();
 
 	void SetPlayMode(PlayMode mode);
@@ -183,6 +189,8 @@ public:
 	Tape * TheTape;				// Datasette object
 
 private:
+	DmaWriteHook dma_write_hook_ = nullptr;
+	void * dma_write_userdata_ = nullptr;
 	void load_rom(const std::string & which, const std::string & path, uint8_t * where, uint8_t * orig, size_t size, bool required);
 	void load_rom_files(const ROMPaths & p, bool require_drive);
 

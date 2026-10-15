@@ -18,6 +18,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <sstream>
 #include <string>
 
 #include "C64.h"
@@ -53,11 +54,20 @@ namespace revm {
 
 namespace {
 
-void mem_access_thunk(uint16_t adr, bool /*is_write*/, MOS6510::CoverSpace space,
-                      void * userdata) {
-	if (space == MOS6510::CoverSpace::Io) return;
+void mem_access_thunk(uint16_t adr, uint8_t value, bool is_write,
+                      MOS6510::CoverSpace space, void * userdata) {
 	auto * self = static_cast<Board *>(userdata);
+	self->RecordHistoryAccess(adr, value, is_write, uint8_t(space));
+	if (space == MOS6510::CoverSpace::Io) return;
 	self->RecordMemAccess(adr, space == MOS6510::CoverSpace::Rom);
+}
+
+void vic_fetch_thunk(uint16_t adr, void * userdata) {
+	static_cast<Board *>(userdata)->RecordVicFetch(adr);
+}
+
+void dma_write_thunk(uint16_t adr, uint8_t value, void * userdata) {
+	static_cast<Board *>(userdata)->RecordHistoryDma(adr, value);
 }
 
 void supervisor_diagnostic(const char * reason, uint32_t frame,
@@ -141,6 +151,7 @@ Board::Board() = default;
 Board::~Board() {
 	StopWallClockLimit();
 	flush_coverage();
+	finish_history();
 	if (!secondary_) log::ClearClockSource();
 	if (watch_timeline_file_) {
 		kb_watch_.SetTimelineFile(nullptr);
@@ -435,11 +446,18 @@ bool Board::init_machine(std::string & error, BoardInitRole role) {
 			SetQuietVBlank(true);
 	}
 
-	if ((coverage_active_ || trace_calls_) && c64_->TheCPU) {
+	history_wanted_ = !secondary_ && !cfg_.history_path.empty();
+	if ((coverage_active_ || trace_calls_ || history_wanted_) && c64_->TheCPU) {
 		c64_->TheCPU->SetPcFetchHook(&Board::PcFetchThunk, this);
 	}
-	if (coverage_active_ && c64_->TheCPU) {
+	if ((coverage_active_ || history_wanted_) && c64_->TheCPU) {
 		c64_->TheCPU->SetMemAccessHook(&mem_access_thunk, this);
+	}
+	if (history_wanted_) {
+		c64_->SetDmaWriteHook(&dma_write_thunk, this);
+	}
+	if (coverage_active_ && c64_->TheVIC) {
+		c64_->TheVIC->SetFetchHook(&vic_fetch_thunk, this);
 	}
 
 	if (!secondary_) {
@@ -821,8 +839,87 @@ void Board::RecordMemAccess(uint16_t adr, bool is_rom) {
 	}
 }
 
+void Board::RecordVicFetch(uint16_t adr) {
+	if (!coverage_active_) return;
+	if (cfg_.begin_cycle_count) {
+		const uint64_t begin = *cfg_.begin_cycle_count;
+		const uint64_t early = begin > 16 ? begin - 16 : 0;
+		if (CycleCounter() < early) return;
+	}
+	coverage_.MarkVicRam(adr);
+}
+
+bool Board::history_ready(uint64_t cycle) {
+	if (!history_wanted_) return false;
+	if (cfg_.history_to && cycle >= *cfg_.history_to) {
+		finish_history();
+		return false;
+	}
+	if (history_.Active()) return true;
+	if (cycle < cfg_.history_from) return false;
+
+	std::ostringstream meta;
+	meta << "{\"program\": \"revm\", \"from_cycle\": " << cfg_.history_from;
+	if (cfg_.history_to) meta << ", \"to_cycle\": " << *cfg_.history_to;
+	meta << ", \"prg\": \"" << cfg_.prg_path << "\", \"d64\": \"" << cfg_.d64_path
+	     << "\", \"snapshot\": \"" << cfg_.begin_snap_path << "\", \"play\": \""
+	     << cfg_.play_path << "\"}";
+	MOS6510State cpu{};
+	c64_->TheCPU->GetState(&cpu);
+	std::string error;
+	if (!history_.Begin(cfg_.history_path, cycle, meta.str(), c64_->RAM, c64_->Color,
+	                    cpu.ddr, cpu.pr, cpu.pc, error)) {
+		REVM_LOG(REVM_ERROR, "history: %s", error.c_str());
+		history_wanted_ = false;
+		return false;
+	}
+	REVM_LOG(REVM_INFO, "history → %s from cycle %llu", cfg_.history_path.c_str(),
+	         static_cast<unsigned long long>(cycle));
+	return true;
+}
+
+void Board::finish_history() {
+	if (!history_wanted_) return;
+	history_wanted_ = false;
+	if (!history_.Active()) return;
+	const uint64_t last = CycleCounter();
+	const uint64_t records = history_.RecordCount();
+	std::string error;
+	if (!history_.Finish(last, error)) {
+		REVM_LOG(REVM_ERROR, "history: %s", error.c_str());
+		return;
+	}
+	REVM_LOG(REVM_INFO, "history closed at cycle %llu (%llu records)",
+	         static_cast<unsigned long long>(last), static_cast<unsigned long long>(records));
+}
+
+void Board::RecordHistoryAccess(uint16_t adr, uint8_t value, bool is_write, uint8_t space) {
+	const uint64_t cycle = CycleCounter();
+	if (!history_ready(cycle)) return;
+	HistoryKind kind = HistoryKind::ReadRam;
+	if (is_write) {
+		kind = space == 2 ? HistoryKind::WriteIo : HistoryKind::WriteRam;
+	} else if (space == 1) {
+		kind = HistoryKind::ReadRom;
+	} else if (space == 2) {
+		kind = HistoryKind::ReadIo;
+	}
+	history_.Access(cycle, kind, adr, value);
+}
+
+void Board::RecordHistoryExec(uint16_t pc) {
+	if (history_wanted_ && history_.Active()) history_.MarkExec(pc);
+}
+
+void Board::RecordHistoryDma(uint16_t adr, uint8_t value) {
+	const uint64_t cycle = CycleCounter();
+	if (!history_ready(cycle)) return;
+	history_.Access(cycle, HistoryKind::Dma, adr, value);
+}
+
 void Board::PcFetchThunk(uint16_t pc, void * userdata) {
 	auto * self = static_cast<Board *>(userdata);
+	self->RecordHistoryExec(pc);
 	if (self->coverage_active_) {
 		bool mark = true;
 		if (self->cfg_.begin_cycle_count) {
@@ -865,7 +962,7 @@ void Board::flush_coverage() {
 		REVM_LOG(REVM_ERROR, "coverage save failed: %s", err.c_str());
 	} else {
 		REVM_LOG(REVM_DEBUG, "coverage → %s  (pc_ram=%zu/%llu pc_rom=%zu/%llu "
-		             "mem_ram=%zu/%llu mem_rom=%zu/%llu)",
+		             "mem_ram=%zu/%llu mem_rom=%zu/%llu vic_ram=%zu/%llu)",
 		             cfg_.coverage_path.c_str(),
 		             coverage_.Count(Coverage::Plane::PcRam),
 		             (unsigned long long)coverage_.TotalHits(Coverage::Plane::PcRam),
@@ -874,11 +971,16 @@ void Board::flush_coverage() {
 		             coverage_.Count(Coverage::Plane::MemRam),
 		             (unsigned long long)coverage_.TotalHits(Coverage::Plane::MemRam),
 		             coverage_.Count(Coverage::Plane::MemRom),
-		             (unsigned long long)coverage_.TotalHits(Coverage::Plane::MemRom));
+		             (unsigned long long)coverage_.TotalHits(Coverage::Plane::MemRom),
+		             coverage_.Count(Coverage::Plane::VicRam),
+		             (unsigned long long)coverage_.TotalHits(Coverage::Plane::VicRam));
 	}
 	coverage_active_ = false; // avoid double-save from destructor after Run()
 	if (c64_ && c64_->TheCPU) {
 		c64_->TheCPU->SetMemAccessHook(nullptr, nullptr);
+	}
+	if (c64_ && c64_->TheVIC) {
+		c64_->TheVIC->SetFetchHook(nullptr, nullptr);
 	}
 }
 
@@ -1381,6 +1483,7 @@ int Board::Run() {
 
 	StopWallClockLimit();
 	flush_coverage();
+	finish_history();
 	{
 		std::string media_err;
 		if (!FinishMedia(media_err) && !media_err.empty()) {

@@ -513,7 +513,7 @@ namespace {
 
 // Twin CPU data-path hook used only while an armed RAM/Linked instruction
 // executes (CpuMockHost::TwinAccessProbeBegin/End).
-void twin_access_probe_thunk(uint16_t adr, bool is_write,
+void twin_access_probe_thunk(uint16_t adr, uint8_t /*value*/, bool is_write,
                              MOS6510::CoverSpace /*space*/, void * userdata) {
 	auto * probe = static_cast<TwinAccessProbe *>(userdata);
 	if (adr == probe->addr && is_write == probe->want_write)

@@ -72,17 +72,23 @@ void usage(const char * argv0) {
 		"  --dump-cpuview FILE  Write banked-in 64K CPU view (ROM/I/O as seen\n"
 		"                       by the 6510 at this snap; needs FullSnapshot\n"
 		"                       and --rom-dir)\n"
+		"  --dump-chips FILE    Write the CPU, VIC, SID, CIA1/2 registers and colour\n"
+		"                       RAM as JSON (for a boot stub that recreates the snap)\n"
 		"\n"
 		"SNAP show mode with knowledge base adds options:\n"
 		"  --dump-blobs DIR     Dump kind:blob ranges as <name>.bin in DIR\n"
 		"  --listing FILE       Write listing to file\n"
-		"  --cov FILE           Use REVMCOV2 coverage file (PC-RAM + MEM-RAM/ROM hits)\n"
+		"  --cov FILE           Use REVMCOV2 coverage file (PC-RAM + MEM-RAM/ROM + VIC hits)\n"
 		"  --list-no-cov-rng    No coverage range comments in listing\n"
 		"  --map FILE           Generate address map: code operands + MEM hits + KB; sections RAM / BASIC / KERNAL.\n"
 		"  --map-tally          Print only the tally part of map analysis to stdout\n"
 		"  --call-graph FILE   JSR/JMP call graph weighted by PC-RAM fetch counts\n"
 		"  --hot-undoc FILE    Hottest UNDOC MEM hits (ranked by mem count)\n"
 		"  --hot-undoc-top N   Cap hot-undoc rows (default 80)\n"
+		"  --free-map FILE     RAM no play executed, accessed or the VIC fetched\n"
+		"                      (needs --cov recorded with C64 Rework 0.9.5+; --kb\n"
+		"                      optional, names overlapping KB objects)\n"
+		"  --free-min N        Shortest run listed by --free-map (default 16)\n"
 		"  --watch-diff SNAP   Diff KB watch vars vs other FullSnapshot (snap mode)\n"
 		"  --watch-diff-all    Include unchanged watch slots in --watch-diff\n",
 		argv0, argv0, argv0, argv0, argv0, argv0, argv0);
@@ -121,8 +127,14 @@ std::string coverage_scan_desc(const std::string & path, const revm::Coverage & 
 	    << " mem_ram=" << cov.Count(revm::Coverage::Plane::MemRam)
 	    << "/" << cov.TotalHits(revm::Coverage::Plane::MemRam)
 	    << " mem_rom=" << cov.Count(revm::Coverage::Plane::MemRom)
-	    << "/" << cov.TotalHits(revm::Coverage::Plane::MemRom)
-	    << ": " << path << ")";
+	    << "/" << cov.TotalHits(revm::Coverage::Plane::MemRom);
+	if (cov.VicRecorded()) {
+		oss << " vic_ram=" << cov.Count(revm::Coverage::Plane::VicRam)
+		    << "/" << cov.TotalHits(revm::Coverage::Plane::VicRam);
+	} else {
+		oss << " vic_ram=not recorded";
+	}
+	oss << ": " << path << ")";
 	return oss.str();
 }
 
@@ -371,6 +383,72 @@ bool dump_cpuview_file(const revm::FullSnapshot & snap, const std::string & rom_
                        const std::string & path, std::string & error) {
 	if (!revm::WriteCpuViewFromFullSnapshot(snap, rom_dir, path, error)) return false;
 	std::fprintf(stdout, "Wrote banked CPU view → %s\n", path.c_str());
+	return true;
+}
+
+void json_bytes(std::ostream & out, const uint8_t * bytes, size_t count) {
+	out << "[";
+	for (size_t i = 0; i < count; ++i) {
+		if (i) out << ",";
+		out << unsigned(bytes[i]);
+	}
+	out << "]";
+}
+
+void json_cia(std::ostream & out, const MOS6526State & cia) {
+	out << "{\"pra\":" << unsigned(cia.pra) << ",\"prb\":" << unsigned(cia.prb)
+	    << ",\"ddra\":" << unsigned(cia.ddra) << ",\"ddrb\":" << unsigned(cia.ddrb)
+	    << ",\"ta_counter\":" << (unsigned(cia.ta_hi) << 8 | cia.ta_lo)
+	    << ",\"tb_counter\":" << (unsigned(cia.tb_hi) << 8 | cia.tb_lo)
+	    << ",\"ta_latch\":" << unsigned(cia.ta_latch)
+	    << ",\"tb_latch\":" << unsigned(cia.tb_latch)
+	    << ",\"cra\":" << unsigned(cia.cra) << ",\"crb\":" << unsigned(cia.crb)
+	    << ",\"sdr\":" << unsigned(cia.sdr)
+	    << ",\"int_mask\":" << unsigned(cia.int_mask)
+	    << ",\"int_flags\":" << unsigned(cia.int_flags)
+	    << ",\"tod\":[" << unsigned(cia.tod_10ths) << "," << unsigned(cia.tod_sec) << ","
+	    << unsigned(cia.tod_min) << "," << unsigned(cia.tod_hr) << "]"
+	    << ",\"alarm\":[" << unsigned(cia.alm_10ths) << "," << unsigned(cia.alm_sec) << ","
+	    << unsigned(cia.alm_min) << "," << unsigned(cia.alm_hr) << "]}";
+}
+
+// The chip registers in their register order ($D000-$D02E, $D400-$D418, CIA
+// fields by name), so a boot stub can write them back.
+bool dump_chips_file(const revm::FullSnapshot & snap, const std::string & path,
+                     std::string & error) {
+	std::ofstream out(path);
+	if (!out) {
+		error = "cannot write " + path;
+		return false;
+	}
+	static_assert(offsetof(MOS6569State, m7c) == 0x2E, "VIC registers in register order");
+	static_assert(offsetof(MOS6581State, mode_vol) == 0x18, "SID registers in register order");
+	const MOS6510State & cpu = snap.cpu;
+	out << "{\"cycle\":" << snap.cycle << ",\"frame\":" << snap.frame
+	    << ",\n\"cpu\":{\"a\":" << unsigned(cpu.a) << ",\"x\":" << unsigned(cpu.x)
+	    << ",\"y\":" << unsigned(cpu.y) << ",\"p\":" << unsigned(cpu.p)
+	    << ",\"pc\":" << unsigned(cpu.pc) << ",\"sp\":" << unsigned(cpu.sp & 0xFF)
+	    << ",\"ddr\":" << unsigned(cpu.ddr) << ",\"pr\":" << unsigned(cpu.pr) << "}";
+	out << ",\n\"vic\":";
+	json_bytes(out, reinterpret_cast<const uint8_t *>(&snap.vic), 0x2F);
+	// $D012 reads the current line; the interrupt compares with irq_raster.
+	out << ",\n\"vic_irq_raster\":" << unsigned(snap.vic.irq_raster);
+	out << ",\n\"sid\":";
+	json_bytes(out, reinterpret_cast<const uint8_t *>(&snap.sid), 0x19);
+	out << ",\n\"cia1\":";
+	json_cia(out, snap.cia1);
+	out << ",\n\"cia2\":";
+	json_cia(out, snap.cia2);
+	uint8_t color[COLOR_RAM_SIZE];
+	for (size_t i = 0; i < COLOR_RAM_SIZE; ++i) color[i] = snap.color[i] & 0x0F;
+	out << ",\n\"color\":";
+	json_bytes(out, color, COLOR_RAM_SIZE);
+	out << "}\n";
+	if (!out) {
+		error = "write error on " + path;
+		return false;
+	}
+	std::fprintf(stdout, "Wrote chip registers → %s\n", path.c_str());
 	return true;
 }
 
@@ -952,6 +1030,7 @@ struct MapAddrInfo {
 	bool mem_ram = false;
 	bool mem_rom = false;
 	bool pc_rom = false;
+	bool vic_ram = false;
 	const std::vector<revm::MemRefSite> * sites = nullptr;
 };
 
@@ -1018,6 +1097,7 @@ int generate_map(const std::string & source_desc,
 			if (cov.HitMemRam(uint16_t(a))) ensure(uint16_t(a)).mem_ram = true;
 			if (cov.HitMemRom(uint16_t(a))) ensure(uint16_t(a)).mem_rom = true;
 			if (cov.HitPcRom(uint16_t(a))) ensure(uint16_t(a)).pc_rom = true;
+			if (cov.HitVicRam(uint16_t(a))) ensure(uint16_t(a)).vic_ram = true;
 		}
 	}
 	for (const auto & o : kb.Objects()) {
@@ -1040,7 +1120,7 @@ int generate_map(const std::string & source_desc,
 		// RAM section: MEM-RAM, RAM/chip KB, and code-operand refs that are not
 		// actual ROM-plane hits. Under-ROM game code/data ($A000+ / $E000+) is
 		// RAM — do not shunt those operand refs into BASIC/KERNAL.
-		if (i.mem_ram || has_ram_kb || has_chip_kb) {
+		if (i.mem_ram || i.vic_ram || has_ram_kb || has_chip_kb) {
 			ram_addrs.insert(addr);
 		} else if (i.from_code && !rom_hit) {
 			ram_addrs.insert(addr);
@@ -1114,7 +1194,7 @@ int generate_map(const std::string & source_desc,
 		     << "#   LABEL   <name>  ; comment\n"
 		     << "#   BRANCH  in <owner>  <sites>   (unlabeled internal control-flow)\n"
 		     << "#   COMMENT [<name>]  ; text   (KB kind comment / omitted)\n"
-		     << "#   UNDOC   <sites|mem-ram|mem-rom|pc-rom>  (not named; not internal branch)\n"
+		     << "#   UNDOC   <sites|mem-ram|mem-rom|pc-rom|vic>  (not named; not internal branch;\n#           vic = fetched by the VIC for display)\n"
 		     << "#   Bank is the section (RAM / BASIC / KERNAL), not a per-line tag\n"
 		     << "#   BASIC/KERNAL: PC-ROM / MEM-ROM hits (or bank:basic/kernal KB only)\n"
 		     << "#   (kb-only) = present in game KB, never seen as code operand or MEM hit\n\n";
@@ -1244,7 +1324,7 @@ int generate_map(const std::string & source_desc,
 		for (uint16_t addr : addrs) {
 			const MapAddrInfo & i = info[addr];
 			const bool from_use =
-			    i.from_code || i.mem_ram || i.mem_rom || i.pc_rom;
+			    i.from_code || i.mem_ram || i.mem_rom || i.pc_rom || i.vic_ram;
 			if (!from_use) ++n_kb_only;
 			else ++n_referenced;
 
@@ -1292,12 +1372,16 @@ int generate_map(const std::string & source_desc,
 				ss << "UNDOC   ";
 				if (i.from_code && i.sites) {
 					ss << format_ref_sites(*i.sites);
+					if (i.vic_ram) ss << " vic";
 				} else if (bank != "ram" && i.pc_rom) {
 					ss << "pc-rom";
 				} else if (bank != "ram" && i.mem_rom) {
 					ss << "mem-rom";
 				} else if (i.mem_ram) {
 					ss << "mem-ram";
+					if (i.vic_ram) ss << " vic";
+				} else if (i.vic_ram) {
+					ss << "vic";
 				} else if (i.mem_rom) {
 					ss << "mem-rom";
 				} else if (i.pc_rom) {
@@ -1513,6 +1597,162 @@ int generate_call_graph(const uint8_t ram[0x10000],
 	if (!write_text_out(out_path, body.str())) return 1;
 	std::fprintf(stderr, "call-graph → %s  (%zu targets, %zu edges)\n",
 	             out_path.c_str(), targets.size(), n_edges);
+	return 0;
+}
+
+// One run of RAM that no recorded play used.
+struct FreeRun {
+	uint16_t lo = 0;
+	uint16_t hi = 0;   // inclusive
+	bool fill = false; // every byte the same value
+	uint8_t fill_byte = 0;
+	std::string area;  // "", "under BASIC", "under I/O", "under KERNAL"
+	std::string kb_names; // KB objects overlapping the run, if any
+};
+
+const char * free_area(uint16_t addr) {
+	if (addr >= 0xA000 && addr <= 0xBFFF) return "under BASIC";
+	if (addr >= 0xD000 && addr <= 0xDFFF) return "under I/O";
+	if (addr >= 0xE000) return "under KERNAL";
+	return "";
+}
+
+// Names of RAM-bank KB objects overlapping [lo, hi] (comments excluded).
+std::string kb_names_overlapping(const revm::KnowledgeBase * kb, uint16_t lo,
+                                 uint16_t hi) {
+	if (!kb) return "";
+	std::string names;
+	for (const auto & o : kb->Objects()) {
+		if (!o.IsRamBank() || o.name.empty()) continue;
+		if (o.kind == revm::KbKind::Comment || o.kind == revm::KbKind::Opcodes) continue;
+		const uint16_t o_hi = o.end ? *o.end : o.addr;
+		if (o_hi < lo || o.addr > hi) continue;
+		if (!names.empty()) names += ", ";
+		names += o.name;
+	}
+	return names;
+}
+
+// Never free: the CPU port, the stack page and the hardware vectors (vector
+// fetches are not data accesses in coverage).
+bool never_free(uint32_t addr) {
+	return addr <= 0x0001 || (addr >= 0x0100 && addr <= 0x01FF) || addr >= 0xFFFA;
+}
+
+bool unused_byte(const revm::Coverage & cov, uint32_t a) {
+	const uint16_t addr = uint16_t(a);
+	return !never_free(a) && !cov.HitPcRam(addr) && !cov.HitMemRam(addr) &&
+	       !cov.HitVicRam(addr);
+}
+
+// RAM never executed, read, written or fetched by the VIC in the recorded
+// plays, in runs of at least min_run bytes. Coverage proves only what the
+// plays reached; the report says so.
+int generate_free_map(const std::string & source_desc,
+                      const uint8_t ram[0x10000],
+                      const revm::KnowledgeBase * kb,
+                      const std::string & cover_path,
+                      const std::string & out_path,
+                      unsigned min_run) {
+	if (cover_path.empty()) {
+		std::fprintf(stderr, "--free-map requires --cov FILE\n");
+		return 2;
+	}
+	std::string error;
+	revm::Coverage cov;
+	if (!load_coverage_file(cover_path, cov, error)) {
+		std::fprintf(stderr, "coverage load failed: %s\n", error.c_str());
+		return 1;
+	}
+	if (!cov.VicRecorded()) {
+		std::fprintf(stderr,
+			"--free-map: %s has no VIC fetch plane (recorded before C64 Rework "
+			"0.9.5, or merged with such a file). Record the plays again with "
+			"--coverage; without it, graphics would look free.\n",
+			cover_path.c_str());
+		return 1;
+	}
+	if (min_run == 0) min_run = 16;
+
+	std::vector<FreeRun> runs;
+	uint32_t a = 0;
+	while (a < 0x10000) {
+		if (!unused_byte(cov, a)) {
+			++a;
+			continue;
+		}
+		// A run stays within one area so "under ROM/I/O" is exact.
+		const std::string area = free_area(uint16_t(a));
+		uint32_t b = a;
+		while (b + 1 < 0x10000 && unused_byte(cov, b + 1) &&
+		       free_area(uint16_t(b + 1)) == area) {
+			++b;
+		}
+		if (b - a + 1 >= min_run) {
+			FreeRun run;
+			run.lo = uint16_t(a);
+			run.hi = uint16_t(b);
+			run.area = area;
+			run.fill = true;
+			run.fill_byte = ram[a];
+			for (uint32_t i = a; i <= b; ++i) {
+				if (ram[i] != run.fill_byte) {
+					run.fill = false;
+					break;
+				}
+			}
+			run.kb_names = kb_names_overlapping(kb, run.lo, run.hi);
+			runs.push_back(run);
+		}
+		a = b + 1;
+	}
+
+	size_t total_fill = 0, total_data = 0, total_kb = 0;
+	for (const FreeRun & r : runs) {
+		const size_t len = size_t(r.hi - r.lo) + 1;
+		if (!r.kb_names.empty()) total_kb += len;
+		else if (r.fill) total_fill += len;
+		else total_data += len;
+	}
+
+	std::ostringstream out;
+	out << "# Free map — RAM no recorded play executed, read, wrote or the VIC fetched\n"
+	    << "# Source: " << source_desc << "\n"
+	    << "# Scan: " << coverage_scan_desc(cover_path, cov) << "\n"
+	    << "# Runs of at least " << min_run << " bytes. Never listed: $0000-$0001, "
+	    << "the stack page $0100-$01FF, $FFFA-$FFFF.\n"
+	    << "#\n"
+	    << "# Coverage proves only what the plays reached: a level, menu or event no\n"
+	    << "# play visits looks free here. A fill run (one repeated byte) is good\n"
+	    << "# evidence of free space; a data run is unreached content until shown\n"
+	    << "# otherwise; a run overlapping KB objects is named and so not free.\n"
+	    << "# Under BASIC/KERNAL/I/O is RAM the game can use only with that ROM or\n"
+	    << "# I/O banked out ($01).\n"
+	    << "#\n"
+	    << "# Totals: fill " << total_fill << " bytes, data " << total_data
+	    << " bytes, KB-named " << total_kb << " bytes\n"
+	    << "#\n"
+	    << "# Columns: $LO-$HI  LENGTH  CONTENT  AREA  KB\n\n";
+	for (const FreeRun & r : runs) {
+		char line[160];
+		char content[16];
+		if (r.fill) std::snprintf(content, sizeof(content), "fill $%02X", r.fill_byte);
+		else std::snprintf(content, sizeof(content), "data");
+		std::snprintf(line, sizeof(line), "$%04X-$%04X  %5u  %-9s  %-12s", r.lo, r.hi,
+		              unsigned(r.hi - r.lo) + 1, content, r.area.c_str());
+		out << line;
+		if (!r.kb_names.empty()) out << "  KB: " << r.kb_names;
+		out << "\n";
+	}
+
+	std::ofstream f(out_path);
+	if (!f) {
+		std::fprintf(stderr, "cannot write %s\n", out_path.c_str());
+		return 1;
+	}
+	f << out.str();
+	std::fprintf(stderr, "free-map → %s  (fill %zu, data %zu, KB-named %zu bytes)\n",
+	             out_path.c_str(), total_fill, total_data, total_kb);
 	return 0;
 }
 
@@ -1758,7 +1998,8 @@ int cmd_merge_cov(int argc, char ** argv) {
 	}
 	std::fprintf(stderr,
 		"merge-cov → %s  (REVMCOV2; %d input(s); "
-		"pc_ram=%zu/%llu pc_rom=%zu/%llu mem_ram=%zu/%llu mem_rom=%zu/%llu)\n",
+		"pc_ram=%zu/%llu pc_rom=%zu/%llu mem_ram=%zu/%llu mem_rom=%zu/%llu "
+		"vic_ram=%zu/%llu%s)\n",
 		out_path.c_str(), argc - 1,
 		merged.Count(revm::Coverage::Plane::PcRam),
 		static_cast<unsigned long long>(
@@ -1771,7 +2012,11 @@ int cmd_merge_cov(int argc, char ** argv) {
 			merged.TotalHits(revm::Coverage::Plane::MemRam)),
 		merged.Count(revm::Coverage::Plane::MemRom),
 		static_cast<unsigned long long>(
-			merged.TotalHits(revm::Coverage::Plane::MemRom)));
+			merged.TotalHits(revm::Coverage::Plane::MemRom)),
+		merged.Count(revm::Coverage::Plane::VicRam),
+		static_cast<unsigned long long>(
+			merged.TotalHits(revm::Coverage::Plane::VicRam)),
+		merged.VicRecorded() ? "" : " (not recorded in every input)");
 	return 0;
 }
 
@@ -1781,12 +2026,16 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 	std::string kb_support_path;
 	std::string dump_ram;
 	std::string dump_cpuview;
+	std::string dump_chips;
 	std::string dump_blobs_dir;
 	std::string listing_path;
 	std::string cov_path;
 	std::string map_path;
 	std::string call_graph_path;
 	std::string hot_undoc_path;
+	std::string free_map_path;
+	unsigned free_min = 16;
+	bool free_min_set = false;
 	std::string watch_diff_path;
 	std::string rom_dir;
 	unsigned hot_undoc_top = 80;
@@ -1827,6 +2076,8 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 			dump_ram = argv[++i];
 		} else if (std::strcmp(a, "--dump-cpuview") == 0 && i + 1 < argc) {
 			dump_cpuview = argv[++i];
+		} else if (std::strcmp(a, "--dump-chips") == 0 && i + 1 < argc) {
+			dump_chips = argv[++i];
 		} else if (std::strcmp(a, "--dump-blobs") == 0 && i + 1 < argc) {
 			dump_blobs_dir = argv[++i];
 		} else if (std::strcmp(a, "--listing") == 0 && i + 1 < argc) {
@@ -1851,6 +2102,11 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 			hot_undoc_top = unsigned(std::atoi(argv[++i]));
 			hot_undoc_top_set = true;
 			if (hot_undoc_top == 0) hot_undoc_top = 80;
+		} else if (std::strcmp(a, "--free-map") == 0 && i + 1 < argc) {
+			free_map_path = argv[++i];
+		} else if (std::strcmp(a, "--free-min") == 0 && i + 1 < argc) {
+			free_min = unsigned(std::atoi(argv[++i]));
+			free_min_set = true;
 		} else if (std::strcmp(a, "--watch-diff") == 0 && i + 1 < argc) {
 			watch_diff_path = argv[++i];
 		} else if (std::strcmp(a, "--watch-diff-all") == 0) {
@@ -1897,6 +2153,14 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 		std::fprintf(stderr, "--call-graph / --hot-undoc require --cov FILE\n");
 		return 2;
 	}
+	if (!free_map_path.empty() && cov_path.empty()) {
+		std::fprintf(stderr, "--free-map requires --cov FILE\n");
+		return 2;
+	}
+	if (free_min_set && free_map_path.empty()) {
+		std::fprintf(stderr, "--free-min requires --free-map FILE\n");
+		return 2;
+	}
 	if (hot_undoc_top_set && !want_hot_undoc) {
 		std::fprintf(stderr, "--hot-undoc-top requires --hot-undoc FILE\n");
 		return 2;
@@ -1919,8 +2183,8 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 			std::fprintf(stderr, "ram mode: --check-begin is SNAP-only\n");
 			return 2;
 		}
-		if (!dump_ram.empty() || !dump_cpuview.empty()) {
-			std::fprintf(stderr, "ram mode: --dump-ram / --dump-cpuview are SNAP-only\n");
+		if (!dump_ram.empty() || !dump_cpuview.empty() || !dump_chips.empty()) {
+			std::fprintf(stderr, "ram mode: --dump-ram / --dump-cpuview / --dump-chips are SNAP-only\n");
 			return 2;
 		}
 		if (want_watch_diff) {
@@ -1986,6 +2250,12 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 			rc = 1;
 		}
 	}
+	if (!dump_chips.empty()) {
+		if (!dump_chips_file(snap, dump_chips, error)) {
+			std::fprintf(stderr, "--dump-chips failed: %s\n", error.c_str());
+			rc = 1;
+		}
+	}
 
 	if (do_disasm) {
 		disasm_snap_pc(snap, disasm_bytes, kb_ptr);
@@ -2041,6 +2311,11 @@ int cmd_inspect(bool is_snap, int argc, char ** argv) {
 		const int hrc =
 		    generate_hot_undoc(ram, kb, cov_path, hot_undoc_path, hot_undoc_top);
 		if (hrc != 0) rc = hrc;
+	}
+	if (!free_map_path.empty()) {
+		const int frc =
+		    generate_free_map(target, ram, kb_ptr, cov_path, free_map_path, free_min);
+		if (frc != 0) rc = frc;
 	}
 	if (want_watch_diff) {
 		const int wrc = generate_watch_diff(ram, snap.color, watch_diff_path, kb,

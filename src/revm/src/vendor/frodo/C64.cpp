@@ -1460,6 +1460,23 @@ bool C64::DMALoad(const std::string & filename, std::string & ret_error_msg)
 		RAM[0x42] = RAM[0x7b];
 	}
 
+	if (dma_write_hook_) {
+		for (uint32_t adr = load_addr; adr < uint32_t(load_addr) + num_bytes; ++adr) {
+			dma_write_hook_(uint16_t(adr), RAM[adr], dma_write_userdata_);
+		}
+		const uint16_t pointers[] = {0x90, 0xba, 0xae, 0xaf};
+		for (uint16_t adr : pointers) {
+			dma_write_hook_(adr, RAM[adr], dma_write_userdata_);
+		}
+		if (load_addr == 0x0801) {
+			const uint16_t basic_pointers[] = {0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32,
+			                                   0x33, 0x34, 0x7a, 0x7b, 0x41, 0x42};
+			for (uint16_t adr : basic_pointers) {
+				dma_write_hook_(adr, RAM[adr], dma_write_userdata_);
+			}
+		}
+	}
+
 	return true;
 }
 

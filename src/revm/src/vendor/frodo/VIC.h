@@ -113,9 +113,23 @@ public:
 
 #ifdef FRODO_SC
 	uint8_t LastVICByte;
+
+	// Optional hook on every RAM byte the VIC fetches for display (screen,
+	// charset, bitmap, sprite pointers and data, idle $3FFF/$39FF). Character
+	// ROM fetches and DRAM refresh reads are not reported. REVM coverage.
+	using FetchHook = void (*)(uint16_t addr, void * userdata);
+	void SetFetchHook(FetchHook hook, void * userdata) {
+		fetch_hook_ = hook;
+		fetch_hook_userdata_ = userdata;
+	}
 #endif
 
 private:
+#ifdef FRODO_SC
+	FetchHook fetch_hook_ = nullptr;
+	void * fetch_hook_userdata_ = nullptr;
+#endif
+
 	void raster_irq();
 	void check_raster_irq();
 
@@ -173,6 +187,7 @@ private:
 
 #ifdef FRODO_SC
 	uint8_t read_byte(uint16_t adr);
+	uint8_t read_byte_quiet(uint16_t adr);	// not reported to the fetch hook
 	void matrix_access();
 	void graphics_access();
 	void load_pixel_shifter(uint8_t gfx_data, uint8_t char_data, uint8_t color_data);

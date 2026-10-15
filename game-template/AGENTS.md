@@ -15,6 +15,8 @@ The manifest also states the exact C64 Rework version this game is pinned to
    `docs/agents/STAGE3.md`, `docs/agents/STAGE4.md`. Stage 3's detailed
    technical reference is `docs/agents/STAGE3-MANUAL.md`. After Stage 4, 
    standalone export is governed by `docs/agents/STANDALONE-EXPORT.md`.
+   Mods of the original program (patches packed into one PRG, from Stage 2
+   on) follow `docs/agents/MOD-ORIGINAL.md`.
 6. Review processes: `docs/agents/STAGE3-REVIEW.md` for Stage 3 and
 `docs/agents/STAGE4-REVIEW.md` for Stage 4.
 7. Source, `--help`, and headers under `REVM_ROOT/src/revm/src/cpumock/`

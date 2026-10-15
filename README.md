@@ -3,7 +3,9 @@
 C64-Rework is a framework for reverse-engineering Commodore 64 games, producing
 C++ code that replicates the original behaviour faithfully. The framework
 provides assets and procedures intended for AI agents to follow with limited
-need for human supervision.
+need for human supervision. The framework can also be used to support modifying
+original games, without porting to other platforms, see: 
+`game-template/docs/agents/MOD-ORIGINAL.md`.
 
 The output is a standalone C++ application that behaves exactly like the original,
 replacing the machine code with legible and structured code. While the 6510 CPU

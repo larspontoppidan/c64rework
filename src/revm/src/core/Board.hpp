@@ -9,6 +9,7 @@
 #include "core/RunSetup.hpp"
 #include "roms/Roms.hpp"
 #include "debug/Coverage.hpp"
+#include "debug/History.hpp"
 #include "debug/KbWatch.hpp"
 #include "debug/KbWatchWindow.hpp"
 #include "debug/KnowledgeBase.hpp"
@@ -152,6 +153,12 @@ public:
 	const Coverage & GetCoverage() const { return coverage_; }
 	Coverage & GetCoverage() { return coverage_; }
 	void RecordMemAccess(uint16_t adr, bool is_rom);
+	void RecordVicFetch(uint16_t adr);
+	// --history: one CPU bus access, an opcode fetch, or a byte placed by DMA.
+	// space: 0 RAM, 1 ROM, 2 I/O (MOS6510::CoverSpace).
+	void RecordHistoryAccess(uint16_t adr, uint8_t value, bool is_write, uint8_t space);
+	void RecordHistoryExec(uint16_t pc);
+	void RecordHistoryDma(uint16_t adr, uint8_t value);
 
 	struct LastTrace {
 		std::string name;
@@ -189,6 +196,8 @@ private:
 	void arm_audio_if_needed();
 	void capture_video_frame();
 	void flush_coverage();
+	bool history_ready(uint64_t cycle);
+	void finish_history();
 	void check_max_cycles();
 	void check_max_seconds();
 	static void PcFetchThunk(uint16_t pc, void * userdata);
@@ -252,6 +261,8 @@ private:
 
 	Coverage coverage_;
 	bool coverage_active_ = false;
+	HistoryWriter history_;
+	bool history_wanted_ = false; // --history given and not yet finished
 	bool save_snapshot_done_ = false;
 	std::vector<bool> save_screens_done_; // one per cfg_.save_screens entry
 	bool screenshot_chord_was_down_ = false;

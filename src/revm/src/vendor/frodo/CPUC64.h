@@ -126,10 +126,11 @@ public:
 	}
 
 	// Optional: every CPU data-path read/write via read_byte/write_byte.
-	// is_write=false for reads. bank is Ram/Rom/Io as resolved by the PLA.
+	// is_write=false for reads. bank is Ram/Rom/Io as resolved by the PLA;
+	// value is the byte read or written.
 	enum class CoverSpace : uint8_t { Ram = 0, Rom = 1, Io = 2 };
-	using MemAccessHook = void (*)(uint16_t adr, bool is_write, CoverSpace space,
-	                               void * userdata);
+	using MemAccessHook = void (*)(uint16_t adr, uint8_t value, bool is_write,
+	                               CoverSpace space, void * userdata);
 	void SetMemAccessHook(MemAccessHook hook, void * userdata = nullptr) {
 		mem_access_hook_ = hook;
 		mem_access_userdata_ = userdata;
